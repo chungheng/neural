@@ -41,6 +41,10 @@ class Model(object):
 
         baseobj = super(Model, self)
 
+        # set time scale, ex. Hodgkin-Huxley uses ms rather than s.
+        time_scale = getattr(self.__class__, 'Time_Scale', 1.)
+        baseobj.__setattr__('time_scale', time_scale)
+
         # set state variables and parameters
         baseobj.__setattr__('params', self.__class__.Default_Params.copy())
         baseobj.__setattr__('states', {})
@@ -76,20 +80,20 @@ class Model(object):
         # make params unchangable
         self._settableAttrs.remove('params')
 
-    def update(self, d_t, spike, **kwargs):
+    def update(self, d_t, stimulus, **kwargs):
         """
         Wrapper function for each iteration of update.
 
         Arguments:
             d_t (float): time steps.
-            spike (int): binary value representing a spike.
+            stimulus (int): binary value representing a spike.
         """
-        self.solver(d_t, spike, **kwargs)
+        self.solver(d_t*self.time_scale, stimulus, **kwargs)
         self.post()
         self.clip()
 
     @abstractmethod
-    def ode(self, spike, **kwargs):
+    def ode(self, stimulus, **kwargs):
         """
         The set of ODEs defining the dynamics of the model.
         """
