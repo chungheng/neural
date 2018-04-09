@@ -15,14 +15,16 @@ class IAF(Model):
     Default_States = dict(v=0)
     Default_Params = dict(vt=0.025, c=5., bias=0.01)
 
-    def ode(self, stimulus, **kwargs):
+    def ode(self, **kwargs):
+        stimulus = kwargs.pop('stimulus', 0)
+
         self.spike = 0.
         self.d_v = 1./self.c*(stimulus+self.bias)
 
     def post(self):
         if self.v > self.vt:
             self.v = 0.
-            self.spike = 1.
+            self.spike = 1
 
 class LeakyIAF(Model):
     """
@@ -32,7 +34,9 @@ class LeakyIAF(Model):
     Default_States = dict(v=(-0.05, -0.070, 0.025))
     Default_Params = dict(vt=-0.025, c=1.5, vr=-0.070, r=0.2)
 
-    def ode(self, stimulus, **kwargs):
+    def ode(self, **kwargs):
+        stimulus = kwargs.pop('stimulus', 0)
+
         self.spike = 0.
         self.d_v = 1./self.c*(-self.v/self.r + stimulus)
 
@@ -50,7 +54,9 @@ class Rinzel(Model):
     Default_Params = dict(C=0.75, gNa=120., gK=36., gL=0.3, \
         ENa=50., EK=-77., EL=-54.387, s=1.27135220916422)
 
-    def ode(self, stimulus, **kwargs):
+    def ode(self, **kwargs):
+        stimulus = kwargs.pop('stimulus', 0.)
+
         alpha = np.exp(-(self.v+55.)/10.)-1.
         beta = (0.125*np.exp(-(self.v+65.)/80.))
         if abs(alpha) <= 1e-7:
@@ -95,7 +101,9 @@ class Wilson(Model):
     Default_States = dict(r=0.088, v=-70.)
     Default_Params = dict(C=1.2, EK=-92., gK=26., ENa=55.)
 
-    def ode(self, stimulus, **kwargs):
+    def ode(self, **kwargs):
+        stimulus = kwargs.pop('stimulus', 0)
+
         r_infty = 0.0135*self.v+1.03
         self.d_r = (r_infty-self.r)/1.9
 
@@ -113,7 +121,7 @@ class MorrisLecar(Model):
     Default_States = dict(r=0, s=0)
     Default_Params = dict(ar=0.09, br=0.012, k3=0.18, k4=0.034, kd=100, gmax=1, n=4)
 
-    def ode(self, stimulus, **kwargs):
+    def ode(self, **kwargs):
         pass
     def post(self):
         pass
@@ -130,7 +138,9 @@ class ConnorStevens(Model):
         gNa=120., gK=20., gL=0.3, ga=47.7, \
         ENa=55., EK=-72., EL=-17., Ea=-75.)
 
-    def ode(self, stimulus, **kwargs):
+    def ode(self, **kwargs):
+        stimulus = kwargs.pop('stimulus', 0)
+
         a_n = -.01*(self.v+50+self.ns)/(np.exp(-(self.v+50+self.ns)/10)-1)
         b_n = .125*np.exp(-(self.v+60+self.ns)/80)
         n_inf = a_n/(a_n+b_n)
@@ -167,8 +177,6 @@ class ConnorStevens(Model):
     def post(self):
         pass
 
-
-
 class HodgkinHuxley(Model):
     """
     Hodgkin-Huxley neuron model.
@@ -179,7 +187,9 @@ class HodgkinHuxley(Model):
         m=(0., 0., 1.), h=(1., 0., 1.))
     Default_Params = dict(gNa=120., gK=36., gL=0.3, ENa=50., EK=-77., EL=-54.387)
 
-    def ode(self, stimulus, **kwargs):
+    def ode(self, **kwargs):
+        stimulus = kwargs.pop('stimulus', 0)
+
         alpha = np.exp(-(self.v+55.)/10.)-1.
         beta = (0.125*np.exp(-(self.v+65.)/80.))
         if abs(alpha) <= 1e-7:

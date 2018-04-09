@@ -80,20 +80,25 @@ class Model(object):
         # make params unchangable
         self._settableAttrs.remove('params')
 
-    def update(self, d_t, stimulus, **kwargs):
+    def update(self, d_t, **kwargs):
         """
         Wrapper function for each iteration of update.
 
         Arguments:
             d_t (float): time steps.
-            stimulus (int): binary value representing a spike.
+
+        Notes:
+            The signature of the function does not specify _stimulus_
+            arguments. However, the developer should provide the stimulus
+            to the model, ex. `input` or `spike`. If mulitple stimuli are
+            required, the developer could specify them as `input1` and `input2`.
         """
-        self.solver(d_t*self.time_scale, stimulus, **kwargs)
+        self.solver(d_t*self.time_scale, **kwargs)
         self.post()
         self.clip()
 
     @abstractmethod
-    def ode(self, stimulus, **kwargs):
+    def ode(self, **kwargs):
         """
         The set of ODEs defining the dynamics of the model.
         """
@@ -122,15 +127,14 @@ class Model(object):
         for key, val in self.bounds.items():
             self.states[key] = np.clip(self.states[key], val[0], val[1])
 
-    def forward_euler(self, d_t, spike, **kwargs):
+    def forward_euler(self, d_t, **kwargs):
         """
         Forward Euler method.
 
         Arguments:
             d_t (float): time steps.
-            spike (int): binary value representing a spike.
         """
-        self.ode(spike, **kwargs)
+        self.ode(**kwargs)
 
         for key in self.states:
             self.states[key] += d_t*self.gstates['d_%s' % key]
