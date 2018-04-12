@@ -2,7 +2,30 @@
 Base model class for neurons and synapses.
 """
 from abc import abstractmethod
+from StringIO import StringIO
 import numpy as np
+
+try:
+    import types
+
+    from pycodegen.codegen import CodeGenerator
+    from pycodegen.utils import get_func_signature
+    class OdeGenerator(CodeGenerator):
+        def __init__(self, model, **kwargs):
+            self.model = model
+            CodeGenerator.__init__(self, model.ode.func_code, **kwargs)
+
+        def handle_load_attr(self, ins):
+            key = ins.arg_name
+            for param in self.model._gettableAttrs:
+                attr = getattr(self.model, param)
+                if key in attr:
+                    self.var[-1] += ".%s['%s']" % (param, key)
+                    return
+            self.var[-1] += ".%s" % key
+
+except ImportError:
+    OdeGenerator = None
 
 class Model(object):
     """
@@ -37,7 +60,11 @@ class Model(object):
     def __init__(self, **kwargs):
         """
         Initialize the model.
+
+        Keyword arguments:
+            optimize (bool): optimize the `ode` function.
         """
+        optimize = kwargs.pop('optimize', False) and (OdeGenerator is not None)
 
         baseobj = super(Model, self)
 
@@ -79,6 +106,30 @@ class Model(object):
 
         # make params unchangable
         self._settableAttrs.remove('params')
+
+        # optimize the ode function
+        if optimize:
+
+            args = get_func_signature(self.ode)
+
+            sio = StringIO()
+            sio.write("def ode(%s):\n" % (", ".join(args)))
+
+            code_gen = OdeGenerator(self, offset=4, ostream=sio)
+            code_gen.generate()
+            co = compile(sio.getvalue(), '<string>', 'exec')
+            locs  = dict()
+            eval(co, globals(), locs)
+
+            ode = locs['ode']
+
+            ode.__doc__ = sio.getvalue()
+            ode = types.MethodType(ode, self, self.__class__)
+            del locs
+
+            baseobj.__setattr__('code_generator', code_gen)
+            baseobj.__setattr__('_ode', self.ode)
+            baseobj.__setattr__('ode', ode)
 
     def update(self, d_t, **kwargs):
         """
