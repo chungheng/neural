@@ -140,7 +140,7 @@ class Model(object):
             self.states[key] += d_t*self.gstates['d_%s' % key]
 
     def __setattr__(self, key, value):
-        for param in ['states', 'params', 'gstates']:
+        for param in self._settableAttrs:
             if param == key:
                 super(Model, self).__setattr__(param, value)
                 return
@@ -151,7 +151,7 @@ class Model(object):
         super(Model, self).__setattr__(key, value)
 
     def __getattr__(self, key):
-        for param in ['states', 'params', 'gstates']:
+        for param in self._gettableAttrs:
             attr = getattr(self, param)
             if key == param:
                 return attr
