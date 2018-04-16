@@ -92,7 +92,7 @@ class Model(object):
 
         # check if intermediate variables are defined.
         baseobj.__setattr__('_gettableAttrs', ['states', 'params', 'gstates'])
-        if hasattr(self.__class__, 'defaultInters'):
+        if hasattr(self.__class__, 'Default_Inters'):
             baseobj.__setattr__('inters', self.__class__.Default_Inters.copy())
             self._gettableAttrs.append('inters')
 
