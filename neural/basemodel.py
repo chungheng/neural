@@ -17,11 +17,12 @@ try:
 
         def handle_load_attr(self, ins):
             key = ins.arg_name
-            for param in self.model._gettableAttrs:
-                attr = getattr(self.model, param)
-                if key in attr:
-                    self.var[-1] += ".%s['%s']" % (param, key)
-                    return
+            if self.var[-1] == 'self':
+                for param in self.model._gettableAttrs:
+                    attr = getattr(self.model, param)
+                    if key in attr:
+                        self.var[-1] += ".%s['%s']" % (param, key)
+                        return
             self.var[-1] += ".%s" % key
 
 except ImportError:
