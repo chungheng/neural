@@ -6,25 +6,7 @@ from StringIO import StringIO
 import numpy as np
 
 try:
-    import types
-
-    from pycodegen.codegen import CodeGenerator
-    from pycodegen.utils import get_func_signature
-    class OdeGenerator(CodeGenerator):
-        def __init__(self, model, **kwargs):
-            self.model = model
-            CodeGenerator.__init__(self, model.ode.func_code, **kwargs)
-
-        def handle_load_attr(self, ins):
-            key = ins.arg_name
-            if self.var[-1] == 'self':
-                for param in self.model._gettableAttrs:
-                    attr = getattr(self.model, param)
-                    if key in attr:
-                        self.var[-1] += ".%s['%s']" % (param, key)
-                        return
-            self.var[-1] += ".%s" % key
-
+    from optimizer import OdeGenerator
 except ImportError:
     OdeGenerator = None
 
@@ -115,13 +97,19 @@ class Model(object):
 
         # optimize the ode function
         if optimize:
+            if not hasattr(self.__class__, 'ode_opt'):
+                self.__class__.optimize()
+                # ode_opt = types.MethodType(self.__class__.ode_opt, self, self.__class__)
 
-            args = get_func_signature(self.ode)
+            self._ode = self.ode
+            self.ode = self.ode_opt
 
+    @classmethod
+    def optimize(cls):
+        if not hasattr(cls, 'ode_opt'):
             sio = StringIO()
-            sio.write("def ode(%s):\n" % (", ".join(args)))
 
-            code_gen = OdeGenerator(self, offset=4, ostream=sio)
+            code_gen = OdeGenerator(cls, offset=4, ostream=sio)
             code_gen.generate()
             co = compile(sio.getvalue(), '<string>', 'exec')
             locs  = dict()
@@ -130,12 +118,10 @@ class Model(object):
             ode = locs['ode']
 
             ode.__doc__ = sio.getvalue()
-            ode = types.MethodType(ode, self, self.__class__)
+            # ode = types.MethodType(ode, self, self.__class__)
             del locs
-
-            baseobj.__setattr__('code_generator', code_gen)
-            baseobj.__setattr__('_ode', self.ode)
-            baseobj.__setattr__('ode', ode)
+            setattr(cls, 'code_generator', code_gen)
+            setattr(cls, 'ode_opt', ode)
 
     def update(self, d_t, **kwargs):
         """
