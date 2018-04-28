@@ -10,6 +10,17 @@ try:
 except ImportError:
     OdeGenerator = None
 
+try:
+    import pycuda
+    import pycuda.gpuarray as garray
+    from pycuda.tools import dtype_to_ctype
+    import pycuda.driver as cuda
+    from pycuda.compiler import SourceModule
+    from cuda import CudaGenerator
+except ImportError:
+    CudaGenerator = None
+    pycuda = None
+
 class Model(object):
     """
     The base model class.
@@ -53,6 +64,8 @@ class Model(object):
             optimize (bool): optimize the `ode` function.
         """
         optimize = kwargs.pop('optimize', False) and (OdeGenerator is not None)
+        cuda = kwargs.pop('cuda', False) and (pycuda is not None)
+        float = kwargs.pop('float', np.float32)
 
         baseobj = super(Model, self)
 
@@ -104,6 +117,9 @@ class Model(object):
             self._ode = self.ode
             self.ode = self.ode_opt
 
+        if cuda:
+            self.cuda_kernel = self.get_cuda_kernel(float=float)
+
     @classmethod
     def optimize(cls):
         if not hasattr(cls, 'ode_opt'):
@@ -122,6 +138,63 @@ class Model(object):
             del locs
             setattr(cls, 'code_generator', code_gen)
             setattr(cls, 'ode_opt', ode)
+
+    def cuda_prerun(self, **kwargs):
+        num = [len(v) for v in kwargs.values()]
+        assert np.all([num[0] == x for x in num])
+        num = num[0]
+
+        self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock,1,1)
+        self.cuda_kernel.grid = ((num - 1) / self.cuda_kernel.threadsPerBlock + 1, 1)
+        self.cuda_kernel.num = num
+
+    def cuda_update(self, d_t, **kwargs):
+        st = kwargs.pop('st', None)
+
+        args = [ ]
+        for key in self.cuda_kernel.args:
+            args.append(kwargs[key].gpudata)
+
+        self.cuda_kernel.prepared_async_call(
+            self.cuda_kernel.grid,
+            self.cuda_kernel.block,
+            st,
+            self.cuda_kernel.num,
+            d_t*self.time_scale,
+            *args)
+
+    def get_cuda_kernel(self, **kwargs):
+        if CudaGenerator is None:
+            return
+        float = kwargs.pop('float', np.float32)
+        code_generator = CudaGenerator(self, float=float, **kwargs)
+        code_generator.generate_cuda()
+
+        mod = SourceModule(code_generator.cuda_src, options = ["--ptxas-options=-v"])
+        func = mod.get_function(self.__class__.__name__)
+        func.prepare(
+            'i' +
+            dtype_to_ctype(float)[0] +
+            'P' * len(self.states) +
+            ('P' * len(self.inters) if hasattr(self, 'inters') else '') +
+            'P' * len(code_generator.new_signature)
+        )
+        deviceData = pycuda.tools.DeviceData()
+        maxThreads = int(np.float(deviceData.registers // func.num_regs))
+        maxThreads = 2**int(np.log(maxThreads) / np.log(2))
+        func.threadsPerBlock = np.min([256, maxThreads, deviceData.max_threads])
+
+        func.args = []
+        for key in self.states.keys():
+            func.args.append(key)
+        if hasattr(self, 'inters'):
+            for key in self.inters.keys():
+                func.args.append(key)
+        for key in code_generator.new_signature:
+            func.args.append(key)
+
+        return func
+
 
     def update(self, d_t, **kwargs):
         """
