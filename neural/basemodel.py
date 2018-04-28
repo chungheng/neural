@@ -49,6 +49,11 @@ class Model(object):
         clip: clip the state variables.
         forwardEuler: forward Euler method.
 
+    Class Attributes:
+        Default_States (dict):
+        Default_Params (dict):
+        Default_Inters (dict): Optional.
+
     Attributes:
         states (dict): the state variables, updated by the ODE.
         params (dict): parameters of the model, can only be set during
