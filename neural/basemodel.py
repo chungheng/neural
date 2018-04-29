@@ -21,6 +21,21 @@ except ImportError:
     CudaGenerator = None
     pycuda = None
 
+class ModelMetaClass(type):
+    def __new__(cls, clsname, bases, dct):
+        bounds = dict()
+        states = dict()
+        if 'Default_States' in dct:
+            for key, val in dct['Default_States'].items():
+                if hasattr(val, '__len__'):
+                    bounds[key] = val[1:]
+                    states[key] = val[0]
+                else:
+                    states[key] = val
+        dct['Default_Bounds'] = bounds
+        dct['Default_States'] = states
+        return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
+
 class Model(object):
     """
     The base model class.
@@ -56,6 +71,7 @@ class Model(object):
         gstates (dict): the gradient of the state variables.
         bounds (dict): lower and upper bounds of the state variables.
     """
+    __metaclass__ = ModelMetaClass
     def __init__(self, **kwargs):
         """
         Initialize the model.
@@ -75,19 +91,9 @@ class Model(object):
 
         # set state variables and parameters
         baseobj.__setattr__('params', self.__class__.Default_Params.copy())
-        baseobj.__setattr__('states', {})
-        baseobj.__setattr__('bounds', {})
+        baseobj.__setattr__('states', self.__class__.Default_States.copy())
+        baseobj.__setattr__('bounds', self.__class__.Default_Bounds.copy())
 
-        states = baseobj.__getattribute__('states')
-        bounds = baseobj.__getattribute__('bounds')
-
-        for key, val in self.__class__.Default_States.items():
-            if hasattr(val, '__len__'):
-                assert len(val) == 3
-                states[key] = val[0]
-                bounds[key] = tuple(val[1:])
-            else:
-                states[key] = val
         gstates = {('d_%s' % key):0. for key in self.states}
         baseobj.__setattr__('gstates', gstates)
 
