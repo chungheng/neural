@@ -215,17 +215,15 @@ class CudaGenerator(CodeGenerator):
             self.generate()
             self.ode_variables = self.variables[:]
 
-
         self.generate_preprocessing()
         self.generate_declaration()
 
         ode_signature = []
         for key in self.new_signature:
             val = self.inputs_gdata.get(key, None)
-            # dtype, isArray = self.inputs_gdata.get(key, (self.dtype, True))
             if val is None:
                 isArray = True
-                dtype = dtype_to_ctype(self.dtype)
+                dtype = self.dtype
             else:
                 isArray = hasattr(val, '__len__')
                 dtype = val.dtype if isArray else type(val)
