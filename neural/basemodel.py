@@ -2,6 +2,7 @@
 Base model class for neurons and synapses.
 """
 from abc import abstractmethod
+from collections import OrderedDict
 from StringIO import StringIO
 import numpy as np
 
@@ -16,7 +17,7 @@ try:
     from pycuda.tools import dtype_to_ctype
     import pycuda.driver as cuda
     from pycuda.compiler import SourceModule
-    from cuda import CudaGenerator
+    from cuda import CudaGenerator, get_func_signature
 except ImportError:
     CudaGenerator = None
     pycuda = None
@@ -145,20 +146,105 @@ class Model(object):
             setattr(cls, 'ode_opt', ode)
 
     def cuda_prerun(self, **kwargs):
-        num = [len(v) for v in kwargs.values()]
-        assert np.all([num[0] == x for x in num])
-        num = num[0]
+        num = kwargs.pop('num', None)
+        dtype = kwargs.pop('dtype', np.float32)
+
+        # decide the number of threads
+        if len(kwargs) > 0:
+            for key, val in kwargs.items():
+                # assert getattr(self, key)
+                if hasattr(val, '__len__'):
+                    _num = len(val)
+                    num = num or _num
+                    assert num == _num, 'Mismatch in data size: %s' % key
+        else:
+            assert num, 'Please give the number of models to run'
+
+        # reset gpu data
+        if hasattr(self, 'gdata'):
+            for key in self.gdata.keys():
+                del self.gdata[key]
+        self.gdata = {}
+
+        # allocate gpu data for state variables
+        for key, val in self.states.items():
+            val = kwargs.pop(key, val)
+            if isinstance(val, np.ndarray):
+                if val.dtype != dtype:
+                    val = val.astype(dtype)
+                self.gdata[key] = garray.to_gpu(val)
+            elif isinstance(val, garray.GPUArray):
+                if val.dtype != dtype:
+                    val = val.get()
+                    val = val.astype(dtype)
+                    self.gdata[key] = garray.to_gpu(val)
+                else:
+                    self.gdata[key] = val.copy()
+            elif not hasattr(val, '__len__'):
+                self.gdata[key] = garray.empty(num, dtype=dtype)
+                self.gdata[key].fill(val)
+            else:
+                raise TypeError('Unrecognized type for state variables %s' % key)
+
+        # allocate gpu data for intermediate variables
+        for key, val in getattr(self, 'inters', dict()).items():
+            val = kwargs.pop(key, val)
+            if isinstance(val, np.ndarray):
+                if val.dtype != dtype:
+                    val = val.astype(dtype)
+                self.gdata[key] = garray.to_gpu(val)
+            elif isinstance(val, garray.GPUArray):
+                if val.dtype != dtype:
+                    val = val.get()
+                    val = val.astype(dtype)
+                    self.gdata[key] = garray.to_gpu(val)
+                else:
+                    self.gdata[key] = val.copy()
+            elif not hasattr(val, '__len__'):
+                self.gdata[key] = garray.empty(num, dtype=dtype)
+                self.gdata[key].fill(val)
+            else:
+                raise TypeError('Unrecognized type for intermediate variables %s' % key)
+
+        params_gdata = []
+        for key, val in getattr(self, 'params', dict()).items():
+            val = kwargs.pop(key, None)
+            if val is not None:
+                params_gdata.append(key)
+            if isinstance(val, np.ndarray):
+                if val.dtype != dtype:
+                    val = val.astype(dtype)
+                self.gdata[key] = garray.to_gpu(val)
+            elif isinstance(val, garray.GPUArray):
+                if val.dtype != dtype:
+                    val = val.get()
+                    val = val.astype(dtype)
+                    self.gdata[key] = garray.to_gpu(val)
+                else:
+                    self.gdata[key] = val.copy()
+
+        inputs_gdata = kwargs.copy()
+
+        self.cuda_kernel = self.get_cuda_kernel(
+            dtype=dtype, inputs_gdata=inputs_gdata, params_gdata=params_gdata)
 
         self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock,1,1)
         self.cuda_kernel.grid = ((num - 1) / self.cuda_kernel.threadsPerBlock + 1, 1)
         self.cuda_kernel.num = num
 
+        self.is_cuda = True
+
     def cuda_update(self, d_t, **kwargs):
         st = kwargs.pop('st', None)
 
         args = [ ]
-        for key in self.cuda_kernel.args:
-            args.append(kwargs[key].gpudata)
+        for key, dtype in zip(self.cuda_kernel.args, self.cuda_kernel.arg_type[2:]):
+            val = self.gdata.get(key, None)
+            if val is None:
+                val = kwargs[key]
+            if hasattr(val, '__len__'):
+                assert val.dtype == self.cuda_kernel.dtype, "Float type mismatches: %s" % key
+            args.append(val.gpudata if dtype == 'P' else val)
 
         self.cuda_kernel.prepared_async_call(
             self.cuda_kernel.grid,
@@ -171,19 +257,18 @@ class Model(object):
     def get_cuda_kernel(self, **kwargs):
         if CudaGenerator is None:
             return
-        float = kwargs.pop('float', np.float32)
-        code_generator = CudaGenerator(self, float=float, **kwargs)
+        dtype = kwargs.pop('dtype', np.float32)
+        params_gdata = kwargs.pop('params_gdata', [])
+        inputs_gdata = kwargs.pop('inputs_gdata', None)
+        code_generator = CudaGenerator(self, dtype=dtype,
+            inputs_gdata=inputs_gdata, params_gdata=params_gdata, **kwargs)
         code_generator.generate_cuda()
 
         mod = SourceModule(code_generator.cuda_src, options = ["--ptxas-options=-v"])
         func = mod.get_function(self.__class__.__name__)
-        func.prepare(
-            'i' +
-            dtype_to_ctype(float)[0] +
-            'P' * len(self.states) +
-            ('P' * len(self.inters) if hasattr(self, 'inters') else '') +
-            'P' * len(code_generator.new_signature)
-        )
+        func.arg_type = code_generator.arg_type
+        func.prepare(func.arg_type)
+
         deviceData = pycuda.tools.DeviceData()
         maxThreads = int(np.float(deviceData.registers // func.num_regs))
         maxThreads = 2**int(np.log(maxThreads) / np.log(2))
@@ -195,11 +280,14 @@ class Model(object):
         if hasattr(self, 'inters'):
             for key in self.inters.keys():
                 func.args.append(key)
+        func.args.extend(params_gdata)
         for key in code_generator.new_signature:
             func.args.append(key)
 
-        return func
+        func.dtype = dtype
+        func.src = code_generator.cuda_src
 
+        return func
 
     def update(self, d_t, **kwargs):
         """

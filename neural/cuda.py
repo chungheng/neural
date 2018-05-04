@@ -9,7 +9,9 @@ from pycodegen.utils import get_func_signature
 
 cuda_src_template = """
 {% for key, val in preprocessing.items() -%}
+{%- if key not in params_gdata -%}
 #define  {{ key.upper() }}\t\t{{ val }}
+{% endif -%}
 {% endfor -%}
 {%- if bounds -%}
 {%- for key, val in bounds.items() %}
@@ -56,8 +58,11 @@ __device__ int ode(
     States &states,
     States &gstates
     {%- if inters %},\n    Inters &inters{%- endif %}
-    {%- for key in ode_signature -%}
-    ,\n    {{ float_type }} {{ key }}
+    {%- for key in params_gdata -%}
+    ,\n    {{ float_type }} {{ key.upper() }}
+    {%- endfor %}
+    {%- for (key, ftype, isArray) in ode_signature -%}
+    ,\n    {{ ftype }} &{{ key }}
     {%- endfor %}
 )
 {
@@ -65,8 +70,23 @@ __device__ int ode(
     {{ float_type }} {{ line }};
     {%- endfor %}
 
-{{ src -}}
+{{ ode_src -}}
 }
+
+{% if post_src|length > 0 %}
+/* post processing */
+__device__ int post(
+    States &states
+    {%- if inters %},\n    Inters &inters{%- endif %}
+)
+{
+    {%- for line in post_declaration %}
+    {{ float_type }} {{ line }};
+    {%- endfor %}
+
+{{ post_src -}}
+}
+{%- endif %}
 
 __global__ void {{ model_name }} (
     int num_thread,
@@ -78,9 +98,16 @@ __global__ void {{ model_name }} (
     {%- for key in inters -%}
     ,\n    {{ float_type }} *g_{{ key }}
     {%- endfor %}
-    {%- endif %}
-    {%- for key in ode_signature -%}
+    {%- for key in params_gdata -%}
     ,\n    {{ float_type }} *g_{{ key }}
+    {%- endfor %}
+    {%- endif %}
+    {%- for (key, ftype, isArray) in ode_signature -%}
+    {%- if isArray -%}
+    ,\n    {{ ftype }} *g_{{ key }}
+    {%-  else -%}
+    ,\n    {{ ftype }} {{ key }}
+    {%- endif %}
     {%- endfor %}
 )
 {
@@ -102,16 +129,24 @@ __global__ void {{ model_name }} (
     {%- for key in inters %}
     inters.{{ key }} = g_{{ key }}[tid];
     {%- endfor %}
-    {% endif %}
-    {%- for key in ode_signature %}
-    {{ float_type }} {{ key }} = g_{{ key }}[tid];
+    {%- endif %}
+    {%- for key in params_gdata %}
+    {{ float_type }} {{ key.upper() }} = g_{{ key }}[tid];
+    {%- endfor %}
+    {%- for (key, ftype, isArray) in ode_signature %}
+    {%- if isArray %}
+    {{ ftype }} {{ key }} = g_{{ key }}[tid];
+    {%-  endif %}
     {%- endfor %}
 
-    {% if run_step %}{% endif %}
+    {%  if run_step %}{%  endif %}
     /* compute gradient */
     ode(states, gstates
-        {%- if inters %}, inters{% endif %}
-        {%- for key in ode_signature -%}
+        {%- if inters %}, inters{%  endif %}
+        {%- for key in params_gdata -%}
+        , {{ key.upper() }}
+        {%- endfor -%}
+        {%- for (key, _, _) in ode_signature -%}
         , {{ key }}
         {%- endfor -%}
     );
@@ -122,7 +157,12 @@ __global__ void {{ model_name }} (
     {% if bounds %}
     /* clip */
     clip(states);
-    {% endif %}
+    {%- endif %}
+
+    {% if post_src|length > 0 %}
+    /* post processing */
+    post(states, inters);
+    {%- endif %}
 
     /* export data */
     {%- for key in states %}
@@ -140,15 +180,24 @@ __global__ void {{ model_name }} (
 
 class CudaGenerator(CodeGenerator):
     def __init__(self, model, **kwargs):
-        float = kwargs.pop('float', np.float32)
-        self.float = dtype_to_ctype(float)
+        dtype = kwargs.pop('dtype', np.float32)
+        self.dtype = dtype_to_ctype(dtype)
         self.model = model
+        self.params_gdata = kwargs.pop('params_gdata', [])
+        self.inputs_gdata = kwargs.pop('inputs_gdata', dict())
         self.variables = []
+        self.ode_variables = None
+        self.post_variables = None
         self.old_signature, self.new_signature, self.kwargs = self.process_signature()
 
         self.ode_src = StringIO()
+        self.post_src = StringIO()
         self.define_src = StringIO()
         self.declaration_src = StringIO()
+        cls = self.model.__class__
+        self.has_post = getattr(cls, 'post') != getattr(super(cls, self.model), 'post')
+
+
 
         CodeGenerator.__init__(self, model.ode.func_code, newline=';\n',
                 offset=4, ostream=self.ode_src, **kwargs)
@@ -156,24 +205,58 @@ class CudaGenerator(CodeGenerator):
         self.tpl = Template(cuda_src_template)
 
     def generate_cuda(self):
+        if self.has_post and not len(self.post_src.getvalue()):
+            self.variables = []
+            self.ostream = self.post_src
+            instructions = self.disassemble(self.model.post.func_code)
+            self.generate(instructions=instructions)
+            self.post_variables = self.variables[:]
         if not len(self.ode_src.getvalue()):
+            self.variables = []
+            self.ostream = self.ode_src
             self.generate()
+            self.ode_variables = self.variables[:]
+
 
         self.generate_preprocessing()
         self.generate_declaration()
 
-        print self.float
+        ode_signature = []
+        for key in self.new_signature:
+            val = self.inputs_gdata.get(key, None)
+            # dtype, isArray = self.inputs_gdata.get(key, (self.dtype, True))
+            if val is None:
+                isArray = True
+                dtype = dtype_to_ctype(self.dtype)
+            else:
+                isArray = hasattr(val, '__len__')
+                dtype = val.dtype if isArray else type(val)
+                dtype = dtype_to_ctype(dtype)
+            ode_signature.append((key, dtype, isArray))
+
         self.cuda_src = self.tpl.render(
-            float_type=self.float,
+            float_type=self.dtype,
             bounds=self.model.bounds,
             run_step='run_step',
             inters=getattr(self.model, 'inters', None),
             states=self.model.states,
-            ode_signature = self.new_signature,
-            ode_declaration = self.variables,
-            src = self.ode_src.getvalue(),
+            ode_signature = ode_signature,
+            ode_declaration = self.ode_variables,
+            post_declaration = self.post_variables,
+            ode_src=self.ode_src.getvalue(),
+            post_src=self.post_src.getvalue(),
             model_name=self.model.__class__.__name__,
+            params_gdata=self.params_gdata,
             preprocessing=self.model.params)
+
+        self.arg_type = 'i' + self.dtype[0] + \
+            'P' * len(self.model.states) + \
+            'P' * len(getattr(self.model, 'inters', [])) + \
+            'P' * len(self.params_gdata) + \
+            ''.join(['P' if flag else dtype[0] for _, dtype, flag in ode_signature])
+
+        # print "%s" % self.cuda_src
+        # print self.arg_type
 
     def process_signature(self):
         old_signature = get_func_signature(self.model.ode)
@@ -200,8 +283,8 @@ class CudaGenerator(CodeGenerator):
         for key, val in self.model.params.items():
             self.define_src.write( "#define %s\t\t%s\n" % (str(key), str(val)) )
 
-    def generate(self):
-        super(CudaGenerator, self).generate()
+    def generate(self, instructions=None):
+        super(CudaGenerator, self).generate(instructions)
         # remove defaults from signature
         self.new_signature = [x.split('=')[0] for x in self.new_signature]
 
@@ -240,7 +323,7 @@ class CudaGenerator(CodeGenerator):
         if ins.arg_name == self.var[-1]:
             del self.var[-1]
             return
-        if ins.arg_name not in self.variables:
+        if ins.arg_name not in self.variables and ins.arg_name not in self.new_signature:
             self.variables.append(ins.arg_name)
         self.var[-1] = ins.arg_name + ' = ' + self.var[-1]
 
