@@ -154,12 +154,12 @@ __global__ void {{ model_name }} (
     /* solve ode */
     forward(states, gstates, dt);
 
-    {% if bounds %}
+    {% if bounds -%}
     /* clip */
     clip(states);
     {%- endif %}
 
-    {% if post_src|length > 0 %}
+    {%- if post_src|length > 0 -%}
     /* post processing */
     post(states, inters);
     {%- endif %}
