@@ -195,9 +195,7 @@ class CudaGenerator(CodeGenerator):
         self.define_src = StringIO()
         self.declaration_src = StringIO()
         cls = self.model.__class__
-        self.has_post = getattr(cls, 'post') != getattr(super(cls, self.model), 'post')
-
-
+        self.has_post = np.all([cls.post != base.post for base in cls.__bases__])
 
         CodeGenerator.__init__(self, model.ode.func_code, newline=';\n',
                 offset=4, ostream=self.ode_src, **kwargs)
