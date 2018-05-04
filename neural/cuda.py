@@ -213,13 +213,13 @@ class CudaGenerator(CodeGenerator):
         key = ins.arg_name
         if self.var[-1] == 'self':
             if key in self.model.Default_States:
-                self.var[-1] = "states." + key.lower()
+                self.var[-1] = "states." + key
             elif key[:2] == 'd_' and key[2:] in self.model.Default_States:
-                self.var[-1] = "gstates." + key[2:].lower()
+                self.var[-1] = "gstates." + key[2:]
             elif key in self.model.Default_Params:
                 self.var[-1] = key.upper()
             elif hasattr(self.model, 'Default_Inters') and key in self.model.Default_Inters:
-                self.var[-1] = "inters." + key.lower()
+                self.var[-1] = "inters." + key
         else:
             self.var[-1] += ".%s" % key
 
