@@ -248,6 +248,14 @@ class CudaGenerator(CodeGenerator):
         self.var[-2] = "powf(%s, %s)" % (self.var[-2], self.var[-1])
         del self.var[-1]
 
+    def handle_binary_and(self, ins):
+        self.var[-2] = "(%s && %s)" % (self.var[-2], self.var[-1])
+        del self.var[-1]
+
+    def handle_binary_or(self, ins):
+        self.var[-2] = "(%s || %s)" % (self.var[-2], self.var[-1])
+        del self.var[-1]
+
     def handle_call_function(self, ins):
         narg = int(ins.arg)
 
