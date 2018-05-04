@@ -272,6 +272,9 @@ class Model(object):
         super(Model, self).__setattr__(key, value)
 
     def __getattr__(self, key):
+        if self.is_cuda and hasattr(self, 'gdata') and key in self.gdata:
+            return self.gdata[key]
+
         for param in self._gettableAttrs:
             attr = getattr(self, param)
             if key == param:
