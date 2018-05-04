@@ -27,7 +27,7 @@ def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
         ratio (float): a
     """
 
-    def _generate_step(waveforms, d_t, support, amplitude):
+    def _generate_step(waveforms, d_t, support, amplitude, **kwargs):
         """
         Generate a set of step stimuli.
 
@@ -76,11 +76,12 @@ def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
             wav[peak:stop] = amp*np.linspace(1, 0., stop-peak)**2
 
     sigma = kwargs.pop('sigma', None)
+    dtype = kwargs.pop('dtype', np.float32)
 
     num = int(duration // d_t)
 
     shape = (len(amplitude), num) if hasattr(amplitude, '__len__') else num
-    waveforms = np.zeros(shape, dtype=np.float32)
+    waveforms = np.zeros(shape, dtype=dtype)
 
     if isinstance(mode, str):
         tmp = '_generate_%s' % mode
