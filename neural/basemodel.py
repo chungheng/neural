@@ -80,7 +80,6 @@ class Model(object):
             optimize (bool): optimize the `ode` function.
         """
         optimize = kwargs.pop('optimize', False) and (OdeGenerator is not None)
-        cuda = kwargs.pop('cuda', False) and (pycuda is not None)
         float = kwargs.pop('float', np.float32)
 
         baseobj = super(Model, self)
@@ -88,6 +87,9 @@ class Model(object):
         # set time scale, ex. Hodgkin-Huxley uses ms rather than s.
         time_scale = getattr(self.__class__, 'Time_Scale', 1.)
         baseobj.__setattr__('time_scale', time_scale)
+
+        cuda = kwargs.pop('cuda', False) and (pycuda is not None)
+        baseobj.__setattr__('is_cuda', cuda)
 
         # set state variables and parameters
         baseobj.__setattr__('params', self.__class__.Default_Params.copy())
@@ -118,13 +120,10 @@ class Model(object):
         if optimize:
             if not hasattr(self.__class__, 'ode_opt'):
                 self.__class__.optimize()
-                # ode_opt = types.MethodType(self.__class__.ode_opt, self, self.__class__)
 
+            # ode_opt = types.MethodType(self.__class__.ode_opt, self, self.__class__)
             self._ode = self.ode
             self.ode = self.ode_opt
-
-        if cuda:
-            self.cuda_kernel = self.get_cuda_kernel(float=float)
 
     @classmethod
     def optimize(cls):
