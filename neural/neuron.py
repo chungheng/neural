@@ -88,8 +88,6 @@ class Rinzel(Model):
 
         self.d_v = 1./self.C*(stimulus - i_na - i_k - i_l)
 
-    def post(self):
-        pass
 
 class Wilson(Model):
     """
@@ -111,8 +109,6 @@ class Wilson(Model):
         i_k = self.gK*self.r*(self.v-self.EK)
         self.d_v = 1./self.C*(stimulus - i_na - i_k)
 
-    def post(self):
-        pass
 
 class MorrisLecar(Model):
     """
@@ -122,8 +118,6 @@ class MorrisLecar(Model):
     Default_Params = dict(ar=0.09, br=0.012, k3=0.18, k4=0.034, kd=100, gmax=1, n=4)
 
     def ode(self, **kwargs):
-        pass
-    def post(self):
         pass
 
 class ConnorStevens(Model):
@@ -174,8 +168,6 @@ class ConnorStevens(Model):
         self.d_a = (a_inf-self.a)/tau_a
         self.d_b = (b_inf-self.b)/tau_b
 
-    def post(self):
-        pass
 
 class HodgkinHuxley(Model):
     """
@@ -213,6 +205,3 @@ class HodgkinHuxley(Model):
         i_l = self.gL * (self.v - self.EL)
 
         self.d_v = stimulus - i_na - i_k - i_l
-
-    def post(self):
-        pass
