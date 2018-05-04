@@ -263,7 +263,7 @@ class CudaGenerator(CodeGenerator):
         if self.kwargs and self.var[-(narg+1)] == (self.kwargs + ".pop"):
             arg = self.var[-narg][1:-1]
             self.var[-(narg+1)] = arg
-            new_arg = "%s=%s" % (arg, self.var[-narg+1])
+            new_arg = "%s" % arg
             self.new_signature.append(new_arg)
         else:
 
