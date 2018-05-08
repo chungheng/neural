@@ -262,10 +262,15 @@ class Model(object):
         inputs_gdata = kwargs.pop('inputs_gdata', None)
         code_generator = CudaGenerator(self, dtype=dtype,
             inputs_gdata=inputs_gdata, params_gdata=params_gdata, **kwargs)
-        code_generator.generate_cuda()
+        code_generator.generate()
 
-        mod = SourceModule(code_generator.cuda_src, options = ["--ptxas-options=-v"])
-        func = mod.get_function(self.__class__.__name__)
+        try:
+            mod = SourceModule(code_generator.cuda_src, options = ["--ptxas-options=-v"])
+            func = mod.get_function(self.__class__.__name__)
+        except:
+            print code_generator.cuda_src
+            raise
+
         func.arg_type = code_generator.arg_type
         func.prepare(func.arg_type)
 
@@ -281,8 +286,12 @@ class Model(object):
             for key in self.inters.keys():
                 func.args.append(key)
         func.args.extend(params_gdata)
-        for key in code_generator.new_signature:
-            func.args.append(key)
+        for key in code_generator.ode_args:
+            func.args.append(key[0])
+
+        if code_generator.post_args:
+            for key in code_generator.post_args:
+                func.args.append(key[0])
 
         func.dtype = dtype
         func.src = code_generator.cuda_src

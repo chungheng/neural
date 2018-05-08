@@ -180,7 +180,7 @@ __global__ void {{ model_name }} (
 
     {%- if post_src|length > 0 -%}
     /* post processing */
-    post(states,
+    post(states
         {%- if inters %}, inters{%  endif %}
         {%- for (key, _, _) in post_signature -%}
         , {{ key }}
@@ -246,12 +246,17 @@ class CudaGenerator(CodeGenerator):
             post_signature=self.post_args,
             post_declaration=self.post_local_variables)
 
+
+
         self.arg_type = 'i' + self.dtype[0] + \
             'P' * len(self.model.states) + \
             'P' * len(getattr(self.model, 'inters', [])) + \
-            'P' * len(self.params_gdata) + \
-            ''.join(['P' if flag else dtype[0] for _, dtype, flag in self.ode_args],
-            ''.join(['P' if flag else dtype[0] for _, dtype, flag in self.post_args])
+            'P' * len(self.params_gdata)
+
+        if self.ode_args is not None:
+            self.arg_type += ''.join(['P' if flag else dtype[0] for _, dtype, flag in self.ode_args])
+        if self.post_args is not None:
+            self.arg_type += ''.join(['P' if flag else dtype[0] for _, dtype, flag in self.post_args])
 
         # print "%s" % self.cuda_src
         # print self.arg_type
@@ -302,7 +307,7 @@ class CudaGenerator(CodeGenerator):
             elif key[1] == '*':
                 raise
             else:
-                new_signature.append(key)
+                new_signature.append(key.split('=')[0])
         return old_signature, new_signature, kwargs
 
     def _post_output(self):
