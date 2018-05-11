@@ -1,6 +1,7 @@
 """
 Utility modules for recording data from Neural models
 """
+import numpy as np
 
 class CUDARecorder(object):
     """
