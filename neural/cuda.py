@@ -426,5 +426,8 @@ class CudaGenerator(CodeGenerator):
             elif seg[1] == 'cbrt':
                 return 'cbrtf'
             elif seg[1] == 'sqrt':
-                return 'sqrt'
+                return 'sqrtf'
+            elif seg[1] == 'abs':
+                return 'abs'
+
         return func
