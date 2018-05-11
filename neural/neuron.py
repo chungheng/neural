@@ -126,7 +126,7 @@ class ConnorStevens(Model):
     """
     Time_Scale = 1e3 # s to ms
     Default_Inters = dict(spike=0)
-    Default_States = dict(v=(-60, -80, 30), n=(0., 0., 1.), \
+    Default_States = dict(v=(-60, -80, 50), n=(0., 0., 1.), \
         m=(0., 0., 1.), h=(1., 0., 1.), a=(1., 0., 1.), b=(1., 0., 1.))
     Default_Params = dict(ms=-5.3, ns=-4.3, hs=-12., \
         gNa=120., gK=20., gL=0.3, ga=47.7, \
