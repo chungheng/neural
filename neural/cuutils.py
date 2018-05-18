@@ -7,6 +7,8 @@ import pycuda.curandom
 
 from pycuda.compiler import SourceModule
 
+from skcuda.fft import fft, Plan, ifft
+
 src_cuda = """
 #include <cuda.h>
 #include <curand.h>
@@ -90,3 +92,32 @@ class CUDASpikeGenerator(object):
         self._generate_spike.prepared_async_call(
             self.grid, self.block, None, np.int32(self.num), self.dt, rate,
             self.gpu_seed, self.gpu_scale.gpudata, self.spike.gpudata)
+
+def cu_lpf(stimulus, dt, freq):
+    num = len(stimulus)
+    num_fft = num/2 + 1
+    idtype = stimulus.dtype
+    odtype = np.complex128 if idtype == np.float64 else np.complex64
+
+    if not isinstance(stimulus, gpuarray.GPUArray):
+        d_stimulus = gpuarray.to_gpu(stimulus)
+    else:
+        d_stimulus = stimulus
+
+    plan = Plan(stimulus.shape, idtype, odtype)
+    d_fstimulus = gpuarray.empty(num_fft, odtype)
+    fft(d_stimulus, d_fstimulus, plan)
+
+    df = 1./dt/num
+    idx = int(freq//df)
+
+    unit = d_fstimulus.dtype.itemsize / 4
+    offset = int(d_fstimulus.gpudata) + d_fstimulus.dtype.itemsize * idx
+
+    cuda.memset_d32(offset, 0, unit*(num_fft-idx))
+
+    plan = Plan(stimulus.shape, odtype, idtype)
+    d_lpf_stimulus = gpuarray.empty(num, idtype)
+    ifft(d_fstimulus, d_lpf_stimulus, plan, True)
+
+    return d_lpf_stimulus.get()
