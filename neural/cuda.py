@@ -373,11 +373,11 @@ class CudaGenerator(CodeGenerator):
         else:
 
             func = self.var[-(narg+1)]
-            func = self.pyfunc_to_cufunc(func)
-            tmp = "(%s)" % (', '.join(['%s']*narg))
-            tmp = tmp % tuple(self.var[-narg:])
+            func = self.pyfunc_to_cufunc(func, self.var[-narg:])
+            # tmp = "(%s)" % (', '.join(['%s']*narg))
+            # tmp = tmp % tuple(self.var[-narg:])
 
-            self.var[-(narg+1)] = func + tmp
+            self.var[-(narg+1)] = func
 
         del self.var[-narg:]
 
@@ -416,18 +416,23 @@ class CudaGenerator(CodeGenerator):
             val = '0'
         self.var[-1] = "return %s" % val
 
-    def pyfunc_to_cufunc(self, func):
+    def pyfunc_to_cufunc(self, func, args):
         seg = func.split('.')
         if seg[0] == 'np' or seg[0] == 'numpy':
             if seg[1] == 'exp':
-                return 'expf'
+                func = 'expf'
             elif seg[1] == 'power':
-                return 'powf'
+                func = 'powf'
             elif seg[1] == 'cbrt':
-                return 'cbrtf'
+                func = 'cbrtf'
             elif seg[1] == 'sqrt':
-                return 'sqrtf'
+                func = 'sqrtf'
             elif seg[1] == 'abs':
-                return 'abs'
+                func = 'abs'
+        if seg[0] == 'random':
+            if seg[1] == 'unifrom':
+                func = 'curand_uniform'
 
-        return func
+        tmp = "(%s)" % (', '.join(self.var[-narg:]))
+
+        return func + tmp
