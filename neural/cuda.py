@@ -221,7 +221,9 @@ class CudaGenerator(CodeGenerator):
         self.params_gdata = kwargs.pop('params_gdata', [])
         self.inputs_gdata = kwargs.pop('inputs_gdata', dict())
         self.variables = []
-        self.seed = False
+        self.has_random = False
+        self.ode_has_random = False
+        self.post_has_random = False
         self.ode_local_variables = None
         self.post_local_variables = None
         self.ode_args = None
@@ -242,7 +244,6 @@ class CudaGenerator(CodeGenerator):
             self.generate_post()
         if not len(self.ode_src.getvalue()):
             self.generate_ode()
-        self.has_random = self.ode_has_random or self.post_has_random
 
         self.cuda_src = self.tpl.render(
             model_name=self.model.__class__.__name__,
@@ -262,8 +263,6 @@ class CudaGenerator(CodeGenerator):
             post_signature=self.post_args,
             post_declaration=self.post_local_variables)
 
-
-
         self.arg_type = 'i' + self.dtype[0] + \
             'P' * len(self.model.states) + \
             'P' * len(getattr(self.model, 'inters', [])) + \
@@ -273,31 +272,34 @@ class CudaGenerator(CodeGenerator):
             self.arg_type += ''.join(['P' if flag else dtype[0] for _, dtype, flag in self.ode_args])
         if self.post_args is not None:
             self.arg_type += ''.join(['P' if flag else dtype[0] for _, dtype, flag in self.post_args])
-
+        if self.has_random:
+            self.arg_type += 'P'
         # print "%s" % self.cuda_src
         # print self.arg_type
 
     def generate_ode(self):
         _, self.signature, self.kwargs = self.extract_signature(self.model.ode)
         self.variables = []
-        self.seed = False
+        self.has_random = False
         self.ostream = self.ode_src
         self.instructions = self.disassemble(self.model.ode.func_code)
         super(CudaGenerator, self).generate()
         self.ode_local_variables = self.variables[:]
         self.ode_args = self.process_signature()
-        self.ode_has_random = self.seed
+        self.ode_has_random = self.has_random
+        self.has_random = self.has_random or self.ode_has_random
 
     def generate_post(self):
         _, self.signature, self.kwargs = self.extract_signature(self.model.post)
         self.variables = []
-        self.seed = False
+        self.has_random = False
         self.ostream = self.post_src
         self.instructions = self.disassemble(self.model.post.func_code)
         super(CudaGenerator, self).generate()
         self.post_local_variables = self.variables[:]
         self.post_args = self.process_signature()
-        self.post_has_random = self.seed
+        self.post_has_random = self.has_random
+        self.has_random = self.has_random or self.post_has_random
 
     def process_signature(self):
         new_signature = []
@@ -451,7 +453,7 @@ class CudaGenerator(CodeGenerator):
                 func = 'abs'
             func += "(%s)" % (', '.join(args))
         elif seg[0] == 'random':
-            self.seed = True
+            self.has_random = True
             if seg[1] == 'uniform':
                 func = 'curand_uniform(&seed)'
                 if len(args) == 1:
