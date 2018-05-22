@@ -228,12 +228,18 @@ class Model(object):
         self.cuda_kernel = self.get_cuda_kernel(
             dtype=dtype, inputs_gdata=inputs_gdata, params_gdata=params_gdata)
 
-        if self.cuda_kernel.has_random:
-            self.gdata['seed'] = pycuda.driver.mem_alloc(num * 48)
-
         self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock,1,1)
         self.cuda_kernel.grid = ((num - 1) / self.cuda_kernel.threadsPerBlock + 1, 1)
         self.cuda_kernel.num = num
+
+        if self.cuda_kernel.has_random:
+            self.gdata['seed'] = pycuda.driver.mem_alloc(num * 48)
+            self.cuda_kernel.init_random_seed.prepared_async_call(
+                self.cuda_kernel.grid,
+                self.cuda_kernel.block,
+                None,
+                self.cuda_kernel.num,
+                self.gdata['seed'])
 
         self.is_cuda = True
 
@@ -243,6 +249,9 @@ class Model(object):
         args = [ ]
         for key, dtype in zip(self.cuda_kernel.args, self.cuda_kernel.arg_type[2:]):
             val = self.gdata.get(key, None)
+            if key == 'seed':
+                args.append(val)
+                continue
             if val is None:
                 val = kwargs[key]
             if hasattr(val, '__len__'):
@@ -276,7 +285,6 @@ class Model(object):
             print code_generator.cuda_src
             raise
 
-        func.has_random = code_generator.has_random
         func.arg_type = code_generator.arg_type
         func.prepare(func.arg_type)
 
@@ -298,6 +306,13 @@ class Model(object):
         if code_generator.post_args:
             for key in code_generator.post_args:
                 func.args.append(key[0])
+
+        func.has_random = code_generator.has_random
+        if func.has_random:
+            init_random_seed = mod.get_function('generate_seed')
+            init_random_seed.prepare(code_generator.init_random_seed_arg)
+            func.init_random_seed = init_random_seed
+            func.args.append('seed')
 
         func.dtype = dtype
         func.src = code_generator.cuda_src

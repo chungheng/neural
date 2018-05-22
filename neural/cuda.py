@@ -19,12 +19,27 @@ cuda_src_template = """
 #define  {{ key.upper() }}_MAX\t\t{{ val[1] }}
 {%- endfor -%}
 {% endif %}
+
 {%- if has_random %}
 #include <cuda.h>
 #include <curand.h>
 #include <curand_kernel.h>
 
 extern "C"{
+
+__global__ void  generate_seed(
+    int num,
+    curandState *seed
+)
+{
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int total_threads = gridDim.x * blockDim.x;
+
+    for (int i = tid; i < num; i += total_threads)
+        curand_init(clock64(), i, 0, &seed[i]);
+
+    return;
+}
 {%- endif %}
 
 struct States {
@@ -274,6 +289,7 @@ class CudaGenerator(CodeGenerator):
             self.arg_type += ''.join(['P' if flag else dtype[0] for _, dtype, flag in self.post_args])
         if self.has_random:
             self.arg_type += 'P'
+            self.init_random_seed_arg = 'iP'
         # print "%s" % self.cuda_src
         # print self.arg_type
 
@@ -451,13 +467,19 @@ class CudaGenerator(CodeGenerator):
                 func = 'sqrtf'
             elif seg[1] == 'abs':
                 func = 'abs'
-            func += "(%s)" % (', '.join(args))
         elif seg[0] == 'random':
             self.has_random = True
             if seg[1] == 'uniform':
                 func = 'curand_uniform(&seed)'
-                if len(args) == 1:
-                    func = "(%s*%s)" % (args[0], func)
-                elif len(args) == 2:
-                    func = "({0}+({1}-{0})*{2})".format(args[0], args[1], func)
+            if seg[1] == 'gauss':
+                func = 'curand_normal(&seed)'
+
+            if len(args) == 1:
+                func = "(%s*%s)" % (args[0], func)
+            elif len(args) == 2:
+                func = "({0}+({1}-{0})*{2})".format(args[0], args[1], func)
+
+            return func
+
+        func += "(%s)" % (', '.join(args))
         return func
