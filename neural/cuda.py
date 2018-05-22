@@ -211,7 +211,7 @@ __global__ void {{ model_name }} (
     return;
 }
 
-{% if inters %}}{%- endif %}
+{% if has_random %}}{%- endif %}
 """
 
 class CudaGenerator(CodeGenerator):
