@@ -228,6 +228,9 @@ class Model(object):
         self.cuda_kernel = self.get_cuda_kernel(
             dtype=dtype, inputs_gdata=inputs_gdata, params_gdata=params_gdata)
 
+        if self.cuda_kernel.has_random:
+            self.gdata['seed'] = pycuda.driver.mem_alloc(num * 48)
+
         self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock,1,1)
         self.cuda_kernel.grid = ((num - 1) / self.cuda_kernel.threadsPerBlock + 1, 1)
         self.cuda_kernel.num = num
@@ -265,12 +268,15 @@ class Model(object):
         code_generator.generate()
 
         try:
-            mod = SourceModule(code_generator.cuda_src, options = ["--ptxas-options=-v"])
+            mod = SourceModule(code_generator.cuda_src,
+                options = ["--ptxas-options=-v"],
+                no_extern_c = code_generator.has_random)
             func = mod.get_function(self.__class__.__name__)
         except:
             print code_generator.cuda_src
             raise
 
+        func.has_random = code_generator.has_random
         func.arg_type = code_generator.arg_type
         func.prepare(func.arg_type)
 

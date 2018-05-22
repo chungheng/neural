@@ -19,6 +19,13 @@ cuda_src_template = """
 #define  {{ key.upper() }}_MAX\t\t{{ val[1] }}
 {%- endfor -%}
 {% endif %}
+{%- if has_random %}
+#include <cuda.h>
+#include <curand.h>
+#include <curand_kernel.h>
+
+extern "C"{
+{%- endif %}
 
 struct States {
     {%- for key in states %}
@@ -64,6 +71,7 @@ __device__ int ode(
     {%- for (key, ftype, isArray) in ode_signature -%}
     ,\n    {{ ftype }} &{{ key }}
     {%- endfor %}
+    {%- if ode_has_random %},\n    curandState &seed{%- endif %}
 )
 {
     {%- for line in ode_declaration %}
@@ -121,6 +129,7 @@ __global__ void {{ model_name }} (
     {%- endif %}
     {%- endfor %}
     {%- endif %}
+    {%- if ode_has_random %},\n    curandState *seed{%- endif %}
 )
 {
     /* TODO: option for 1-D or 2-D */
@@ -168,6 +177,7 @@ __global__ void {{ model_name }} (
         {%- for (key, _, _) in ode_signature -%}
         , {{ key }}
         {%- endfor -%}
+        {%- if ode_has_random -%}, seed[tid]{%- endif -%}
     );
 
     /* solve ode */
@@ -200,6 +210,8 @@ __global__ void {{ model_name }} (
 
     return;
 }
+
+{% if inters %}}{%- endif %}
 """
 
 class CudaGenerator(CodeGenerator):
@@ -209,6 +221,7 @@ class CudaGenerator(CodeGenerator):
         self.params_gdata = kwargs.pop('params_gdata', [])
         self.inputs_gdata = kwargs.pop('inputs_gdata', dict())
         self.variables = []
+        self.seed = False
         self.ode_local_variables = None
         self.post_local_variables = None
         self.ode_args = None
@@ -229,6 +242,7 @@ class CudaGenerator(CodeGenerator):
             self.generate_post()
         if not len(self.ode_src.getvalue()):
             self.generate_ode()
+        self.has_random = self.ode_has_random or self.post_has_random
 
         self.cuda_src = self.tpl.render(
             model_name=self.model.__class__.__name__,
@@ -239,8 +253,10 @@ class CudaGenerator(CodeGenerator):
             params=self.model.params,
             inters=getattr(self.model, 'inters', None),
             params_gdata=self.params_gdata,
+            has_random=self.has_random,
             ode_src=self.ode_src.getvalue(),
             ode_signature=self.ode_args,
+            ode_has_random=self.ode_has_random,
             ode_declaration=self.ode_local_variables,
             post_src=self.post_src.getvalue(),
             post_signature=self.post_args,
@@ -264,20 +280,24 @@ class CudaGenerator(CodeGenerator):
     def generate_ode(self):
         _, self.signature, self.kwargs = self.extract_signature(self.model.ode)
         self.variables = []
+        self.seed = False
         self.ostream = self.ode_src
         self.instructions = self.disassemble(self.model.ode.func_code)
         super(CudaGenerator, self).generate()
         self.ode_local_variables = self.variables[:]
         self.ode_args = self.process_signature()
+        self.ode_has_random = self.seed
 
     def generate_post(self):
         _, self.signature, self.kwargs = self.extract_signature(self.model.post)
         self.variables = []
+        self.seed = False
         self.ostream = self.post_src
         self.instructions = self.disassemble(self.model.post.func_code)
         super(CudaGenerator, self).generate()
         self.post_local_variables = self.variables[:]
         self.post_args = self.process_signature()
+        self.post_has_random = self.seed
 
     def process_signature(self):
         new_signature = []
@@ -371,15 +391,15 @@ class CudaGenerator(CodeGenerator):
             new_arg = "%s" % arg
             self.signature.append(new_arg)
         else:
-
+            args = [] if narg == 0 else self.var[-narg:]
             func = self.var[-(narg+1)]
-            func = self.pyfunc_to_cufunc(func, self.var[-narg:])
+            func = self.pyfunc_to_cufunc(func, args)
             # tmp = "(%s)" % (', '.join(['%s']*narg))
             # tmp = tmp % tuple(self.var[-narg:])
-
             self.var[-(narg+1)] = func
 
-        del self.var[-narg:]
+        if narg:
+            del self.var[-narg:]
 
     def handle_pop_jump_if_true(self, ins):
         self.jump_targets.append(ins.arg)
@@ -429,10 +449,13 @@ class CudaGenerator(CodeGenerator):
                 func = 'sqrtf'
             elif seg[1] == 'abs':
                 func = 'abs'
-        if seg[0] == 'random':
-            if seg[1] == 'unifrom':
-                func = 'curand_uniform'
-
-        tmp = "(%s)" % (', '.join(self.var[-narg:]))
-
-        return func + tmp
+            func += "(%s)" % (', '.join(args))
+        elif seg[0] == 'random':
+            self.seed = True
+            if seg[1] == 'uniform':
+                func = 'curand_uniform(&seed)'
+                if len(args) == 1:
+                    func = "(%s*%s)" % (args[0], func)
+                elif len(args) == 2:
+                    func = "({0}+({1}-{0})*{2})".format(args[0], args[1], func)
+        return func
