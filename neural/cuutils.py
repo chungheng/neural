@@ -94,6 +94,16 @@ class CUDASpikeGenerator(object):
             self.gpu_seed, self.gpu_scale.gpudata, self.spike.gpudata)
 
 def cu_lpf(stimulus, dt, freq):
+    """
+    CUDA implementation of low-pass-filter.
+
+    stimulus: ndarray
+        The input to be filtered.
+    dt: float
+        The sampling interval of the input.
+    freq: float
+        The cut-off frequency of the low pass filter.
+    """
     num = len(stimulus)
     num_fft = num/2 + 1
     idtype = stimulus.dtype
