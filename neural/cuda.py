@@ -149,7 +149,7 @@ __global__ void {{ model_name }} (
 {
     /* TODO: option for 1-D or 2-D */
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid > num_thread)
+    if (tid >= num_thread)
         return;
 
     States states, gstates;
