@@ -228,8 +228,11 @@ class Model(object):
         self.cuda_kernel = self.get_cuda_kernel(
             dtype=dtype, inputs_gdata=inputs_gdata, params_gdata=params_gdata)
 
-        self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock,1,1)
-        self.cuda_kernel.grid = ((num - 1) / self.cuda_kernel.threadsPerBlock + 1, 1)
+        self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock, 1, 1)
+        self.cuda_kernel.grid = (
+            min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
+                (num-1) / self.cuda_kernel.threadsPerBlock + 1),
+            1)
         self.cuda_kernel.num = num
 
         if self.cuda_kernel.has_random:

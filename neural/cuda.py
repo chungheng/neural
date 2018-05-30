@@ -35,8 +35,8 @@ __global__ void  generate_seed(
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     int total_threads = gridDim.x * blockDim.x;
 
-    for (int i = tid; i < num; i += total_threads)
-        curand_init(clock64(), i, 0, &seed[i]);
+    for (int nid = tid; nid < num; nid += total_threads)
+        curand_init(clock64(), nid, 0, &seed[nid]);
 
     return;
 }
@@ -149,79 +149,81 @@ __global__ void {{ model_name }} (
 {
     /* TODO: option for 1-D or 2-D */
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= num_thread)
-        return;
+    int total_threads = gridDim.x * blockDim.x;
 
-    States states, gstates;
-    {%- if inters %}
-    Inters inters;
-    {% endif %}
+    for (int nid = tid; nid < num_comps; nid += total_threads) {
 
-    /* import data */
-    {%- for key in states %}
-    states.{{ key }} = g_{{ key }}[tid];
-    {%- endfor %}
-    {%- if inters %}
-    {%- for key in inters %}
-    inters.{{ key }} = g_{{ key }}[tid];
-    {%- endfor %}
-    {%- endif %}
-    {%- for key in params_gdata %}
-    {{ float_type }} {{ key.upper() }} = g_{{ key }}[tid];
-    {%- endfor %}
-    {%- for (key, ftype, isArray) in ode_signature %}
-    {%- if isArray %}
-    {{ ftype }} {{ key }} = g_{{ key }}[tid];
-    {%-  endif %}
-    {%- endfor %}
-    {%- if post_src|length > 0 -%}
-    {%- for (key, ftype, isArray) in post_signature %}
-    {%- if isArray %}
-    {{ ftype }} {{ key }} = g_{{ key }}[tid];
-    {%-  endif %}
-    {%- endfor %}
-    {%-  endif %}
+        States states, gstates;
+        {%- if inters %}
+        Inters inters;
+        {% endif %}
 
-    {%  if run_step %}{%  endif %}
-    /* compute gradient */
-    ode(states, gstates
-        {%- if inters %}, inters{%  endif %}
-        {%- for key in params_gdata -%}
-        , {{ key.upper() }}
-        {%- endfor -%}
-        {%- for (key, _, _) in ode_signature -%}
-        , {{ key }}
-        {%- endfor -%}
-        {%- if ode_has_random -%}, seed[tid]{%- endif -%}
-    );
+        /* import data */
+        {%- for key in states %}
+        states.{{ key }} = g_{{ key }}[nid];
+        {%- endfor %}
+        {%- if inters %}
+        {%- for key in inters %}
+        inters.{{ key }} = g_{{ key }}[nid];
+        {%- endfor %}
+        {%- endif %}
+        {%- for key in params_gdata %}
+        {{ float_type }} {{ key.upper() }} = g_{{ key }}[nid];
+        {%- endfor %}
+        {%- for (key, ftype, isArray) in ode_signature %}
+        {%- if isArray %}
+        {{ ftype }} {{ key }} = g_{{ key }}[nid];
+        {%-  endif %}
+        {%- endfor %}
+        {%- if post_src|length > 0 -%}
+        {%- for (key, ftype, isArray) in post_signature %}
+        {%- if isArray %}
+        {{ ftype }} {{ key }} = g_{{ key }}[nid];
+        {%-  endif %}
+        {%- endfor %}
+        {%-  endif %}
 
-    /* solve ode */
-    forward(states, gstates, dt);
+        {%  if run_step %}{%  endif %}
+        /* compute gradient */
+        ode(states, gstates
+            {%- if inters %}, inters{%  endif %}
+            {%- for key in params_gdata -%}
+            , {{ key.upper() }}
+            {%- endfor -%}
+            {%- for (key, _, _) in ode_signature -%}
+            , {{ key }}
+            {%- endfor -%}
+            {%- if ode_has_random -%}, seed[nid]{%- endif -%}
+        );
 
-    {% if bounds -%}
-    /* clip */
-    clip(states);
-    {%- endif %}
+        /* solve ode */
+        forward(states, gstates, dt);
 
-    {%- if post_src|length > 0 -%}
-    /* post processing */
-    post(states
-        {%- if inters %}, inters{%  endif %}
-        {%- for (key, _, _) in post_signature -%}
-        , {{ key }}
-        {%- endfor -%}
-    );
-    {%- endif %}
+        {% if bounds -%}
+        /* clip */
+        clip(states);
+        {%- endif %}
 
-    /* export data */
-    {%- for key in states %}
-    g_{{ key }}[tid] = states.{{ key }};
-    {%- endfor %}
-    {%- if inters %}
-    {%- for key in inters %}
-    g_{{ key }}[tid] = inters.{{ key }};
-    {%- endfor %}
-    {% endif %}
+        {%- if post_src|length > 0 -%}
+        /* post processing */
+        post(states
+            {%- if inters %}, inters{%  endif %}
+            {%- for (key, _, _) in post_signature -%}
+            , {{ key }}
+            {%- endfor -%}
+        );
+        {%- endif %}
+
+        /* export data */
+        {%- for key in states %}
+        g_{{ key }}[nid] = states.{{ key }};
+        {%- endfor %}
+        {%- if inters %}
+        {%- for key in inters %}
+        g_{{ key }}[nid] = inters.{{ key }};
+        {%- endfor %}
+        {% endif %}
+    }
 
     return;
 }
