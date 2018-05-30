@@ -245,8 +245,7 @@ class Model(object):
 
     def cuda_update(self, d_t, **kwargs):
         st = kwargs.pop('st', None)
-
-        args = [ ]
+        args = []
         for key, dtype in zip(self.cuda_kernel.args, self.cuda_kernel.arg_type[2:]):
             val = self.gdata.get(key, None)
             if key == 'seed':
