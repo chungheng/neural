@@ -151,7 +151,7 @@ __global__ void {{ model_name }} (
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int total_threads = gridDim.x * blockDim.x;
 
-    for (int nid = tid; nid < num_comps; nid += total_threads) {
+    for (int nid = tid; nid < num_thread; nid += total_threads) {
 
         States states, gstates;
         {%- if inters %}
