@@ -66,6 +66,16 @@ _generate_seed = mod.get_function("generate_seed")
 _generate_seed.prepare('iP')
 
 class CUDASpikeGenerator(object):
+    """
+    CUDA implementation of low-pass-filter.
+
+    stimulus: ndarray
+        The input to be filtered.
+    dt: float
+        The sampling interval of the input.
+    freq: float
+        The cut-off frequency of the low pass filter.
+    """
     def __init__(self, dt, num, scale, **kwargs):
         self.dtype = kwargs.pop('dtype', np.float64)
 
