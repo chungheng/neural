@@ -1,5 +1,6 @@
 from StringIO import StringIO
 
+from functools import wraps
 import random
 import numpy as np
 from jinja2 import Template
@@ -477,6 +478,16 @@ class CudaGenerator(CodeGenerator):
     def _generate_cuda_func(self, func, args):
         return "%s(%s)" % (func, ', '.join(args))
 
+    def _random_func(func):
+        """
+        A decorator for registering random functions
+        """
+        @wraps(func)
+        def wrap(self, args):
+            self.has_random = True
+            return func(self, args)
+        return wrap
+
     def py2cu_np_abs(self, args):
         return self._generate_cuda_func('abs', args)
 
@@ -492,11 +503,13 @@ class CudaGenerator(CodeGenerator):
     def py2cu_np_sqrt(self, args):
         return self._generate_cuda_func('sqrtf', args)
 
+    @_random_func
     def py2cu_random_gauss(self, args):
         func = 'curand_normal(&seed)'
 
         return "({0}+{1}*{2})".format(args[0], args[1], func)
 
+    @_random_func
     def py2cu_random_uniform(self, args):
         func = 'curand_uniform(&seed)'
 
