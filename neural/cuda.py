@@ -1,5 +1,6 @@
 from StringIO import StringIO
 
+import random
 import numpy as np
 from jinja2 import Template
 from pycuda.tools import dtype_to_ctype
@@ -237,6 +238,14 @@ class CudaGenerator(CodeGenerator):
         self.model = model
         self.params_gdata = kwargs.pop('params_gdata', [])
         self.inputs_gdata = kwargs.pop('inputs_gdata', dict())
+
+        self.py2cu = {}
+        for key, val in self.__class__.__dict__.items():
+            if callable(val) and 'py2cu_' == key[:6]:
+                func_name = key[6:].replace('_', '.')
+                func = eval(func_name, globals())
+                self.py2cu[func] = val
+
         self.variables = []
         self.has_random = False
         self.ode_has_random = False
@@ -245,6 +254,7 @@ class CudaGenerator(CodeGenerator):
         self.post_local_variables = None
         self.ode_args = None
         self.post_args = None
+        self.func_globals = None
 
         self.ode_src = StringIO()
         self.post_src = StringIO()
@@ -297,6 +307,7 @@ class CudaGenerator(CodeGenerator):
 
     def generate_ode(self):
         _, self.signature, self.kwargs = self.extract_signature(self.model.ode)
+        self.func_globals = self.model.ode.func_globals
         self.variables = []
         self.has_random = False
         self.ostream = self.ode_src
@@ -306,9 +317,11 @@ class CudaGenerator(CodeGenerator):
         self.ode_args = self.process_signature()
         self.ode_has_random = self.has_random
         self.has_random = self.has_random or self.ode_has_random
+        self.func_globals = None
 
     def generate_post(self):
         _, self.signature, self.kwargs = self.extract_signature(self.model.post)
+        self.func_globals = self.model.post.func_globals
         self.variables = []
         self.has_random = False
         self.ostream = self.post_src
@@ -318,6 +331,7 @@ class CudaGenerator(CodeGenerator):
         self.post_args = self.process_signature()
         self.post_has_random = self.has_random
         self.has_random = self.has_random or self.post_has_random
+        self.func_globals = None
 
     def process_signature(self):
         new_signature = []
@@ -457,31 +471,38 @@ class CudaGenerator(CodeGenerator):
         self.var[-1] = "return %s" % val
 
     def pyfunc_to_cufunc(self, func, args):
-        seg = func.split('.')
-        if seg[0] == 'np' or seg[0] == 'numpy':
-            if seg[1] == 'exp':
-                func = 'expf'
-            elif seg[1] == 'power':
-                func = 'powf'
-            elif seg[1] == 'cbrt':
-                func = 'cbrtf'
-            elif seg[1] == 'sqrt':
-                func = 'sqrtf'
-            elif seg[1] == 'abs':
-                func = 'abs'
-        elif seg[0] == 'random':
-            self.has_random = True
-            if seg[1] == 'uniform':
-                func = 'curand_uniform(&seed)'
-            if seg[1] == 'gauss':
-                func = 'curand_normal(&seed)'
+        func = eval(func, self.func_globals)
+        return self.py2cu[func](self, args)
 
-            if len(args) == 1:
-                func = "(%s*%s)" % (args[0], func)
-            elif len(args) == 2:
-                func = "({0}+({1}-{0})*{2})".format(args[0], args[1], func)
+    def _generate_cuda_func(self, func, args):
+        return "%s(%s)" % (func, ', '.join(args))
 
-            return func
+    def py2cu_np_abs(self, args):
+        return self._generate_cuda_func('abs', args)
 
-        func += "(%s)" % (', '.join(args))
+    def py2cu_np_exp(self, args):
+        return self._generate_cuda_func('expf', args)
+
+    def py2cu_np_power(self, args):
+        return self._generate_cuda_func('powf', args)
+
+    def py2cu_np_cbrt(self, args):
+        return self._generate_cuda_func('cbrtf', args)
+
+    def py2cu_np_sqrt(self, args):
+        return self._generate_cuda_func('sqrtf', args)
+
+    def py2cu_random_gauss(self, args):
+        func = 'curand_normal(&seed)'
+
+        return "({0}+{1}*{2})".format(args[0], args[1], func)
+
+    def py2cu_random_uniform(self, args):
+        func = 'curand_uniform(&seed)'
+
+        if len(args) == 1:
+            func = "(%s*%s)" % (args[0], func)
+        elif len(args) == 2:
+            func = "({0}+({1}-{0})*{2})".format(args[0], args[1], func)
+
         return func
