@@ -233,28 +233,24 @@ __global__ void {{ model_name }} (
 {% if has_random %}}{%- endif %}
 """
 
-class Py2CudaWrapper(object):
-    """
-    Decorator class for mapping Python function to CUDA function
-    """
-    dct = {}
-
-    def __init__(self, *funcs):
-        self.pyfuncs = funcs
-
-    def __call__(self, func):
-        for pyfunc in self.pyfuncs:
-            self.dct[pyfunc] = func
-        return func
+class MetaClass(type):
+    def __new__(cls, clsname, bases, dct):
+        py2cu = dict()
+        for key, val in dct.items():
+            if callable(val) and hasattr(val, '_source_funcs'):
+                for func in val._source_funcs:
+                    py2cu[func] = val
+        dct['pyfunc_to_cufunc'] = py2cu
+        return super(MetaClass, cls).__new__(cls, clsname, bases, dct)
 
 class CudaGenerator(CodeGenerator):
+    __metaclass__ = MetaClass
+
     def __init__(self, model, **kwargs):
         self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
         self.model = model
         self.params_gdata = kwargs.pop('params_gdata', [])
         self.inputs_gdata = kwargs.pop('inputs_gdata', dict())
-
-        self.pyfunc_to_cufunc = Py2CudaWrapper.dct.copy()
 
         self.variables = []
         self.has_random = False
@@ -492,34 +488,40 @@ class CudaGenerator(CodeGenerator):
             return func(self, args)
         return wrap
 
-    @Py2CudaWrapper(np.abs)
+    def _py2cuda(*source_funcs):
+        def wrapper(func):
+            func._source_funcs = source_funcs
+            return func
+        return wrapper
+
+    @_py2cuda(np.abs)
     def _np_abs(self, args):
         return self._generate_cuda_func('abs', args)
 
-    @Py2CudaWrapper(np.exp)
+    @_py2cuda(np.exp)
     def _np_exp(self, args):
         return self._generate_cuda_func('expf', args)
 
-    @Py2CudaWrapper(np.power)
+    @_py2cuda(np.power)
     def _np_power(self, args):
         return self._generate_cuda_func('powf', args)
 
-    @Py2CudaWrapper(np.cbrt)
+    @_py2cuda(np.cbrt)
     def _np_cbrt(self, args):
         return self._generate_cuda_func('cbrtf', args)
 
-    @Py2CudaWrapper(np.sqrt)
+    @_py2cuda(np.sqrt)
     def _np_sqrt(self, args):
         return self._generate_cuda_func('sqrtf', args)
 
-    @Py2CudaWrapper(random.gauss, np.random.normal)
+    @_py2cuda(random.gauss, np.random.normal)
     @_random_func
     def _random_gauss(self, args):
         func = 'curand_normal(&seed)'
 
         return "({0}+{1}*{2})".format(args[0], args[1], func)
 
-    @Py2CudaWrapper(random.uniform)
+    @_py2cuda(random.uniform)
     @_random_func
     def _random_uniform(self, args):
         func = 'curand_uniform(&seed)'
