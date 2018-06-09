@@ -434,8 +434,11 @@ class CudaGenerator(CodeGenerator):
             args = [] if narg == 0 else self.var[-narg:]
             func_name = self.var[-(narg+1)]
             pyfunc = eval(func_name, self.func_globals)
-            cufunc = self.pyfunc_to_cufunc[pyfunc]
-            self.var[-(narg+1)] = cufunc(self, args)
+            cufunc = self.pyfunc_to_cufunc.get(pyfunc)
+            if cufunc is not None:
+                self.var[-(narg+1)] = cufunc(self, args)
+            else:
+                self.var[-(narg+1)] = func_name + "(%s)" % ','.join(args)
 
         if narg:
             del self.var[-narg:]
