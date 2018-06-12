@@ -135,18 +135,26 @@ class ConnorStevens(Model):
     def ode(self, **kwargs):
         stimulus = kwargs.pop('stimulus', 0)
 
-        alpha = -.01*(self.v+50+self.ns)/(np.exp(-(self.v+50+self.ns)/10)-1)
-        beta = .125*np.exp(-(self.v+60+self.ns)/80)
+        alpha = np.exp(-(self.v+50.+self.ns)/10.)-1.
+        if abs(alpha) <= 1e-7:
+            alpha = 0.1
+        else:
+            alpha = -0.01*(self.v+50.+self.ns)/alpha
+        beta = .125*np.exp(-(self.v+60.+self.ns)/80.)
         n_inf = alpha/(alpha+beta)
-        tau_n = 2/(3.8*(alpha+beta))
+        tau_n = 2./(3.8*(alpha+beta))
 
-        alpha = -.1*(self.v+35+self.ms)/(np.exp(-(self.v+35+self.ms)/10)-1)
-        beta = 4.*np.exp(-(self.v+60+self.ms)/18)
+        alpha = np.exp(-(self.v+35.+self.ms)/10.)-1.
+        if abs(alpha) <= 1e-7:
+            alpha = 1.
+        else:
+            alpha = -.1*(self.v+35.+self.ms)/alpha
+        beta = 4.*np.exp(-(self.v+60.+self.ms)/18.)
         m_inf = alpha/(alpha+beta)
-        tau_m = 1/(3.8*(alpha+beta))
+        tau_m = 1./(3.8*(alpha+beta))
 
-        alpha = .07*np.exp(-(self.v+60+self.hs)/20)
-        beta = 1./(1.+np.exp(-(self.v+30+self.hs)/10))
+        alpha = .07*np.exp(-(self.v+60.+self.hs)/20.)
+        beta = 1./(1.+np.exp(-(self.v+30.+self.hs)/10.))
         h_inf = alpha/(alpha+beta)
         tau_h = 1/(3.8*(alpha+beta))
 
