@@ -59,9 +59,19 @@ class Model(object):
         forwardEuler: forward Euler method.
 
     Class Attributes:
-        Default_States (dict):
-        Default_Params (dict):
-        Default_Inters (dict): Optional.
+        Default_States (dict): The default value of the state varaibles.
+            Each items represents the name (`key`) and the default value
+            (`value`) of one state variables. If `value` is a tuple of three
+            numbers, the first number is the default value, and the last two
+            are the lower and the upper bound of the state variables.
+        Default_Params (dict): The default value of the parameters. Each items
+            represents the name (`key`) and the default value (`value`) of one
+            parameters.
+        Default_Inters (dict): Optional. The default value of the intermediate
+            variables. Each items represents the name (`key`) and the default value of one intermediate variable.
+            (`value`) of one state variables.
+        Default_Bounds (dict): The lower and the upper bound of the state
+            variables. It is created through the `ModelMetaClass`.
 
     Attributes:
         states (dict): the state variables, updated by the ODE.
@@ -79,6 +89,7 @@ class Model(object):
 
         Keyword arguments:
             optimize (bool): optimize the `ode` function.
+            float (type): The data type of float point.
         """
         optimize = kwargs.pop('optimize', False) and (OdeGenerator is not None)
         float = kwargs.pop('float', np.float32)
@@ -146,6 +157,9 @@ class Model(object):
             setattr(cls, 'ode_opt', ode)
 
     def cuda_prerun(self, **kwargs):
+        """
+        num (int): The number of units for CUDA kernel excution.
+        """
         num = kwargs.pop('num', None)
         dtype = kwargs.pop('dtype', np.float32)
 
