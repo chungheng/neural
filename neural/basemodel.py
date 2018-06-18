@@ -158,7 +158,9 @@ class Model(object):
 
     def cuda_prerun(self, **kwargs):
         """
-        num (int): The number of units for CUDA kernel excution.
+        Keyword Arguments:
+            num (int): The number of units for CUDA kernel excution.
+            dtype (type): The default type of floating point for CUDA.
         """
         num = kwargs.pop('num', None)
         dtype = kwargs.pop('dtype', np.float32)
@@ -341,6 +343,9 @@ class Model(object):
 
         Arguments:
             d_t (float): time steps.
+            kwargs (dict): Arguments for input(s) or other purposes. For
+            example, one can use an extra boolean flag to indicate the
+            period for counting spikes.
 
         Notes:
             The signature of the function does not specify _stimulus_
