@@ -152,3 +152,45 @@ def compute_psth(spikes, d_t, window, interval):
     stamps = np.arange(0, len(rates)*interval-d_t, interval)
 
     return rates, stamps
+
+class PSTH(object):
+    def __init__(self, spikes, dt, window=20e-3, shift=10e-3):
+        self.window = window
+        self.shift = shift
+        self.dt = dt
+        self.spikes = spikes
+
+        self.psth, self.t = self.compute()
+
+    def compute(self):
+        spikes = self.spikes
+        if len(spikes.shape) > 1:
+            axis = int(spikes.shape[0] > spikes.shape[1])
+            spikes = np.mean(spikes, axis=axis)
+
+        cum_spikes = np.cumsum(spikes)
+
+        duration = self.dt*len(cum_spikes)
+        start = np.arange(0., duration-self.window, self.shift) // self.dt
+        stop  = np.arange(self.window, duration-self.dt, self.shift ) // self.dt
+        start = start.astype(int, copy=False)
+        stop  = stop.astype(int, copy=False)
+
+        start = start[:len(stop)]
+
+        rates = (cum_spikes[stop] - cum_spikes[start]) / self.window
+        stamps = np.arange(0, len(rates)*self.shift-self.dt, self.shift)
+
+        return rates, stamps
+
+    def merge(self, others):
+        if not hasattr(others, '__len__'):
+            others = [others]
+        for other in others:
+            assert np.all(self.t == other.t)
+
+        stack = [self.psth]
+        for other in others:
+            stack.append(other.psth)
+
+        self.psth = np.vstack(stack)
