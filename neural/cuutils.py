@@ -9,7 +9,7 @@ from pycuda.compiler import SourceModule
 
 from skcuda.fft import fft, Plan, ifft
 
-src_cuda = """
+src_random_cuda = """
 #include <cuda.h>
 #include <curand.h>
 #include <curand_kernel.h>
@@ -54,8 +54,64 @@ __global__ void  generate_spike(
 }
 }
 """
+src_repeat_cuda = """
 
-mod = SourceModule(src_cuda,
+__global__ void repeat_float(
+    int num,
+    int repeat,
+    float *input,
+    float *output
+)
+{
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int total_threads = gridDim.x * blockDim.x;
+
+    int tot_num = num*repeat;
+    __shared__ float buffer[blockDim.x/2];
+
+    if (tid >= tot_num)
+        return;
+
+    int start = blockIdx.x * blockDim.x / repeat;
+    int end = int(ceil(float((blockIdx.x+1) * blockDim.x - 1) / repeat));
+
+    if (threadIdx.x < (end - start))
+        buffer[threadIdx.x] = input[start+threadIdx.x];
+    __syncthreads();
+
+    output[tid] = buffer[tid/repeat - start];
+    return;
+}
+
+__global__ void repeat_double(
+    int num,
+    int repeat,
+    double *input,
+    double *output
+)
+{
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int total_threads = gridDim.x * blockDim.x;
+
+    int tot_num = num*repeat;
+    __shared__ double buffer[blockDim.x/2];
+
+    if (tid >= tot_num)
+        return;
+
+    int start = blockIdx.x * blockDim.x / repeat;
+    int end = int(ceil(float((blockIdx.x+1) * blockDim.x - 1) / repeat));
+
+    if (threadIdx.x < (end - start))
+        buffer[threadIdx.x] = input[start+threadIdx.x];
+    __syncthreads();
+
+    output[tid] = buffer[tid/repeat - start];
+    return;
+}
+"""
+
+mod = SourceModule(src_random_cuda,
     options = ["--ptxas-options=-v"],
     no_extern_c = True
 )
@@ -64,6 +120,16 @@ _generate_spike.prepare('iddPPP')
 
 _generate_seed = mod.get_function("generate_seed")
 _generate_seed.prepare('iP')
+
+mod = SourceModule(src_repeat_cuda,
+    options = ["--ptxas-options=-v"]
+)
+
+_repeat_float =  mod.get_function("repeat_float")
+_repeat_float.prepare('iiPP')
+
+_repeat_double =  mod.get_function("repeat_double")
+_repeat_double.prepare('iiPP')
 
 class CUDASpikeGenerator(object):
     """
@@ -96,7 +162,6 @@ class CUDASpikeGenerator(object):
         self._generate_seed = _generate_seed
         self._generate_seed.prepared_async_call(
             self.grid, self.block, None, np.int32(self.num), self.gpu_seed)
-
 
     def generate(self, rate):
         self._generate_spike.prepared_async_call(
@@ -138,6 +203,47 @@ def cu_lpf(stimulus, dt, freq):
 
     plan = Plan(stimulus.shape, odtype, idtype)
     d_lpf_stimulus = gpuarray.empty(num, idtype)
-    ifft(d_fstimulus, d_lpf_stimulus, plan, True)
+    ifft(d_fstimulus, d_lpf_stimulus, plan, False)
 
     return d_lpf_stimulus.get()
+
+def cu_repeat(input, repeat, output=None):
+    """
+    Repeat a PyCUDA 1-D array.
+
+    Parameters
+    ----------
+    input: pycuda.GPUArray
+        the input to be repeated.
+    repeat: int
+        the number of repeatition. Only supports 1-D array now.
+    output: pycuda.GPUArray, optional
+        the output. If not given, the output will be created with length of
+        ``len(input)*repeat''.
+
+    Examples
+    --------
+    >>> import pycuda.gpuarray as gpuarray
+    >>> a = gpuarray.to_gpu([1., 2. ,3.])
+    >>> a_repeat = cu_repeat(a, 5)
+    >>> numpy.allclose(numpy.repeat(a.get(), 5), a_repeat.get())
+    """
+    num = len(input)
+    tot_num = num*repeat
+    if output is None:
+        output = gpuarray.empty(num*repeat, input.dtype)
+
+    block = (1024,1,1)
+    grid = (min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
+            (tot_num-1) / block[0] + 1), 1)
+
+    if input.dtype == np.float32:
+        _repeat_float.prepared_async_call(grid, block, None,
+        num, repeat, input.gpudata, output.gpudata)
+    elif input.dtype == np.float64:
+        _repeat_double.prepared_async_call(grid, block, None,
+        num, repeat, input.gpudata, output.gpudata)
+    else:
+        raise TypeError(repr(input.dtype))
+
+    return output
