@@ -55,6 +55,7 @@ __global__ void  generate_spike(
 }
 """
 src_repeat_cuda = """
+#define THREADS_PER_BLOCK 1024
 
 __global__ void repeat_float(
     int num,
@@ -64,10 +65,8 @@ __global__ void repeat_float(
 )
 {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    int total_threads = gridDim.x * blockDim.x;
-
     int tot_num = num*repeat;
-    __shared__ float buffer[blockDim.x/2];
+    __shared__ float buffer[THREADS_PER_BLOCK/2];
 
     if (tid >= tot_num)
         return;
@@ -91,10 +90,9 @@ __global__ void repeat_double(
 )
 {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    int total_threads = gridDim.x * blockDim.x;
 
     int tot_num = num*repeat;
-    __shared__ double buffer[blockDim.x/2];
+    __shared__ double buffer[THREADS_PER_BLOCK/2];
 
     if (tid >= tot_num)
         return;
