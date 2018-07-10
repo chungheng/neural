@@ -47,6 +47,7 @@ class VariableAnalyzer(CodeGenerator):
         return self.symbol_src.getvalue() + self.ode_src.getvalue()
 
     def get_symbols(self):
+        self.symbol_src.write("t = Symbol('t')%c" % self.newline)
         for key, val in self.variables.items():
             if val is not None and val != 'local':
                 self.symbol_src.write("{0} = Symbol('{0}'){1}".format(key, self.newline))
