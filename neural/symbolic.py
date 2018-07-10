@@ -23,6 +23,9 @@ class VariableAnalyzer(CodeGenerator):
         self.model = model
         self.symbol_src = StringIO()
         self.ode_src = StringIO()
+        self.states = []
+        self.params = []
+        self.inputs = []
 
         self.equations = []
 
@@ -42,6 +45,12 @@ class VariableAnalyzer(CodeGenerator):
         self.generate()
         self.get_symbols()
 
+        self.sympy_dct = {}
+        self.latex_src = None
+
+        self.compile_sympy()
+        self.generate_latex()
+
     @property
     def sympy_src(self):
         return self.symbol_src.getvalue() + self.ode_src.getvalue()
@@ -51,8 +60,33 @@ class VariableAnalyzer(CodeGenerator):
         for key, val in self.variables.items():
             if val is not None and val != 'local':
                 self.symbol_src.write("{0} = Symbol('{0}'){1}".format(key, self.newline))
+            if val == 'state':
+                self.states.append(key)
+            elif val == 'parameter':
+                self.params.append(key)
+
         for key in self.signature:
+            self.inputs.append(key)
             self.symbol_src.write("{0} = Symbol('{0}'){1}".format(key, self.newline))
+
+        self.states.sort()
+        self.params.sort()
+        self.inputs.sort()
+
+    def compile_sympy(self):
+        exec(self.sympy_src, globals(), self.sympy_dct)
+
+    def generate_latex(self):
+        states_src = ',~'.join([latex(self.sympy_dct[x]) for x in self.states])
+        params_src = ',~'.join([latex(self.sympy_dct[x]) for x in self.params])
+        template_src = r'\mbox{State Variables: }%s\\\mbox{Parameters: }%s\\'
+        self.latex_src = template_src % (states_src, params_src)
+
+        self.latex_src += r'\begin{eqnarray}'
+        for eq in self.equations:
+            tmp = latex(self.sympy_dct[eq])
+            self.latex_src += tmp.replace('=',' &=& ') + r'\\'
+        self.latex_src += r'\end{eqnarray}'
 
     def _extract_signature(self, func):
         old_signature = get_func_signature(func)
