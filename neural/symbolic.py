@@ -133,9 +133,10 @@ class VariableAnalyzer(CodeGenerator):
         key = ins.arg_name
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
-                key = key[2:]
+                seg = key.split('d_')
+                key = seg[-1]
                 self.variables[key] = 'state'
-                key = 'Derivative(%s, t)' % key
+                key = 'Derivative(%s%s)' % (key, ', t'*(len(seg)-1))
             elif self.variables[key] is None:
                 self.variables[key] = 'parameter'
             self.var[-1] = key
