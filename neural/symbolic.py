@@ -1,4 +1,5 @@
 import numpy as np
+import os
 from StringIO import StringIO
 from sympy import *
 import types
@@ -26,11 +27,11 @@ class VariableAnalyzer(CodeGenerator):
         self.model = model
         self.equations = []
 
-        CodeGenerator.__init__(self, model.ode.func_code)
         _, self.signature, self.kwargs = self._extract_signature(self.model.ode)
-
-        self.variables = {}
-        self.generate()
+        with open(os.devnull, 'w') as f:
+            CodeGenerator.__init__(self, model.ode.func_code, ostream=f)
+            self.variables = {}
+            self.generate()
 
     def _extract_signature(self, func):
         old_signature = get_func_signature(func)
