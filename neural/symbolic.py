@@ -97,10 +97,10 @@ class SympyGenerator(VariableAnalyzer):
     __metaclass__ = MetaClass
     def __init__(self, model, **kwargs):
         VariableAnalyzer.__init__(self, model, **kwargs)
-        for attr in ['states', 'parameters', 'inputs']:
+        for attr in ['state', 'parameter', 'input']:
             lst = [key for key, val in self.variables.items() if val == attr]
             lst.sort()
-            setattr(self, attr, lst)
+            setattr(self, attr+'s', lst)
         self.ode_src = StringIO()
         self.symbol_src = StringIO()
         self.ostream = self.ode_src
@@ -189,11 +189,16 @@ class SympyGenerator(VariableAnalyzer):
 
     def _handle_store_attr(self, ins):
         self.handle_load_attr(ins)
-        eqn = "Eq(%s, %s)" % (self.var[-1], self.var[-2])
-        self.equations.append('eqn_%d' % len(self.equations))
-        self.var[-2] = "%s = %s" % (self.equations[-1], eqn)
-
+        rval, lval = self.var[-2:]
         del self.var[-1]
+        cond = rval in self.variables and self.variables[rval] == 'state'
+        if not (cond and 'Derivative' in lval):
+            eqn = "Eq(%s, %s)" % (lval, rval)
+            self.equations.append('eqn_%d' % len(self.equations))
+            self.var[-1] = "%s = %s" % (self.equations[-1], eqn)
+        else:
+            del self.var[-1]
+
 
     def _handle_store_fast(self, ins):
         key = ins.arg_name
