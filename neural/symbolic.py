@@ -93,38 +93,32 @@ class VariableAnalyzer(CodeGenerator):
         elif store and key not in self.variables:
             self.variables[key] = 'local'
 
-class SympyGenerator(CodeGenerator):
+class SympyGenerator(VariableAnalyzer):
     __metaclass__ = MetaClass
     def __init__(self, model, **kwargs):
-        self.model = model
-        self.symbol_src = StringIO()
+        VariableAnalyzer.__init__(self, model, **kwargs)
+        for attr in ['states', 'parameters', 'inputs']:
+            lst = [key for key, val in self.variables.items() if val == attr]
+            lst.sort()
+            setattr(self, attr, lst)
         self.ode_src = StringIO()
-        self.states = []
-        self.params = []
-        self.inputs = []
+        self.symbol_src = StringIO()
+        self.ostream = self.ode_src
 
-        self.equations = []
-
-        CodeGenerator.__init__(self, model.ode.func_code, ostream=self.ode_src)
-
-        _, self.signature, self.kwargs = self._extract_signature(self.model.ode)
-
-        self.variables = {}
-        # for key in ['Default_States', 'Default_Inters', 'Default_Params']:
-        #     if not hasattr(self.model, key):
-        #         continue
-        #     attr = getattr(self.model, key)
-        #     for var in attr.keys():
-        #         self.variables[var] = None
-
+        for key in dir(self):
+            if key[:8] == '_handle_':
+                setattr(self, key[1:], getattr(self, key))
+        #
         self.generate()
+        print self.ode_src.getvalue()
         self.get_symbols()
 
         self.sympy_dct = {}
         self.latex_src = None
-
+        #
         self.compile_sympy()
         self.generate_latex()
+
 
     @property
     def sympy_src(self):
@@ -133,27 +127,24 @@ class SympyGenerator(CodeGenerator):
     def get_symbols(self):
         self.symbol_src.write("t = Symbol('t')%c" % self.newline)
         for key, val in self.variables.items():
-            if val is not None and val != 'local':
-                self.symbol_src.write("{0} = Symbol('{0}'){1}".format(key, self.newline))
-            if val == 'state':
-                self.states.append(key)
-            elif val == 'parameter':
-                self.params.append(key)
+            if val != 'local':
+                src = "{0} = Symbol('{0}'){1}".format(key, self.newline)
+                self.symbol_src.write(src)
+        #
+        # for key in self.signature:
+        #     self.inputs.append(key)
+        #     self.symbol_src.write("{0} = Symbol('{0}'){1}".format(key, self.newline))
 
-        for key in self.signature:
-            self.inputs.append(key)
-            self.symbol_src.write("{0} = Symbol('{0}'){1}".format(key, self.newline))
-
-        self.states.sort()
-        self.params.sort()
-        self.inputs.sort()
+        # self.states.sort()
+        # self.params.sort()
+        # self.inputs.sort()
 
     def compile_sympy(self):
         exec(self.sympy_src, globals(), self.sympy_dct)
 
     def generate_latex(self):
         states_src = ',~'.join([latex(self.sympy_dct[x]) for x in self.states])
-        params_src = ',~'.join([latex(self.sympy_dct[x]) for x in self.params])
+        params_src = ',~'.join([latex(self.sympy_dct[x]) for x in self.parameters])
         template_src = r'\mbox{State Variables: }%s\\\mbox{Parameters: }%s\\'
         self.latex_src = template_src % (states_src, params_src)
 
@@ -163,25 +154,7 @@ class SympyGenerator(CodeGenerator):
             self.latex_src += tmp.replace('=',' &=& ') + r'\\'
         self.latex_src += r'\end{eqnarray}'
 
-    def _extract_signature(self, func):
-        old_signature = get_func_signature(func)
-        new_signature = []
-
-        kwargs = None
-        for key in old_signature:
-            if key == 'self':
-                continue
-            elif key[:2] == '**':
-                kwargs = key[2:]
-                continue
-            elif key[1] == '*':
-                raise
-            else:
-                new_signature.append(key.split('=')[0])
-        return old_signature, new_signature, kwargs
-
-
-    def handle_call_function(self, ins):
+    def _handle_call_function(self, ins):
         narg = int(ins.arg)
 
         # hacky way to handle keyword arguments
@@ -204,21 +177,17 @@ class SympyGenerator(CodeGenerator):
         if narg:
             del self.var[-narg:]
 
-    def handle_load_attr(self, ins):
+    def _handle_load_attr(self, ins):
         key = ins.arg_name
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
                 seg = key.split('d_')
-                key = seg[-1]
-                self.variables[key] = 'state'
-                key = 'Derivative(%s%s)' % (key, ', t'*(len(seg)-1))
-            elif self.variables[key] is None:
-                self.variables[key] = 'parameter'
+                key = 'Derivative(%s%s)' % (seg[-1], ', t'*(len(seg)-1))
             self.var[-1] = key
         else:
-            self.var[-1] += ".%s" % key
+            self.var[-1] += "." + key
 
-    def handle_store_attr(self, ins):
+    def _handle_store_attr(self, ins):
         self.handle_load_attr(ins)
         eqn = "Eq(%s, %s)" % (self.var[-1], self.var[-2])
         self.equations.append('eqn_%d' % len(self.equations))
@@ -226,45 +195,19 @@ class SympyGenerator(CodeGenerator):
 
         del self.var[-1]
 
-    def _handle_store_fast_first_pass(self, ins):
-
+    def _handle_store_fast(self, ins):
         key = ins.arg_name
+
         prefix = ''
         if ins.arg_name == self.var[-1]:
             del self.var[-1]
             return
-        if (key not in self.variables and key not in self.signature) or \
-            self.variables[key] == 'local':
-            self.variables[key] = 'local'
-        elif key[:2] == 'd_':
-            key = key[2:]
-            self.variables[key] = 'state'
-        else:
-            self.variables[key] = 'intermediate'
+        elif self.variables[key] == 'local':
+            prefix = "with evaluate(False):" + self.newline + " "*self.indent
 
         self.var[-1] = "%s%s = %s" % (prefix, key, self.var[-1])
 
-    def _handle_store_fast_second_pass(self, ins):
-
-        key = ins.arg_name
-        prefix = ''
-        if ins.arg_name == self.var[-1]:
-            del self.var[-1]
-            return
-        if (key not in self.variables and key not in self.signature) or \
-            self.variables[key] == 'local':
-            self.variables[key] = 'local'
-            prefix = "with evaluate(False):" + self.newline + " " * (self.indent)
-        elif key[:2] == 'd_':
-            key = key[2:]
-            self.variables[key] = 'state'
-            key = 'Derivative(%s)' % key
-        else:
-            self.variables[key] = 'intermediate'
-
-        self.var[-1] = "%s%s = %s" % (prefix, key, self.var[-1])
-
-    def handle_return_value(self, ins):
+    def _handle_return_value(self, ins):
         self.var[-1] = ""
 
     def _py2sympy(*source_funcs):
