@@ -7,6 +7,19 @@ import types
 from pycodegen.codegen import CodeGenerator
 from pycodegen.utils import get_func_signature
 
+class _Variable(object):
+    default = {
+        'type': None,
+        'integral': None,
+        'derivative': None
+    }
+    def __init__(self, **kwargs):
+        for key, val in self.default.items():
+            val = kwargs.pop(key, val)
+            self.__dict__[key] = val
+        if len(kwargs):
+            raise AttributeError('Invalid attribute: %s' % kwargs.keys()[0])
+
 class MetaClass(type):
     def __new__(cls, clsname, bases, dct):
         py2sympy = dict()
