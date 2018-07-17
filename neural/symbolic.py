@@ -45,6 +45,7 @@ class VariableAnalyzer(CodeGenerator):
             CodeGenerator.__init__(self, model.ode.func_code, ostream=f)
             self.variables = {}
             self.generate()
+            self.generate()
 
     def _extract_signature(self, func):
         old_signature = get_func_signature(func)
@@ -72,7 +73,7 @@ class VariableAnalyzer(CodeGenerator):
             self.var[-(narg+1)] = arg
             new_arg = "%s" % arg
             self.signature.append(new_arg)
-            self.variables[new_arg] = 'input'
+            self.variables[new_arg] = _Variable(type='input')
         else:
             args = [] if narg == 0 else self.var[-narg:]
             func_name = self.var[-(narg+1)]
@@ -87,33 +88,95 @@ class VariableAnalyzer(CodeGenerator):
 
     def handle_store_attr(self, ins):
         self._analyze(ins.arg_name, store=True)
+        self._check_derivative_relation(ins.arg_name, self.var[-2])
         super(VariableAnalyzer, self).handle_store_attr(ins)
 
     def handle_store_fast(self, ins):
         self._analyze(ins.arg_name, store=True)
         super(VariableAnalyzer, self).handle_store_fast(ins)
 
-    def _analyze(self, key, store=False):
+    def _check_derivative_relation(self, lval, rval):
+        rval = rval.split('.')[-1]
+        print lval, rval
+        if not lval in self.variables or self.variables[lval].type != 'state':
+            return
+        if not rval in self.variables or self.variables[rval].type != 'state':
+            return
+        self.variables[lval].integral = rval
+        self.variables[rval].derivative = lval
+
+    def handle_load_fast(self, ins):
+        """
+        ... symbol ...
+        """
+        self.var.append( ins.arg_name )
+
+    def handle_load_attr(self, ins):
+        """
+        ... symbol1.symbol2 ...
+        """
+        is_gradient = False
+        if self.var[-1] == 'self':
+            if key[:2] == 'd_':
+                is_gradient = True
+                key = key.split('d_')[-1]
+                self.variables[key] = _Variable(type='state')
+            elif key not in self.variables:
+                self.variables[key] = _Variable(type='parameter')
+            self.var[-1] = key
+        else:
+            self.var[-1] += "." + ins.arg_name
+        return is_gradient
+
+    def handle_store_attr(self, ins):
+        """
+        symbol1.symbol2 = rvalue
+        """
+        key = ins.arg_name
+        if self.var[-1] == 'self':
+            if key[:2] == 'd_':
+                key = key.split('d_')[-1]
+                self.variables[key] = _Variable(type='state')
+                if self.var[-2] in self.variables:
+                    self.variables[key].integral = self.var[-2]
+                    self.variables[self.var[-2]].derivative = key
+            elif key not in self.variables:
+                self.variables[key] = _Variable(type='intermediate')
+            self.var[-1] = key
+        else:
+            self.var[-1] += "." + ins.arg_name
+        self.var[-2] = self.var[-1] + ' = ' + self.var[-2]
+        del self.var[-1]
+
+    def handle_store_fast(self, ins):
+        """
+        symbol1 = rvalue
+        """
+        self.var[-1] = ins.arg_name + ' = ' + self.var[-1]
+
+    def _load(self, key, store=False):
 
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
                 key = key.split('d_')[-1]
-                self.variables[key] = 'state'
+                self.variables[key] = _Variable(type='state')
             elif store:
-                self.variables[key] = 'intermediate'
+                self.variables[key] = _Variable(type='intermediate')
             elif not store and key not in self.variables:
-                self.variables[key] = 'parameter'
+                self.variables[key] = _Variable(type='parameter')
         elif store and key not in self.variables:
-            self.variables[key] = 'local'
+            self.variables[key] = _Variable(type='local')
+        return key
+
 
 class SympyGenerator(VariableAnalyzer):
     __metaclass__ = MetaClass
     def __init__(self, model, **kwargs):
         VariableAnalyzer.__init__(self, model, **kwargs)
-        for attr in ['state', 'parameter', 'input']:
-            lst = [key for key, val in self.variables.items() if val == attr]
-            lst.sort()
-            setattr(self, attr+'s', lst)
+        # for attr in ['state', 'parameter', 'input']:
+        #     lst = [k for k, v in self.variables.items() if v.type == attr]
+        #     lst.sort()
+        #     setattr(self, attr+'s', lst)
         self.ode_src = StringIO()
         self.symbol_src = StringIO()
         self.ostream = self.ode_src
@@ -123,7 +186,7 @@ class SympyGenerator(VariableAnalyzer):
                 setattr(self, key[1:], getattr(self, key))
         #
         self.generate()
-        print self.ode_src.getvalue()
+        # print self.ode_src.getvalue()
         self.get_symbols()
 
         self.sympy_dct = {}
@@ -140,24 +203,21 @@ class SympyGenerator(VariableAnalyzer):
     def get_symbols(self):
         self.symbol_src.write("t = Symbol('t')%c" % self.newline)
         for key, val in self.variables.items():
-            if val != 'local':
+            if val.type != 'local':
                 src = "{0} = Symbol('{0}'){1}".format(key, self.newline)
                 self.symbol_src.write(src)
-        #
-        # for key in self.signature:
-        #     self.inputs.append(key)
-        #     self.symbol_src.write("{0} = Symbol('{0}'){1}".format(key, self.newline))
-
-        # self.states.sort()
-        # self.params.sort()
-        # self.inputs.sort()
 
     def compile_sympy(self):
         exec(self.sympy_src, globals(), self.sympy_dct)
 
     def generate_latex(self):
-        states_src = ',~'.join([latex(self.sympy_dct[x]) for x in self.states])
-        params_src = ',~'.join([latex(self.sympy_dct[x]) for x in self.parameters])
+        cond = lambda v: v.type == 'state' and v.integral is None
+        states = [k for k, v in self.variables.items() if cond(v)]
+        states.sort()
+        states_src = ',~'.join([latex(self.sympy_dct[x]) for x in states])
+        params = [k for k, v in self.variables.items() if v.type == 'parameter']
+        params.sort()
+        params_src = ',~'.join([latex(self.sympy_dct[x]) for x in params])
         template_src = r'\mbox{State Variables: }%s\\\mbox{Parameters: }%s\\'
         self.latex_src = template_src % (states_src, params_src)
 
@@ -204,7 +264,7 @@ class SympyGenerator(VariableAnalyzer):
         self.handle_load_attr(ins)
         rval, lval = self.var[-2:]
         del self.var[-1]
-        cond = rval in self.variables and self.variables[rval] == 'state'
+        cond = rval in self.variables and self.variables[rval].type == 'state'
         if not (cond and 'Derivative' in lval):
             eqn = "Eq(%s, %s)" % (lval, rval)
             self.equations.append('eqn_%d' % len(self.equations))
@@ -220,7 +280,7 @@ class SympyGenerator(VariableAnalyzer):
         if ins.arg_name == self.var[-1]:
             del self.var[-1]
             return
-        elif self.variables[key] == 'local':
+        elif self.variables[key].type == 'local':
             prefix = "with evaluate(False):" + self.newline + " "*self.indent
 
         self.var[-1] = "%s%s = %s" % (prefix, key, self.var[-1])
