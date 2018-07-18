@@ -19,6 +19,10 @@ class _Variable(object):
             self.__dict__[key] = val
         if len(kwargs):
             raise AttributeError('Invalid attribute: %s' % kwargs.keys()[0])
+    def __setattribute__(self, key, val):
+        if key not in self.__dict__:
+            raise KeyError('Unrecognized key: %s' % key)
+        self.__dict__[key] = val
 
 class MetaClass(type):
     def __new__(cls, clsname, bases, dct):
@@ -82,51 +86,29 @@ class VariableAnalyzer(CodeGenerator):
         if narg:
             del self.var[-narg:]
 
-    def handle_load_attr(self, ins):
-        self._analyze(ins.arg_name, store=False)
-        super(VariableAnalyzer, self).handle_load_attr(ins)
-
-    def handle_store_attr(self, ins):
-        self._analyze(ins.arg_name, store=True)
-        self._check_derivative_relation(ins.arg_name, self.var[-2])
-        super(VariableAnalyzer, self).handle_store_attr(ins)
-
     def handle_store_fast(self, ins):
-        self._analyze(ins.arg_name, store=True)
-        super(VariableAnalyzer, self).handle_store_fast(ins)
-
-    def _check_derivative_relation(self, lval, rval):
-        rval = rval.split('.')[-1]
-        print lval, rval
-        if not lval in self.variables or self.variables[lval].type != 'state':
-            return
-        if not rval in self.variables or self.variables[rval].type != 'state':
-            return
-        self.variables[lval].integral = rval
-        self.variables[rval].derivative = lval
-
-    def handle_load_fast(self, ins):
         """
-        ... symbol ...
+        symbol1 = rvalue
         """
-        self.var.append( ins.arg_name )
+        key = ins.arg_name
+        if key not in self.variables:
+            self.variables[key] = _Variable(type='local')
+        self.var[-1] = key + ' = ' + self.var[-1]
 
     def handle_load_attr(self, ins):
         """
         ... symbol1.symbol2 ...
         """
-        is_gradient = False
+        key = ins.arg_name
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
-                is_gradient = True
                 key = key.split('d_')[-1]
-                self.variables[key] = _Variable(type='state')
+                self._set_variable(key, type='state')
             elif key not in self.variables:
-                self.variables[key] = _Variable(type='parameter')
+                self._set_variable(key, type='parameter')
             self.var[-1] = key
         else:
             self.var[-1] += "." + ins.arg_name
-        return is_gradient
 
     def handle_store_attr(self, ins):
         """
@@ -136,37 +118,24 @@ class VariableAnalyzer(CodeGenerator):
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
                 key = key.split('d_')[-1]
-                self.variables[key] = _Variable(type='state')
+                self._set_variable(key, type='state')
                 if self.var[-2] in self.variables:
-                    self.variables[key].integral = self.var[-2]
-                    self.variables[self.var[-2]].derivative = key
+                    self.variables[key].derivative = self.var[-2]
+                    self.variables[self.var[-2]].integral = key
             elif key not in self.variables:
-                self.variables[key] = _Variable(type='intermediate')
+                self._set_variable(key, type='intermediate')
             self.var[-1] = key
         else:
             self.var[-1] += "." + ins.arg_name
         self.var[-2] = self.var[-1] + ' = ' + self.var[-2]
         del self.var[-1]
 
-    def handle_store_fast(self, ins):
-        """
-        symbol1 = rvalue
-        """
-        self.var[-1] = ins.arg_name + ' = ' + self.var[-1]
+    def _set_variable(self, variable, **kwargs):
+        if variable not in self.variables:
+            self.variables[variable] = _Variable()
 
-    def _load(self, key, store=False):
-
-        if self.var[-1] == 'self':
-            if key[:2] == 'd_':
-                key = key.split('d_')[-1]
-                self.variables[key] = _Variable(type='state')
-            elif store:
-                self.variables[key] = _Variable(type='intermediate')
-            elif not store and key not in self.variables:
-                self.variables[key] = _Variable(type='parameter')
-        elif store and key not in self.variables:
-            self.variables[key] = _Variable(type='local')
-        return key
+        for key, val in kwargs.items():
+            setattr(self.variables[variable], key, val)
 
 
 class SympyGenerator(VariableAnalyzer):
