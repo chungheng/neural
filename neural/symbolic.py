@@ -223,8 +223,12 @@ class SympyGenerator(VariableAnalyzer):
         key = ins.arg_name
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
-                seg = key.split('d_')
-                key = 'Derivative(%s%s)' % (seg[-1], ', t'*(len(seg)-1))
+                key = key.split('d_')[-1]
+                tmp, depth = key, 1
+                while self.variables[tmp].integral is not None:
+                    depth += 1
+                    tmp = self.variables[tmp].integral
+                key = 'Derivative(%s%s)' % (key, ', t'*depth)
             self.var[-1] = key
         else:
             self.var[-1] += "." + key
