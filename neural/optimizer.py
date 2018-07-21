@@ -27,3 +27,7 @@ class OdeGenerator(CodeGenerator):
                     self.var[-1] += ".%s['%s']" % (param, key)
                     return
         self.var[-1] += ".%s" % key
+
+    def handle_store_attr(self, ins):
+        self.handle_load_attr(ins)
+        super(OdeGenerator, self).handle_store_attr(ins)
