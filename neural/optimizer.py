@@ -21,13 +21,14 @@ class OdeGenerator(CodeGenerator):
     def handle_load_attr(self, ins):
         key = ins.arg_name
         if self.var[-1] == 'self':
+            if 'd_' in key:
+                key = self.split('d_')[-1]
+                self.var[-1] += ".gstate['%s']" % key
+                return
+
             for (defaultParam, param)  in self.modelAttrs:
                 attr = getattr(self.model, defaultParam)
                 if key in attr:
                     self.var[-1] += ".%s['%s']" % (param, key)
                     return
         self.var[-1] += ".%s" % key
-
-    def handle_store_attr(self, ins):
-        self.handle_load_attr(ins)
-        super(OdeGenerator, self).handle_store_attr(ins)
