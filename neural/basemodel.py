@@ -398,6 +398,13 @@ class Model(object):
 
         for key in self.states:
             self.states[key] += d_t*self.gstates['d_%s' % key]
+    def runge_kutta(self, d_t, **kwargs):
+        """
+        Forward Euler method.
+
+        Arguments:
+            d_t (float): time steps.
+        """
 
     def __setattr__(self, key, value):
         for param in self._settableAttrs:
