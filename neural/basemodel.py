@@ -400,11 +400,34 @@ class Model(object):
             self.states[key] += d_t*self.gstates['d_%s' % key]
     def runge_kutta(self, d_t, **kwargs):
         """
-        Forward Euler method.
+        Runge Kutta method.
 
         Arguments:
             d_t (float): time steps.
         """
+        state_copy = copy(self.states)
+
+        self.ode(**kwargs)
+        k1 = {key[2:]: val*dt for key, val in self.gstates.item()}
+
+        for key in self.states:
+            self.states[key] = state_copy[key] + 0.5*k1[key]
+        self.ode(**kwargs)
+        k2 = {keyc: val*dt for key, val in self.gstates.item()}
+
+        for key in self.states:
+            self.states[key] = state_copy[key] + 0.5*k2[key]
+        self.ode(**kwargs)
+        k3 = {key[2:]: val*dt for key, val in self.gstates.item()}
+
+        for key in self.states:
+            self.states[key] = state_copy[key] + k3[key]
+        self.ode(**kwargs)
+        k4 = {key[2:]: val*dt for key, val in self.gstates.item()}
+
+        for key in self.states:
+            incr = (k1[key] + 2.*k2[key] + 2.*k3[key] + k4[key]) / 6.
+            self.states[key] = state_copy[key] + incr
 
     def __setattr__(self, key, value):
         for param in self._settableAttrs:
