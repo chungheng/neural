@@ -413,16 +413,19 @@ class Model(object):
 
         for key in self.states:
             self.states[key] = state_copy[key] + 0.5*k1[key]
+        self.clip()
         self.ode(**kwargs)
         k2 = {key[2:]: val*d_t for key, val in self.gstates.items()}
 
         for key in self.states:
             self.states[key] = state_copy[key] + 0.5*k2[key]
+        self.clip()
         self.ode(**kwargs)
         k3 = {key[2:]: val*d_t for key, val in self.gstates.items()}
 
         for key in self.states:
             self.states[key] = state_copy[key] + k3[key]
+        self.clip()
         self.ode(**kwargs)
         k4 = {key[2:]: val*d_t for key, val in self.gstates.items()}
 
