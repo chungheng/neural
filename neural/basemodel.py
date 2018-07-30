@@ -398,6 +398,7 @@ class Model(object):
 
         for key in self.states:
             self.states[key] += d_t*self.gstates['d_%s' % key]
+
     def runge_kutta(self, d_t, **kwargs):
         """
         Runge Kutta method.
@@ -405,25 +406,25 @@ class Model(object):
         Arguments:
             d_t (float): time steps.
         """
-        state_copy = copy(self.states)
+        state_copy = self.states.copy()
 
         self.ode(**kwargs)
-        k1 = {key[2:]: val*dt for key, val in self.gstates.item()}
+        k1 = {key[2:]: val*d_t for key, val in self.gstates.items()}
 
         for key in self.states:
             self.states[key] = state_copy[key] + 0.5*k1[key]
         self.ode(**kwargs)
-        k2 = {keyc: val*dt for key, val in self.gstates.item()}
+        k2 = {key[2:]: val*d_t for key, val in self.gstates.items()}
 
         for key in self.states:
             self.states[key] = state_copy[key] + 0.5*k2[key]
         self.ode(**kwargs)
-        k3 = {key[2:]: val*dt for key, val in self.gstates.item()}
+        k3 = {key[2:]: val*d_t for key, val in self.gstates.items()}
 
         for key in self.states:
             self.states[key] = state_copy[key] + k3[key]
         self.ode(**kwargs)
-        k4 = {key[2:]: val*dt for key, val in self.gstates.item()}
+        k4 = {key[2:]: val*d_t for key, val in self.gstates.items()}
 
         for key in self.states:
             incr = (k1[key] + 2.*k2[key] + 2.*k3[key] + k4[key]) / 6.
