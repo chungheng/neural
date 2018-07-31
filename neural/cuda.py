@@ -249,6 +249,8 @@ class CudaGenerator(CodeGenerator):
     def __init__(self, model, **kwargs):
         self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
         self.model = model
+        self.solver = model.solver.__name__
+
         self.params_gdata = kwargs.pop('params_gdata', [])
         self.inputs_gdata = kwargs.pop('inputs_gdata', dict())
 
