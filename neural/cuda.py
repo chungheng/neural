@@ -185,8 +185,7 @@ __global__ void {{ model_name }} (
         {%- endfor %}
         {%-  endif %}
 
-        {%  if run_step %}{%  endif %}
-        /* compute gradient */
+        {% macro call_ode(states=states, gstates=gstates) -%}
         ode(states, gstates
             {%- if inters %}, inters{%  endif %}
             {%- for key in params_gdata -%}
@@ -197,9 +196,18 @@ __global__ void {{ model_name }} (
             {%- endfor -%}
             {%- if ode_has_random -%}, seed[nid]{%- endif -%}
         );
+        {%- endmacro %}
+
+        {%- if solver == 'forward_euler' %}
+        {%  if run_step %}{%  endif %}
+        /* compute gradient */
+        {{ call_ode() }}
 
         /* solve ode */
         forward(states, gstates, dt);
+        {%- elif solver == 'runge_kutta' %}
+        {{ call_ode() }}
+        {%- endif %}
 
         {% if bounds -%}
         /* clip */
@@ -284,6 +292,7 @@ class CudaGenerator(CodeGenerator):
             model_name=self.model.__class__.__name__,
             float_type=self.dtype,
             run_step='run_step',
+            solver=self.solver,
             states=self.model.states,
             bounds=self.model.bounds,
             params=self.model.params,
