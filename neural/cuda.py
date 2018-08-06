@@ -207,16 +207,16 @@ __global__ void {{ model_name }} (
         forward(states, gstates, dt);
         {%- elif solver == 'runge_kutta' %}
         States k1, k2, k3, k4, tmp;
-        {{ call_ode(gstates=k1) }}
+        {{ call_ode(gstates='k1') }}
         tmp = states;
         forward(tmp, k1, dt*0.5);
-        {{ call_ode(states=tmp, gstates=k2) }}
+        {{ call_ode(states='tmp', gstates='k2') }}
         tmp = states;
         forward(tmp, k2, dt*0.5);
-        {{ call_ode(states=tmp, gstates=k3) }}
+        {{ call_ode(states='tmp', gstates='k3') }}
         tmp = states;
         forward(tmp, k3, dt);
-        {{ call_ode(states=tmp, gstates=k4) }}
+        {{ call_ode(states='tmp', gstates='k4') }}
 
         forward(states, k1, dt/6.);
         forward(states, k2, dt/3.);
