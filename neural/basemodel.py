@@ -118,7 +118,7 @@ class Model(object):
             self._gettableAttrs.append('inters')
 
         solver = kwargs.pop('solver', 'forward_euler')
-        solver = _solver_from_acronym(solver)
+        solver = self._solver_from_acronym(solver)
         baseobj.__setattr__('solver', baseobj.__getattribute__(solver))
 
         # set additional variables
