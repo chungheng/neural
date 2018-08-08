@@ -157,7 +157,7 @@ class Model(object):
             setattr(cls, 'code_generator', code_gen)
             setattr(cls, 'ode_opt', ode)
 
-    def _solver_from_acronym(solver):
+    def _solver_from_acronym(self, solver):
         if solver in ["forward_euler", "runge_kutta"]:
             return solver
         elif solver == 'rk4':
