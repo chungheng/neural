@@ -35,7 +35,24 @@ class ModelMetaClass(type):
                     states[key] = val
         dct['Default_Bounds'] = bounds
         dct['Default_States'] = states
+
+        solvers = dict()
+        for key, val in dct.items():
+            if callable(val) and hasattr(val, '_solver_names'):
+                for name in val._solver_names:
+                    solvers[name] = val
+        dct['solvers'] = solvers
+
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
+
+def register_solver(*names):
+    def wrapper(func):
+        if names is None:
+            names = [func.__name__]
+        func._solver_names = names
+        return func
+    return wrapper
+
 
 class Model(object):
     """
