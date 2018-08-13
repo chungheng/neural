@@ -36,12 +36,13 @@ class ModelMetaClass(type):
         dct['Default_Bounds'] = bounds
         dct['Default_States'] = states
 
-        solvers = dict()
-        for key, val in dct.items():
-            if callable(val) and hasattr(val, '_solver_names'):
-                for name in val._solver_names:
-                    solvers[name] = val
-        dct['solvers'] = solvers
+        if clsname == 'Model':
+            solvers = dict()
+            for key, val in dct.items():
+                if callable(val) and hasattr(val, '_solver_names'):
+                    for name in val._solver_names:
+                        solvers[name] = val
+            dct['solvers'] = solvers
 
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
@@ -140,7 +141,7 @@ class Model(object):
 
         solver = kwargs.pop('solver', 'forward_euler')
         solver = self.solvers[solver]
-        baseobj.__setattr__('solver', baseobj.__getattribute__(solver))
+        baseobj.__setattr__('solver', solver)
 
         # set additional variables
         baseobj.__setattr__('_settableAttrs', self._gettableAttrs[:])
