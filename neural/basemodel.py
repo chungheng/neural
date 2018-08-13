@@ -135,7 +135,7 @@ class Model(object):
             self._gettableAttrs.append('inters')
 
         solver = kwargs.pop('solver', 'forward_euler')
-        solver = self._solver_from_acronym(solver)
+        solver = self.solvers[solver]
         baseobj.__setattr__('solver', baseobj.__getattribute__(solver))
 
         # set additional variables
@@ -173,14 +173,6 @@ class Model(object):
             del locs
             setattr(cls, 'code_generator', code_gen)
             setattr(cls, 'ode_opt', ode)
-
-    def _solver_from_acronym(self, solver):
-        if solver in ["forward_euler", "runge_kutta"]:
-            return solver
-        elif solver == 'rk4':
-            return "runge_kutta"
-        elif solver == 'forward':
-            return "forward_euler"
 
     def cuda_prerun(self, **kwargs):
         """
@@ -413,6 +405,7 @@ class Model(object):
         for key, val in self.bounds.items():
             self.states[key] = np.clip(self.states[key], val[0], val[1])
 
+    @register_solver('euler')
     def forward_euler(self, d_t, **kwargs):
         """
         Forward Euler method.
@@ -425,6 +418,7 @@ class Model(object):
         for key in self.states:
             self.states[key] += d_t*self.gstates['d_%s' % key]
 
+    @register_solver('rk4')
     def runge_kutta(self, d_t, **kwargs):
         """
         Runge Kutta method.
