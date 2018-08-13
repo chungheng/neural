@@ -45,13 +45,17 @@ class ModelMetaClass(type):
 
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
-def register_solver(*names):
-    def wrapper(func):
-        if names is None:
-            names = [func.__name__]
-        func._solver_names = names
-        return func
-    return wrapper
+
+def register_solver(*args):
+    if len(args) == 1 and callable(args[0]):
+        args[0]._solver_names = [args[0].__name__]
+        return args[0]
+    else:
+        def wrapper(func):
+            func._solver_names = [func.__name__] + list(args)
+            return func
+        return wrapper
+
 
 
 class Model(object):
