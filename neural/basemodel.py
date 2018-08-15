@@ -424,7 +424,7 @@ class Model(object):
             self.states[key] += d_t*self.gstates['d_%s' % key]
 
     @register_solver('rk4')
-    def runge_kutta(self, d_t, **kwargs):
+    def runge_kutta_k(self, d_t, **kwargs):
         """
         Runge Kutta method.
 
