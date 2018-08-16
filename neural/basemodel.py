@@ -426,12 +426,21 @@ class Model(object):
     @register_solver('mid')
     def midpoint(self, d_t, **kwargs):
         """
-        Midpoint method.
+        Implicit Midpoint method.
 
         Arguments:
             d_t (float): time steps.
         """
-        pass
+        state_copy = self.states.copy()
+
+        self.ode(**kwargs)
+        for key in self.states:
+            self.states[key] = state_copy[key] + 0.5*d_t*self.gstates[key]
+        self.clip()
+
+        self.ode(**kwargs)
+        for key in self.states:
+            self.states[key] = state_copy[key] + d_t*self.gstates[key]
 
     @register_solver
     def heun(self, d_t, **kwargs):
