@@ -423,6 +423,26 @@ class Model(object):
         for key in self.states:
             self.states[key] += d_t*self.gstates['d_%s' % key]
 
+    @register_solver('mid')
+    def midpoint(self, d_t, **kwargs):
+        """
+        Midpoint method.
+
+        Arguments:
+            d_t (float): time steps.
+        """
+        pass
+
+    @register_solver
+    def heun(self, d_t, **kwargs):
+        """
+        Heun's method.
+
+        Arguments:
+            d_t (float): time steps.
+        """
+        pass
+
     @register_solver('rk4')
     def runge_kutta_k(self, d_t, **kwargs):
         """
