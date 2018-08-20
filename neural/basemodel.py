@@ -450,10 +450,22 @@ class Model(object):
         Arguments:
             d_t (float): time steps.
         """
-        pass
+        state_copy = self.states.copy()
+
+        self.ode(**kwargs)
+        for key in self.states:
+            self.states[key] = state_copy[key] + d_t*self.gstates[key]
+        self.clip()
+
+        gstate_copy = self.gstates.copy()
+        self.ode(**kwargs)
+
+        for key in self.states:
+            self.states[key] = state_copy[key]
+            self.states[key] += d_t*0.5*(gstate_copy[key]+self.gstates[key])
 
     @register_solver('rk4')
-    def runge_kutta_k(self, d_t, **kwargs):
+    def runge_kutta_4(self, d_t, **kwargs):
         """
         Runge Kutta method.
 
