@@ -10,6 +10,7 @@ from pycodegen.codegen import CodeGenerator
 from pycodegen.utils import get_func_signature
 
 cuda_src_template = """
+{% set float_char = 'f' if float_type == 'float' else '' %}
 {% for key, val in params.items() -%}
 {%- if key not in params_gdata -%}
 #define  {{ key.upper() }}\t\t{{ val }}
@@ -61,8 +62,8 @@ struct Inters {
 __device__ void clip(States &states)
 {
     {%- for key, val in bounds.items() %}
-    states.{{ key }} = fmaxf(states.{{ key }}, {{ key.upper() }}_MIN);
-    states.{{ key }} = fminf(states.{{ key }}, {{ key.upper() }}_MAX);
+    states.{{ key }} = fmax{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MIN);
+    states.{{ key }} = fmin{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MAX);
     {%- endfor %}
 }
 {%- endif %}
@@ -273,6 +274,7 @@ class CudaGenerator(CodeGenerator):
         self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
         self.model = model
         self.solver = model.solver.__name__
+        self.float_char = 'f' if self.dtype == np.float32 else ''
 
         self.params_gdata = kwargs.pop('params_gdata', [])
         self.inputs_gdata = kwargs.pop('inputs_gdata', dict())
@@ -529,19 +531,19 @@ class CudaGenerator(CodeGenerator):
 
     @_py2cuda(np.exp)
     def _np_exp(self, args):
-        return self._generate_cuda_func('expf', args)
+        return self._generate_cuda_func('exp' + self.float_char, args)
 
     @_py2cuda(np.power)
     def _np_power(self, args):
-        return self._generate_cuda_func('powf', args)
+        return self._generate_cuda_func('pow' + self.float_char, args)
 
     @_py2cuda(np.cbrt)
     def _np_cbrt(self, args):
-        return self._generate_cuda_func('cbrtf', args)
+        return self._generate_cuda_func('cbrt' + self.float_char, args)
 
     @_py2cuda(np.sqrt)
     def _np_sqrt(self, args):
-        return self._generate_cuda_func('sqrtf', args)
+        return self._generate_cuda_func('sqrt' + self.float_char, args)
 
     @_py2cuda(random.gauss, np.random.normal)
     @_random_func
