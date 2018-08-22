@@ -48,6 +48,7 @@ class CUDARecorder(object):
         self.steps = steps
         self.num = model.cuda_kernel.num
         gpu_buffer = kwargs.pop('gpu_buffer', False)
+        callback = kwargs.pop('callback', False)
 
         if gpu_buffer:
             self.buffer_length = self._get_buffer_length(gpu_buffer)
@@ -67,6 +68,10 @@ class CUDARecorder(object):
         self.block = (256, 1, 1)
         self.grid = (min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
                     (self.num-1) / self.block[0] + 1), 1)
+
+        if callback:
+            it = iter(self)
+            self.model.cuda_kernel.callbacks.append(it.next)
 
     def __iter__(self):
         for i in xrange(self.steps):

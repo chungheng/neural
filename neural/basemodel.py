@@ -187,6 +187,13 @@ class Model(object):
         """
         num = kwargs.pop('num', None)
         dtype = kwargs.pop('dtype', np.float32)
+        callbacks = kwargs.pop('callbacks', [])
+        if not hasattr(callbacks, '__len__'):
+            callbacks = [callbacks]
+        if isinstance(callbacks, tuple):
+            callbacks = list(callbacks)
+        for func in callbacks:
+            assert callable(func)
 
         # decide the number of threads
         if len(kwargs) > 0:
@@ -283,6 +290,7 @@ class Model(object):
                 self.cuda_kernel.num,
                 self.gdata['seed'])
 
+        self.cuda_kernel.callbacks = callbacks
         self.is_cuda = True
 
     def cuda_update(self, d_t, **kwargs):
@@ -306,6 +314,9 @@ class Model(object):
             self.cuda_kernel.num,
             d_t*self.time_scale,
             *args)
+
+        for func in self.cuda_kernel.callbacks:
+            func()
 
     def get_cuda_kernel(self, **kwargs):
         if CudaGenerator is None:
