@@ -395,6 +395,8 @@ class Model(object):
     def ode(self, **kwargs):
         """
         The set of ODEs defining the dynamics of the model.
+
+        TODO: enable using different state varaibles than self.states
         """
         pass
 
