@@ -304,7 +304,14 @@ class Model(object):
             if val is None:
                 val = kwargs[key]
             if hasattr(val, '__len__'):
-                assert val.dtype == self.cuda_kernel.dtype, "Float type mismatches: %s" % key
+                assert dtype == 'P', \
+                    "Expect GPU array but get a scalar input: %s" % key
+                assert val.dtype == self.cuda_kernel.dtype, \
+                    "GPU array float type mismatches: %s" % key
+            else:
+                assert dtype != 'P', \
+                    "Expect GPU array but get a scalar input: %s" % key
+
             args.append(val.gpudata if dtype == 'P' else val)
 
         self.cuda_kernel.prepared_async_call(
