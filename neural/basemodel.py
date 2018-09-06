@@ -130,11 +130,11 @@ class Model(object):
         baseobj.__setattr__('states', self.__class__.Default_States.copy())
         baseobj.__setattr__('bounds', self.__class__.Default_Bounds.copy())
 
-        gstates = {('d_%s' % key):0. for key in self.states}
+        gstates = {key:0. for key in self.states}
         baseobj.__setattr__('gstates', gstates)
 
         # check if intermediate variables are defined.
-        baseobj.__setattr__('_gettableAttrs', ['states', 'params', 'gstates'])
+        baseobj.__setattr__('_gettableAttrs', ['states', 'params'])
         if hasattr(self.__class__, 'Default_Inters'):
             baseobj.__setattr__('inters', self.__class__.Default_Inters.copy())
             self._gettableAttrs.append('inters')
@@ -441,7 +441,7 @@ class Model(object):
         self.ode(**kwargs)
 
         for key in self.states:
-            self.states[key] += d_t*self.gstates['d_%s' % key]
+            self.states[key] += d_t*self.gstates[key]
 
     @register_solver('mid')
     def midpoint(self, d_t, **kwargs):
@@ -520,6 +520,11 @@ class Model(object):
             self.states[key] = state_copy[key] + incr
 
     def __setattr__(self, key, value):
+        if key[:2] == "d_":
+            assert key[2:] in self.gstates
+            self.gstates[key[2:]] = value
+            return
+
         for param in self._settableAttrs:
             if param == key:
                 super(Model, self).__setattr__(param, value)
@@ -528,11 +533,14 @@ class Model(object):
             if key in attr:
                 attr[key] = value
                 return
+
         super(Model, self).__setattr__(key, value)
 
     def __getattr__(self, key):
         if self.is_cuda and hasattr(self, 'gdata') and key in self.gdata:
             return self.gdata[key]
+        if key[:2] == "d_":
+            return self.gstates[key[2:]]
 
         for param in self._gettableAttrs:
             attr = getattr(self, param)
