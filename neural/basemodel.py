@@ -22,6 +22,30 @@ except ImportError:
     CudaGenerator = None
     pycuda = None
 
+def _dict_iadd_(dct_a, dct_b):
+    for key in dct_a.keys():
+        dct_a[key] += dct_b[key]
+    return dct_a
+
+def _dict_add_(dct_a, dct_b, out=None):
+    if out is None:
+        out = dct_a.copy()
+    else:
+        for key, val in dct_a.items():
+            out[key] = val
+    _dict_iadd_(out, dct_b)
+    return out
+
+def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
+    if out is None:
+        out = dct_a.copy()
+    else:
+        for key, val in dct_a.items():
+            out[key] = val
+    for key in dct_a.keys():
+        out[key] += sal*dct_b[key]
+    return out
+
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
         bounds = dict()
@@ -396,7 +420,6 @@ class Model(object):
         """
         self.solver(d_t*self.time_scale, **kwargs)
         self.post()
-        self.clip()
 
     @abstractmethod
     def ode(self, **kwargs):
@@ -406,6 +429,32 @@ class Model(object):
         TODO: enable using different state varaibles than self.states
         """
         pass
+
+
+    def _ode_wrapper(self, states=None, gstates=None, **kwargs):
+        """
+        A wrapper for calling `ode` with arbitrary varaible than `self.states`
+
+        Arguments:
+            states (dict): state variables.
+            gstates (dict): gradient of state variables.
+        """
+        if states is not None:
+            _states = self.states
+            self.states = states
+        if gstates is not None:
+            _gstates = self.gstates
+            self.gstates = gstates
+
+        self.ode(**kwargs)
+
+        if states is not None:
+            self.states = _states
+
+        if gstates is not None:
+            self.gstates = _gstates
+        else:
+            return self.gstates
 
     def post(self):
         """
@@ -417,7 +466,7 @@ class Model(object):
         """
         pass
 
-    def clip(self):
+    def clip(self, states=None):
         """
         Clip the state variables after calling the numerical solver.
 
@@ -427,8 +476,53 @@ class Model(object):
         clip is forced here to ensure the state variables remain in the
         given bounds.
         """
+        if states is None:
+            states = self.states
+
         for key, val in self.bounds.items():
-            self.states[key] = np.clip(self.states[key], val[0], val[1])
+            states[key] = np.clip(states[key], val[0], val[1])
+
+    def _increment(self, d_t, states, out_states=None, **kwargs):
+        """
+        Compute the increment of state variables.
+
+        This function is used for advanced numerical methods.
+
+        Arguments:
+            d_t (float): time steps.
+            states (dict): state variables.
+        """
+        if out_states is None:
+            out_states = states.copy()
+
+        gstates = self._ode_wrapper(states, **kwargs)
+
+        for key in out_states:
+            out_states[key] = d_t*gstates[key]
+
+        return out_states
+
+    def _forward_euler(self, d_t, states, out_states=None, **kwargs):
+        """
+        Forward Euler method with arbitrary varaible than `self.states`.
+
+        This function is used for advanced numerical methods.
+
+        Arguments:
+            d_t (float): time steps.
+            states (dict): state variables.
+        """
+        if out_states is None:
+            out_states = states.copy()
+
+        self._increment(d_t, states, out_states, **kwargs)
+
+        for key in out_states:
+            out_states[key] += states[key]
+
+        self.clip(out_states)
+
+        return out_states
 
     @register_solver('euler')
     def forward_euler(self, d_t, **kwargs):
@@ -442,6 +536,7 @@ class Model(object):
 
         for key in self.states:
             self.states[key] += d_t*self.gstates[key]
+        self.clip()
 
     @register_solver('mid')
     def midpoint(self, d_t, **kwargs):
@@ -451,16 +546,10 @@ class Model(object):
         Arguments:
             d_t (float): time steps.
         """
-        state_copy = self.states.copy()
+        _states = self.states.copy()
 
-        self.ode(**kwargs)
-        for key in self.states:
-            self.states[key] = state_copy[key] + 0.5*d_t*self.gstates[key]
-        self.clip()
-
-        self.ode(**kwargs)
-        for key in self.states:
-            self.states[key] = state_copy[key] + d_t*self.gstates[key]
+        self._forward_euler(0.5*d_t, self.states, _states, **kwargs)
+        self._forward_euler(d_t, _states, self.states, **kwargs)
 
     @register_solver
     def heun(self, d_t, **kwargs):
@@ -470,19 +559,13 @@ class Model(object):
         Arguments:
             d_t (float): time steps.
         """
-        state_copy = self.states.copy()
+        incr1 = self._increment(d_t, self.states, **kwargs)
+        tmp = _dict_add_(self.states, incr1)
+        incr2 = self._increment(d_t, tmp, **kwargs)
 
-        self.ode(**kwargs)
-        for key in self.states:
-            self.states[key] = state_copy[key] + d_t*self.gstates[key]
+        for key in self.states.keys():
+            self.states[key] += 0.5*incr1[key] + 0.5*incr2[key]
         self.clip()
-
-        gstate_copy = self.gstates.copy()
-        self.ode(**kwargs)
-
-        for key in self.states:
-            self.states[key] = state_copy[key]
-            self.states[key] += d_t*0.5*(gstate_copy[key]+self.gstates[key])
 
     @register_solver('rk4')
     def runge_kutta_4(self, d_t, **kwargs):
@@ -492,32 +575,26 @@ class Model(object):
         Arguments:
             d_t (float): time steps.
         """
-        state_copy = self.states.copy()
+        tmp = self.states.copy()
 
-        self.ode(**kwargs)
-        k1 = {key[2:]: val*d_t for key, val in self.gstates.items()}
+        k1 = self._increment(d_t, self.states, **kwargs)
 
-        for key in self.states:
-            self.states[key] = state_copy[key] + 0.5*k1[key]
-        self.clip()
-        self.ode(**kwargs)
-        k2 = {key[2:]: val*d_t for key, val in self.gstates.items()}
+        _dict_add_scalar_(self.states, k1, 0.5, out=tmp)
+        self.clip(tmp)
+        k2 = self._increment(d_t, tmp, **kwargs)
 
-        for key in self.states:
-            self.states[key] = state_copy[key] + 0.5*k2[key]
-        self.clip()
-        self.ode(**kwargs)
-        k3 = {key[2:]: val*d_t for key, val in self.gstates.items()}
+        _dict_add_scalar_(self.states, k2, 0.5, out=tmp)
+        self.clip(tmp)
+        k3 = self._increment(d_t, tmp, **kwargs)
 
-        for key in self.states:
-            self.states[key] = state_copy[key] + k3[key]
-        self.clip()
-        self.ode(**kwargs)
-        k4 = {key[2:]: val*d_t for key, val in self.gstates.items()}
+        _dict_add_(self.states, k3, out=tmp)
+        self.clip(tmp)
+        k4 = self._increment(d_t, tmp, **kwargs)
 
-        for key in self.states:
+        for key in self.states.keys():
             incr = (k1[key] + 2.*k2[key] + 2.*k3[key] + k4[key]) / 6.
-            self.states[key] = state_copy[key] + incr
+            self.states[key] += incr
+        self.clip()
 
     def __setattr__(self, key, value):
         if key[:2] == "d_":
