@@ -104,6 +104,9 @@ __device__ int ode(
 __device__ int post(
     States &states
     {%- if inters %},\n    Inters &inters{%- endif %}
+    {%- for key in params_gdata -%}
+    ,\n    {{ float_type }} {{ key.upper() }}
+    {%- endfor %}
     {%- for (key, ftype, isArray) in post_signature -%}
     ,\n    {{ ftype }} &{{ key }}
     {%- endfor %}
@@ -234,6 +237,9 @@ __global__ void {{ model_name }} (
         /* post processing */
         post(states
             {%- if inters %}, inters{%  endif %}
+            {%- for key in params_gdata -%}
+            , {{ key.upper() }}
+            {%- endfor -%}
             {%- for (key, _, _) in post_signature -%}
             , {{ key }}
             {%- endfor -%}
