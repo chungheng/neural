@@ -1,5 +1,4 @@
-from StringIO import StringIO
-
+from six import StringIO, get_function_globals, get_function_code
 from functools import wraps
 import random
 import numpy as np
@@ -267,7 +266,8 @@ class CudaGenerator(CodeGenerator):
         cls = self.model.__class__
         self.has_post = np.all([cls.post != base.post for base in cls.__bases__])
 
-        CodeGenerator.__init__(self, model.ode.func_code, newline=';\n',
+        code = get_function_code(self.model.ode)
+        CodeGenerator.__init__(self, code, newline=';\n',
                 offset=4, ostream=self.ode_src, **kwargs)
 
         self.tpl = Template(cuda_src_template)
@@ -313,11 +313,13 @@ class CudaGenerator(CodeGenerator):
 
     def generate_ode(self):
         _, self.signature, self.kwargs = self.extract_signature(self.model.ode)
-        self.func_globals = self.model.ode.func_globals
+        self.func_globals = get_function_globals(self.model.ode)
         self.variables = []
         self.has_random = False
         self.ostream = self.ode_src
-        self.instructions = self.disassemble(self.model.ode.func_code)
+
+        code = get_function_code(self.model.ode)
+        self.instructions = self.get_instructions(code)
         super(CudaGenerator, self).generate()
         self.ode_local_variables = self.variables[:]
         self.ode_args = self.process_signature()
@@ -327,11 +329,13 @@ class CudaGenerator(CodeGenerator):
 
     def generate_post(self):
         _, self.signature, self.kwargs = self.extract_signature(self.model.post)
-        self.func_globals = self.model.post.func_globals
+        self.func_globals = get_function_globals(self.model.post)
         self.variables = []
         self.has_random = False
         self.ostream = self.post_src
-        self.instructions = self.disassemble(self.model.post.func_code)
+
+        code = get_function_code(self.model.post)
+        self.instructions = self.get_instructions(code)
         super(CudaGenerator, self).generate()
         self.post_local_variables = self.variables[:]
         self.post_args = self.process_signature()
