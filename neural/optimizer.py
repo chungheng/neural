@@ -19,7 +19,7 @@ class OdeGenerator(CodeGenerator):
         self.ostream.write("def ode(%s):\n" % (", ".join(args)))
 
     def handle_load_attr(self, ins):
-        key = ins.arg_name
+        key = ins.argval
         if self.var[-1] == 'self':
             for (defaultParam, param)  in self.modelAttrs:
                 attr = getattr(self.model, defaultParam)
