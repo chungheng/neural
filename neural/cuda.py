@@ -379,7 +379,7 @@ class CudaGenerator(CodeGenerator):
         CodeGenerator._post_output(self)
 
     def handle_load_attr(self, ins):
-        key = ins.arg_name
+        key = ins.argval
         if self.var[-1] == 'self':
             if key in self.model.Default_States:
                 self.var[-1] = "states." + key
@@ -393,8 +393,8 @@ class CudaGenerator(CodeGenerator):
             self.var[-1] += ".%s" % key
 
     def process_jump(self, ins):
-        if ins.jump == ">>":
-            if len(self.jump_targets) and self.jump_targets[0] == ins.addr:
+        if ins.is_jump_target == ">>":
+            if len(self.jump_targets) and self.jump_targets[0] == ins.offset:
                 if len(self.var):
                     self.output_statement()
                 self.jump_targets.pop()
@@ -406,12 +406,12 @@ class CudaGenerator(CodeGenerator):
                 self.output_statement()
 
     def handle_store_fast(self, ins):
-        if ins.arg_name == self.var[-1]:
+        if ins.argval == self.var[-1]:
             del self.var[-1]
             return
-        if ins.arg_name not in self.variables and ins.arg_name not in self.signature:
-            self.variables.append(ins.arg_name)
-        self.var[-1] = ins.arg_name + ' = ' + self.var[-1]
+        if ins.argval not in self.variables and ins.argval not in self.signature:
+            self.variables.append(ins.argval)
+        self.var[-1] = ins.argval + ' = ' + self.var[-1]
 
     def handle_binary_power(self, ins):
         self.var[-2] = "powf(%s, %s)" % (self.var[-2], self.var[-1])
@@ -463,7 +463,7 @@ class CudaGenerator(CodeGenerator):
         self.leave_indent = True
         self.output_statement()
 
-        target = int(ins.arg_name.split(' ')[-1])
+        target = int(ins.argval.split(' ')[-1])
         old_target = self.jump_targets.pop()
 
         if target != old_target:
