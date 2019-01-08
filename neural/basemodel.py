@@ -1,9 +1,11 @@
 """
 Base model class for neurons and synapses.
 """
+from __future__ import print_function
 from abc import abstractmethod
 from collections import OrderedDict
-from StringIO import StringIO
+
+from six import StringIO, with_metaclass
 import numpy as np
 
 try:
@@ -37,7 +39,7 @@ class ModelMetaClass(type):
         dct['Default_States'] = states
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
-class Model(object):
+class Model(with_metaclass(ModelMetaClass)):
     """
     The base model class.
 
@@ -82,7 +84,7 @@ class Model(object):
         gstates (dict): the gradient of the state variables.
         bounds (dict): lower and upper bounds of the state variables.
     """
-    __metaclass__ = ModelMetaClass
+
     def __init__(self, **kwargs):
         """
         Initialize the model.
@@ -300,7 +302,7 @@ class Model(object):
                 no_extern_c = code_generator.has_random)
             func = mod.get_function(self.__class__.__name__)
         except:
-            print code_generator.cuda_src
+            print(code_generator.cuda_src)
             raise
 
         func.arg_type = code_generator.arg_type
