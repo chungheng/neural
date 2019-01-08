@@ -48,6 +48,7 @@ class CUDARecorder(object):
         self.steps = steps
         self.num = model.cuda_kernel.num
         gpu_buffer = kwargs.pop('gpu_buffer', False)
+        callback = kwargs.pop('callback', False)
 
         if gpu_buffer:
             self.buffer_length = self._get_buffer_length(gpu_buffer)
@@ -55,24 +56,22 @@ class CUDARecorder(object):
             self.dct = {}
             for key in attrs:
                 dtype = self.model.gdata[key].dtype
-                # self.gpu_dct[key] = garray.zeros((self.num, self.buffer_length), dtype)
-                self.gpu_dct[key] = garray.zeros((self.buffer_length, self.num), dtype)
-                self.dct[key] = np.zeros((self.num, self.steps), order='F', dtype=dtype)
-                # self.dct[key] = []
+                self.gpu_dct[key] = garray.zeros((self.buffer_length,
+                    self.num), dtype)
+                self.dct[key] = np.zeros((self.num, self.steps),
+                    order='F', dtype=dtype)
             self.copy_memory = self._copy_memory_dtod
-            # self.dct = {key: None for key in attrs}
         else:
             self.dct = {key: np.zeros((self.num, self.steps)) for key in attrs}
             self.copy_memory = self._copy_memory_dtoh
 
-        # self.start = cuda.Event()
-        # self.end = cuda.Event()
-        # self.time_dd = 0.
-        # self.time_hd = 0.
-
         self.block = (256, 1, 1)
         self.grid = (min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
                     (self.num-1) / self.block[0] + 1), 1)
+
+        if callback:
+            it = iter(self)
+            self.model.cuda_kernel.callbacks.append(it.next)
 
     def __iter__(self):
         for i in xrange(self.steps):
@@ -93,15 +92,7 @@ class CUDARecorder(object):
             dst = int(self.gpu_dct[key].gpudata)
 
             idx = index % self.buffer_length
-            # self.start.record()
-            # _copy[dtype].prepared_call(self.grid, self.block,
-            #     self.num, idx, self.buffer_length, dst, src)
             cuda.memcpy_dtod(dst + idx * nbytes, src, nbytes)
-            # self.end.record()
-
-            # self.end.synchronize()
-            # self.time_dd += self.start.time_till(self.end)*1e-3
-
 
         end = index + 1
 
@@ -112,19 +103,8 @@ class CUDARecorder(object):
                 nbytes = self.gpu_dct[key].nbytes / self.buffer_length
                 offset = beg * nbytes
                 size = (end-beg) * nbytes
-                # val = self.gpu_dct[key].get()
-                # self.start.record()
-                # self.dct[key][:, beg:end] = val[:, :end-beg]
-                # self.dct[key].append( val )
-                # self.dct[key][beg:end] = val[:end-beg]
-
                 buffer = np.getbuffer(self.dct[key], offset, size)
                 cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
-                # self.end.record()
-                #
-                # self.end.synchronize()
-                # self.time_hd += self.start.time_till(self.end)*1e-3
-
 
     def _copy_memory_dtoh(self, index):
         for key in self.dct.keys():

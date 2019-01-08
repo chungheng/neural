@@ -9,6 +9,7 @@ from pycodegen.codegen import CodeGenerator
 from pycodegen.utils import get_func_signature
 
 cuda_src_template = """
+{% set float_char = 'f' if float_type == 'float' else '' %}
 {% for key, val in params.items() -%}
 {%- if key not in params_gdata -%}
 #define  {{ key.upper() }}\t\t{{ val }}
@@ -60,8 +61,8 @@ struct Inters {
 __device__ void clip(States &states)
 {
     {%- for key, val in bounds.items() %}
-    states.{{ key }} = fmaxf(states.{{ key }}, {{ key.upper() }}_MIN);
-    states.{{ key }} = fminf(states.{{ key }}, {{ key.upper() }}_MAX);
+    states.{{ key }} = fmax{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MIN);
+    states.{{ key }} = fmin{{ float_char }}(states.{{ key }}, {{ key.upper() }}_MAX);
     {%- endfor %}
 }
 {%- endif %}
@@ -102,6 +103,9 @@ __device__ int ode(
 __device__ int post(
     States &states
     {%- if inters %},\n    Inters &inters{%- endif %}
+    {%- for key in params_gdata -%}
+    ,\n    {{ float_type }} {{ key.upper() }}
+    {%- endfor %}
     {%- for (key, ftype, isArray) in post_signature -%}
     ,\n    {{ ftype }} &{{ key }}
     {%- endfor %}
@@ -184,8 +188,7 @@ __global__ void {{ model_name }} (
         {%- endfor %}
         {%-  endif %}
 
-        {%  if run_step %}{%  endif %}
-        /* compute gradient */
+        {% macro call_ode(states=states, gstates=gstates) -%}
         ode(states, gstates
             {%- if inters %}, inters{%  endif %}
             {%- for key in params_gdata -%}
@@ -196,9 +199,33 @@ __global__ void {{ model_name }} (
             {%- endfor -%}
             {%- if ode_has_random -%}, seed[nid]{%- endif -%}
         );
+        {%- endmacro %}
+
+        {%- if solver == 'forward_euler' %}
+        {%  if run_step %}{%  endif %}
+        /* compute gradient */
+        {{ call_ode() }}
 
         /* solve ode */
         forward(states, gstates, dt);
+        {%- elif solver == 'runge_kutta' %}
+        States k1, k2, k3, k4, tmp;
+        {{ call_ode(gstates='k1') }}
+        tmp = states;
+        forward(tmp, k1, dt*0.5);
+        {{ call_ode(states='tmp', gstates='k2') }}
+        tmp = states;
+        forward(tmp, k2, dt*0.5);
+        {{ call_ode(states='tmp', gstates='k3') }}
+        tmp = states;
+        forward(tmp, k3, dt);
+        {{ call_ode(states='tmp', gstates='k4') }}
+
+        forward(states, k1, dt/6.);
+        forward(states, k2, dt/3.);
+        forward(states, k3, dt/3.);
+        forward(states, k4, dt/6.);
+        {%- endif %}
 
         {% if bounds -%}
         /* clip */
@@ -209,6 +236,9 @@ __global__ void {{ model_name }} (
         /* post processing */
         post(states
             {%- if inters %}, inters{%  endif %}
+            {%- for key in params_gdata -%}
+            , {{ key.upper() }}
+            {%- endfor -%}
             {%- for (key, _, _) in post_signature -%}
             , {{ key }}
             {%- endfor -%}
@@ -248,6 +278,9 @@ class CudaGenerator(CodeGenerator):
     def __init__(self, model, **kwargs):
         self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
         self.model = model
+        self.solver = model.solver.__name__
+        self.float_char = 'f' if self.dtype == np.float32 else ''
+
         self.params_gdata = kwargs.pop('params_gdata', [])
         self.inputs_gdata = kwargs.pop('inputs_gdata', dict())
 
@@ -282,6 +315,7 @@ class CudaGenerator(CodeGenerator):
             model_name=self.model.__class__.__name__,
             float_type=self.dtype,
             run_step='run_step',
+            solver=self.solver,
             states=self.model.states,
             bounds=self.model.bounds,
             params=self.model.params,
@@ -507,19 +541,19 @@ class CudaGenerator(CodeGenerator):
 
     @_py2cuda(np.exp)
     def _np_exp(self, args):
-        return self._generate_cuda_func('expf', args)
+        return self._generate_cuda_func('exp' + self.float_char, args)
 
     @_py2cuda(np.power)
     def _np_power(self, args):
-        return self._generate_cuda_func('powf', args)
+        return self._generate_cuda_func('pow' + self.float_char, args)
 
     @_py2cuda(np.cbrt)
     def _np_cbrt(self, args):
-        return self._generate_cuda_func('cbrtf', args)
+        return self._generate_cuda_func('cbrt' + self.float_char, args)
 
     @_py2cuda(np.sqrt)
     def _np_sqrt(self, args):
-        return self._generate_cuda_func('sqrtf', args)
+        return self._generate_cuda_func('sqrt' + self.float_char, args)
 
     @_py2cuda(random.gauss, np.random.normal)
     @_random_func

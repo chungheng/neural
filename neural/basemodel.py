@@ -24,6 +24,30 @@ except ImportError:
     CudaGenerator = None
     pycuda = None
 
+def _dict_iadd_(dct_a, dct_b):
+    for key in dct_a.keys():
+        dct_a[key] += dct_b[key]
+    return dct_a
+
+def _dict_add_(dct_a, dct_b, out=None):
+    if out is None:
+        out = dct_a.copy()
+    else:
+        for key, val in dct_a.items():
+            out[key] = val
+    _dict_iadd_(out, dct_b)
+    return out
+
+def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
+    if out is None:
+        out = dct_a.copy()
+    else:
+        for key, val in dct_a.items():
+            out[key] = val
+    for key in dct_a.keys():
+        out[key] += sal*dct_b[key]
+    return out
+
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
         bounds = dict()
@@ -37,7 +61,26 @@ class ModelMetaClass(type):
                     states[key] = val
         dct['Default_Bounds'] = bounds
         dct['Default_States'] = states
+
+        if clsname == 'Model':
+            solvers = dict()
+            for key, val in dct.items():
+                if callable(val) and hasattr(val, '_solver_names'):
+                    for name in val._solver_names:
+                        solvers[name] = val
+            dct['solvers'] = solvers
+
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
+
+def register_solver(*args):
+    if len(args) == 1 and callable(args[0]):
+        args[0]._solver_names = [args[0].__name__]
+        return args[0]
+    else:
+        def wrapper(func):
+            func._solver_names = [func.__name__] + list(args)
+            return func
+        return wrapper
 
 class Model(with_metaclass(ModelMetaClass)):
     """
@@ -110,17 +153,18 @@ class Model(with_metaclass(ModelMetaClass)):
         baseobj.__setattr__('states', self.__class__.Default_States.copy())
         baseobj.__setattr__('bounds', self.__class__.Default_Bounds.copy())
 
-        gstates = {('d_%s' % key):0. for key in self.states}
+        gstates = {key:0. for key in self.states}
         baseobj.__setattr__('gstates', gstates)
 
         # check if intermediate variables are defined.
-        baseobj.__setattr__('_gettableAttrs', ['states', 'params', 'gstates'])
+        baseobj.__setattr__('_gettableAttrs', ['states', 'params'])
         if hasattr(self.__class__, 'Default_Inters'):
             baseobj.__setattr__('inters', self.__class__.Default_Inters.copy())
             self._gettableAttrs.append('inters')
 
         solver = kwargs.pop('solver', 'forward_euler')
-        baseobj.__setattr__('solver', baseobj.__getattribute__(solver))
+        solver = self.solvers[solver]
+        baseobj.__setattr__('solver', solver)
 
         # set additional variables
         baseobj.__setattr__('_settableAttrs', self._gettableAttrs[:])
@@ -166,6 +210,13 @@ class Model(with_metaclass(ModelMetaClass)):
         """
         num = kwargs.pop('num', None)
         dtype = kwargs.pop('dtype', np.float32)
+        callbacks = kwargs.pop('callbacks', [])
+        if not hasattr(callbacks, '__len__'):
+            callbacks = [callbacks]
+        if isinstance(callbacks, tuple):
+            callbacks = list(callbacks)
+        for func in callbacks:
+            assert callable(func)
 
         # decide the number of threads
         if len(kwargs) > 0:
@@ -262,6 +313,7 @@ class Model(with_metaclass(ModelMetaClass)):
                 self.cuda_kernel.num,
                 self.gdata['seed'])
 
+        self.cuda_kernel.callbacks = callbacks
         self.is_cuda = True
 
     def cuda_update(self, d_t, **kwargs):
@@ -275,7 +327,14 @@ class Model(with_metaclass(ModelMetaClass)):
             if val is None:
                 val = kwargs[key]
             if hasattr(val, '__len__'):
-                assert val.dtype == self.cuda_kernel.dtype, "Float type mismatches: %s" % key
+                assert dtype == 'P', \
+                    "Expect GPU array but get a scalar input: %s" % key
+                assert val.dtype == self.cuda_kernel.dtype, \
+                    "GPU array float type mismatches: %s" % key
+            else:
+                assert dtype != 'P', \
+                    "Expect GPU array but get a scalar input: %s" % key
+
             args.append(val.gpudata if dtype == 'P' else val)
 
         self.cuda_kernel.prepared_async_call(
@@ -285,6 +344,9 @@ class Model(with_metaclass(ModelMetaClass)):
             self.cuda_kernel.num,
             d_t*self.time_scale,
             *args)
+
+        for func in self.cuda_kernel.callbacks:
+            func()
 
     def get_cuda_kernel(self, **kwargs):
         if CudaGenerator is None:
@@ -357,14 +419,41 @@ class Model(with_metaclass(ModelMetaClass)):
         """
         self.solver(d_t*self.time_scale, **kwargs)
         self.post()
-        self.clip()
 
     @abstractmethod
     def ode(self, **kwargs):
         """
         The set of ODEs defining the dynamics of the model.
+
+        TODO: enable using different state varaibles than self.states
         """
         pass
+
+
+    def _ode_wrapper(self, states=None, gstates=None, **kwargs):
+        """
+        A wrapper for calling `ode` with arbitrary varaible than `self.states`
+
+        Arguments:
+            states (dict): state variables.
+            gstates (dict): gradient of state variables.
+        """
+        if states is not None:
+            _states = self.states
+            self.states = states
+        if gstates is not None:
+            _gstates = self.gstates
+            self.gstates = gstates
+
+        self.ode(**kwargs)
+
+        if states is not None:
+            self.states = _states
+
+        if gstates is not None:
+            self.gstates = _gstates
+        else:
+            return self.gstates
 
     def post(self):
         """
@@ -376,7 +465,7 @@ class Model(with_metaclass(ModelMetaClass)):
         """
         pass
 
-    def clip(self):
+    def clip(self, states=None):
         """
         Clip the state variables after calling the numerical solver.
 
@@ -386,9 +475,55 @@ class Model(with_metaclass(ModelMetaClass)):
         clip is forced here to ensure the state variables remain in the
         given bounds.
         """
-        for key, val in self.bounds.items():
-            self.states[key] = np.clip(self.states[key], val[0], val[1])
+        if states is None:
+            states = self.states
 
+        for key, val in self.bounds.items():
+            states[key] = np.clip(states[key], val[0], val[1])
+
+    def _increment(self, d_t, states, out_states=None, **kwargs):
+        """
+        Compute the increment of state variables.
+
+        This function is used for advanced numerical methods.
+
+        Arguments:
+            d_t (float): time steps.
+            states (dict): state variables.
+        """
+        if out_states is None:
+            out_states = states.copy()
+
+        gstates = self._ode_wrapper(states, **kwargs)
+
+        for key in out_states:
+            out_states[key] = d_t*gstates[key]
+
+        return out_states
+
+    def _forward_euler(self, d_t, states, out_states=None, **kwargs):
+        """
+        Forward Euler method with arbitrary varaible than `self.states`.
+
+        This function is used for advanced numerical methods.
+
+        Arguments:
+            d_t (float): time steps.
+            states (dict): state variables.
+        """
+        if out_states is None:
+            out_states = states.copy()
+
+        self._increment(d_t, states, out_states, **kwargs)
+
+        for key in out_states:
+            out_states[key] += states[key]
+
+        self.clip(out_states)
+
+        return out_states
+
+    @register_solver('euler')
     def forward_euler(self, d_t, **kwargs):
         """
         Forward Euler method.
@@ -399,9 +534,73 @@ class Model(with_metaclass(ModelMetaClass)):
         self.ode(**kwargs)
 
         for key in self.states:
-            self.states[key] += d_t*self.gstates['d_%s' % key]
+            self.states[key] += d_t*self.gstates[key]
+        self.clip()
+
+    @register_solver('mid')
+    def midpoint(self, d_t, **kwargs):
+        """
+        Implicit Midpoint method.
+
+        Arguments:
+            d_t (float): time steps.
+        """
+        _states = self.states.copy()
+
+        self._forward_euler(0.5*d_t, self.states, _states, **kwargs)
+        self._forward_euler(d_t, _states, self.states, **kwargs)
+
+    @register_solver
+    def heun(self, d_t, **kwargs):
+        """
+        Heun's method.
+
+        Arguments:
+            d_t (float): time steps.
+        """
+        incr1 = self._increment(d_t, self.states, **kwargs)
+        tmp = _dict_add_(self.states, incr1)
+        incr2 = self._increment(d_t, tmp, **kwargs)
+
+        for key in self.states.keys():
+            self.states[key] += 0.5*incr1[key] + 0.5*incr2[key]
+        self.clip()
+
+    @register_solver('rk4')
+    def runge_kutta_4(self, d_t, **kwargs):
+        """
+        Runge Kutta method.
+
+        Arguments:
+            d_t (float): time steps.
+        """
+        tmp = self.states.copy()
+
+        k1 = self._increment(d_t, self.states, **kwargs)
+
+        _dict_add_scalar_(self.states, k1, 0.5, out=tmp)
+        self.clip(tmp)
+        k2 = self._increment(d_t, tmp, **kwargs)
+
+        _dict_add_scalar_(self.states, k2, 0.5, out=tmp)
+        self.clip(tmp)
+        k3 = self._increment(d_t, tmp, **kwargs)
+
+        _dict_add_(self.states, k3, out=tmp)
+        self.clip(tmp)
+        k4 = self._increment(d_t, tmp, **kwargs)
+
+        for key in self.states.keys():
+            incr = (k1[key] + 2.*k2[key] + 2.*k3[key] + k4[key]) / 6.
+            self.states[key] += incr
+        self.clip()
 
     def __setattr__(self, key, value):
+        if key[:2] == "d_":
+            assert key[2:] in self.gstates
+            self.gstates[key[2:]] = value
+            return
+
         for param in self._settableAttrs:
             if param == key:
                 super(Model, self).__setattr__(param, value)
@@ -410,11 +609,14 @@ class Model(with_metaclass(ModelMetaClass)):
             if key in attr:
                 attr[key] = value
                 return
+
         super(Model, self).__setattr__(key, value)
 
     def __getattr__(self, key):
         if self.is_cuda and hasattr(self, 'gdata') and key in self.gdata:
             return self.gdata[key]
+        if key[:2] == "d_":
+            return self.gstates[key[2:]]
 
         for param in self._gettableAttrs:
             attr = getattr(self, param)
