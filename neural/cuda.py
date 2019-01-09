@@ -1,4 +1,5 @@
 from six import StringIO, get_function_globals, get_function_code
+from six import with_metaclass
 from functools import wraps
 import random
 import numpy as np
@@ -272,9 +273,7 @@ class MetaClass(type):
         dct['pyfunc_to_cufunc'] = py2cu
         return super(MetaClass, cls).__new__(cls, clsname, bases, dct)
 
-class CudaGenerator(CodeGenerator):
-    __metaclass__ = MetaClass
-
+class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
     def __init__(self, model, **kwargs):
         self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
         self.model = model
