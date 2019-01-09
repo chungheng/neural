@@ -496,8 +496,7 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
         self.leave_indent = True
         self.output_statement()
 
-        target = int(ins.argval.split(' ')[-1])
-        old_target = self.jump_targets.pop()
+        target. old_target = ins.argval, self.jump_targets.pop()
 
         if target != old_target:
             self.newline = '\n'
