@@ -67,12 +67,13 @@ class ModelMetaClass(type):
             for key, val in dct.items():
                 if callable(val) and hasattr(val, '_solver_names'):
                     for name in val._solver_names:
-                        solvers[name] = val
-            dct['solvers'] = solvers
+                        solvers[name] = val.__name__
+            dct['solver_alias'] = solvers
 
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
 def register_solver(*args):
+    # when there is no args
     if len(args) == 1 and callable(args[0]):
         args[0]._solver_names = [args[0].__name__]
         return args[0]
@@ -82,7 +83,7 @@ def register_solver(*args):
             return func
         return wrapper
 
-class Model(with_metaclass(ModelMetaClass)):
+class Model(with_metaclass(ModelMetaClass, object)):
     """
     The base model class.
 
@@ -162,8 +163,10 @@ class Model(with_metaclass(ModelMetaClass)):
             baseobj.__setattr__('inters', self.__class__.Default_Inters.copy())
             self._gettableAttrs.append('inters')
 
+        # set numerical solver
         solver = kwargs.pop('solver', 'forward_euler')
-        solver = self.solvers[solver]
+        solver = self.solver_alias[solver]
+        solver = getattr(self, solver)
         baseobj.__setattr__('solver', solver)
 
         # set additional variables
@@ -523,7 +526,7 @@ class Model(with_metaclass(ModelMetaClass)):
 
         return out_states
 
-    @register_solver('euler')
+    @register_solver('euler', 'forward')
     def forward_euler(self, d_t, **kwargs):
         """
         Forward Euler method.
