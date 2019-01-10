@@ -463,10 +463,8 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
         # hacky way to handle keyword arguments
         if self.kwargs and self.var[-(narg+1)] == (self.kwargs + ".pop"):
-            arg = self.var[-narg][1:-1]
-            self.var[-(narg+1)] = arg
-            new_arg = "%s" % arg
-            self.signature.append(new_arg)
+            self.var[-(narg+1)] = self.var[-narg]
+            self.signature.append(str(self.var[-narg]))
         else:
             args = [] if narg == 0 else map(str, self.var[-narg:])
             func_name = self.var[-(narg+1)]
