@@ -426,17 +426,16 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
             self.var[-1] = "{0}.{1}".format(self.var[-1], key)
 
     def process_jump(self, ins):
-        if ins.is_jump_target == ">>":
-            if len(self.jump_targets) and self.jump_targets[0] == ins.offset:
-                if len(self.var):
-                    self.output_statement()
-                self.jump_targets.pop()
-                self.space -= self.indent
-                self.leave_indent = False
-
-                self.var.append('}')
-                self.newline = '\n'
+        if len(self.jump_targets) and self.jump_targets[0] == ins.offset:
+            if len(self.var):
                 self.output_statement()
+            self.jump_targets.pop()
+            self.space -= self.indent
+            self.leave_indent = False
+
+            self.var.append('}')
+            self.newline = '\n'
+            self.output_statement()
 
     def handle_store_fast(self, ins):
         if ins.argval == self.var[-1]:
