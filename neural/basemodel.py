@@ -302,8 +302,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock, 1, 1)
         self.cuda_kernel.grid = (
-            min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
-                (num-1) / self.cuda_kernel.threadsPerBlock + 1),
+            int(min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
+                (num-1) / self.cuda_kernel.threadsPerBlock + 1)),
             1)
         self.cuda_kernel.num = num
 
@@ -375,8 +375,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         deviceData = pycuda.tools.DeviceData()
         maxThreads = int(np.float(deviceData.registers // func.num_regs))
-        maxThreads = 2**int(np.log(maxThreads) / np.log(2))
-        func.threadsPerBlock = np.min([256, maxThreads, deviceData.max_threads])
+        maxThreads = int(2**int(np.log(maxThreads) / np.log(2)))
+        func.threadsPerBlock = int(min(256, maxThreads, deviceData.max_threads))
 
         func.args = []
         for key in self.states.keys():
