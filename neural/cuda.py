@@ -415,15 +415,15 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
         key = ins.argval
         if self.var[-1] == 'self':
             if key in self.model.Default_States:
-                self.var[-1] = "states." + key
+                self.var[-1] = "states.{0}".format(key)
             elif key[:2] == 'd_' and key[2:] in self.model.Default_States:
-                self.var[-1] = "gstates." + key[2:]
+                self.var[-1] = "gstates.{0}".format(key[2:])
             elif key in self.model.Default_Params:
                 self.var[-1] = key.upper()
             elif hasattr(self.model, 'Default_Inters') and key in self.model.Default_Inters:
-                self.var[-1] = "inters." + key
+                self.var[-1] = "inters.{0}".format(key)
         else:
-            self.var[-1] += ".%s" % key
+            self.var[-1] = "{0}.{1}".format(self.var[-1], key)
 
     def process_jump(self, ins):
         if ins.is_jump_target == ">>":
@@ -444,18 +444,18 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
             return
         if ins.argval not in self.variables and ins.argval not in self.signature:
             self.variables.append(ins.argval)
-        self.var[-1] = ins.argval + ' = ' + self.var[-1]
+        self.var[-1] = "{0} = {1}".format(ins.argval, self.var[-1])
 
     def handle_binary_power(self, ins):
-        self.var[-2] = "powf(%s, %s)" % (self.var[-2], self.var[-1])
+        self.var[-2] = "powf({0}, {1})".format(self.var[-2], self.var[-1])
         del self.var[-1]
 
     def handle_binary_and(self, ins):
-        self.var[-2] = "(%s && %s)" % (self.var[-2], self.var[-1])
+        self.var[-2] = "({0} && {1})".format(self.var[-2], self.var[-1])
         del self.var[-1]
 
     def handle_binary_or(self, ins):
-        self.var[-2] = "(%s || %s)" % (self.var[-2], self.var[-1])
+        self.var[-2] = "({0} || {1})".format(self.var[-2], self.var[-1])
         del self.var[-1]
 
     def handle_call_function(self, ins):
@@ -468,14 +468,15 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
             new_arg = "%s" % arg
             self.signature.append(new_arg)
         else:
-            args = [] if narg == 0 else self.var[-narg:]
+            args = [] if narg == 0 else map(str, self.var[-narg:])
             func_name = self.var[-(narg+1)]
             pyfunc = eval(func_name, self.func_globals)
             cufunc = self.pyfunc_to_cufunc.get(pyfunc)
             if cufunc is not None:
                 self.var[-(narg+1)] = cufunc(self, args)
             else:
-                self.var[-(narg+1)] = func_name + "(%s)" % ','.join(args)
+                temp = ', '.join(args)
+                self.var[-(narg+1)] = "{0}({1})".format(func_name, temp)
 
         if narg:
             del self.var[-narg:]
@@ -483,13 +484,13 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
     def handle_pop_jump_if_true(self, ins):
         self.jump_targets.append(ins.arg)
         self.enter_indent = True
-        self.var[-1] = 'if (!%s) {' % self.var[-1]
+        self.var[-1] = "if (!{0}) {{".format(self.var[-1])
         self.newline = '\n'
 
     def handle_pop_jump_if_false(self, ins):
         self.jump_targets.append(ins.arg)
         self.enter_indent = True
-        self.var[-1] = 'if (%s) {' % self.var[-1]
+        self.var[-1] = "if ({0}) {{".format(self.var[-1])
         self.newline = '\n'
 
     def handle_jump_forward(self, ins):
@@ -510,12 +511,12 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
     def handle_return_value(self, ins):
         val = self.var[-1]
-        if val == 'None':
+        if val is None:
             val = '0'
-        self.var[-1] = "return %s" % val
+        self.var[-1] = "return {0}".format(val)
 
     def _generate_cuda_func(self, func, args):
-        return "%s(%s)" % (func, ', '.join(args))
+        return "{0}({1})".format(func, ', '.join(args))
 
     def _random_func(func):
         """
@@ -566,7 +567,7 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
         func = 'curand_uniform(&seed)'
 
         if len(args) == 1:
-            func = "(%s*%s)" % (args[0], func)
+            func = "({0}*{1})".format(args[0], func)
         elif len(args) == 2:
             func = "({0}+({1}-{0})*{2})".format(args[0], args[1], func)
 
