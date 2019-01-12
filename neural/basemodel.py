@@ -17,9 +17,9 @@ try:
     import pycuda
     import pycuda.gpuarray as garray
     from pycuda.tools import dtype_to_ctype
-    import pycuda.driver as cuda
+    import pycuda.driver as drv
     from pycuda.compiler import SourceModule
-    from cuda import CudaGenerator, get_func_signature
+    from .cuda import CudaGenerator, get_func_signature
 except ImportError:
     CudaGenerator = None
     pycuda = None
@@ -302,13 +302,13 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock, 1, 1)
         self.cuda_kernel.grid = (
-            int(min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
+            int(min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
                 (num-1) / self.cuda_kernel.threadsPerBlock + 1)),
             1)
         self.cuda_kernel.num = num
 
         if self.cuda_kernel.has_random:
-            self.gdata['seed'] = pycuda.driver.mem_alloc(num * 48)
+            self.gdata['seed'] = drv.mem_alloc(num * 48)
             self.cuda_kernel.init_random_seed.prepared_async_call(
                 self.cuda_kernel.grid,
                 self.cuda_kernel.block,
