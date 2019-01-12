@@ -1,11 +1,23 @@
 """
 Utility modules for recording data from Neural models
 """
+import sys
 import time
 import numpy as np
 import pycuda
 import pycuda.gpuarray as garray
 import pycuda.driver as cuda
+
+
+PY2 = sys.version_info[0] == 2
+PY3 = sys.version_info[0] == 3
+
+if PY2:
+    getbuffer = np.getbuffer
+if PY3:
+    def getbuffer(obj, offset, size):
+        mv = memoryview(obj)
+        return mv[offset:offset+size]
 
 from pycuda.compiler import SourceModule
 from pycuda.tools import dtype_to_ctype
@@ -74,7 +86,7 @@ class CUDARecorder(object):
             self.model.cuda_kernel.callbacks.append(it.next)
 
     def __iter__(self):
-        for i in xrange(self.steps):
+        for i in range(self.steps):
             self.copy_memory(i)
             yield i
 
@@ -101,9 +113,9 @@ class CUDARecorder(object):
             for key in self.dct.keys():
                 beg = (index / self.buffer_length) * self.buffer_length
                 nbytes = self.gpu_dct[key].nbytes / self.buffer_length
-                offset = beg * nbytes
-                size = (end-beg) * nbytes
-                buffer = np.getbuffer(self.dct[key], offset, size)
+                offset = int(beg * nbytes)
+                size = int((end-beg) * nbytes)
+                buffer = getbuffer(self.dct[key], offset, size)
                 cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
 
     def _copy_memory_dtoh(self, index):
