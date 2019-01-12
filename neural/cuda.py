@@ -465,7 +465,7 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
             self.var[-(narg+1)] = self.var[-narg]
             self.signature.append(str(self.var[-narg]))
         else:
-            args = [] if narg == 0 else map(str, self.var[-narg:])
+            args = [] if narg == 0 else list(map(str, self.var[-narg:]))
             func_name = self.var[-(narg+1)]
             pyfunc = eval(func_name, self.func_globals)
             cufunc = self.pyfunc_to_cufunc.get(pyfunc)
