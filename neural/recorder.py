@@ -82,8 +82,9 @@ class CUDARecorder(object):
                     (self.num-1) / self.block[0] + 1), 1)
 
         if callback:
-            it = iter(self)
-            self.model.cuda_kernel.callbacks.append(it.next)
+            self.iter = iter(self)
+            func = lambda: next(self.iter)
+            self.model.cuda_kernel.callbacks.append(func)
 
     def __iter__(self):
         for i in range(self.steps):
