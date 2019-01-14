@@ -109,7 +109,7 @@ class CUDARecorder(object):
 
         if index == self.steps-1 or ((index + 1) % self.buffer_length == 0):
             for key in self.dct.keys():
-                buffer = self.getbuffer(key, index)
+                buffer = self.get_buffer(key, index)
                 cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
 
     def _copy_memory_dtoh(self, index):
@@ -132,6 +132,6 @@ class CUDARecorder(object):
         return np.getbuffer(self.dct[key], offset, size)
 
     def _py3_get_buffer(self, key, index):
-        mv = memoryview(self.dct[key])
+        mv = memoryview(self.dct[key].T)
         beg = int(index / self.buffer_length) * self.buffer_length
         return mv[beg:index+1]
