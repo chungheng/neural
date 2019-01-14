@@ -12,12 +12,6 @@ import pycuda.driver as cuda
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
 
-if PY2:
-    getbuffer = np.getbuffer
-if PY3:
-    def getbuffer(obj, offset, size):
-        mv = memoryview(obj)
-        return mv[offset:offset+size]
 
 from pycuda.compiler import SourceModule
 from pycuda.tools import dtype_to_ctype
@@ -77,6 +71,11 @@ class CUDARecorder(object):
             self.dct = {key: np.zeros((self.num, self.steps)) for key in attrs}
             self.copy_memory = self._copy_memory_dtoh
 
+        if PY2:
+            self.get_buffer = self._py2_get_buffer
+        if PY3:
+            self.get_buffer = self._py3_get_buffer
+
         self.block = (256, 1, 1)
         self.grid = (min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
                     (self.num-1) / self.block[0] + 1), 1)
@@ -107,16 +106,10 @@ class CUDARecorder(object):
             idx = index % self.buffer_length
             cuda.memcpy_dtod(dst + idx * nbytes, src, nbytes)
 
-        end = index + 1
 
-        if index == self.steps-1 or (end % self.buffer_length == 0):
-
+        if index == self.steps-1 or ((index + 1) % self.buffer_length == 0):
             for key in self.dct.keys():
-                beg = (index / self.buffer_length) * self.buffer_length
-                nbytes = self.gpu_dct[key].nbytes / self.buffer_length
-                offset = int(beg * nbytes)
-                size = int((end-beg) * nbytes)
-                buffer = getbuffer(self.dct[key], offset, size)
+                buffer = self.getbuffer(key, index)
                 cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
 
     def _copy_memory_dtoh(self, index):
@@ -130,3 +123,15 @@ class CUDARecorder(object):
         if key in self.dct:
             return self.dct[key]
         return super(CUDARecorder, self).__getattribute__(key)
+
+    def _py2_get_buffer(self, key, index):
+        beg = int(index / self.buffer_length) * self.buffer_length
+        nbytes = self.gpu_dct[key].nbytes / self.buffer_length
+        offset = int(beg * nbytes)
+        size = int((index-beg+1) * nbytes)
+        return np.getbuffer(self.dct[key], offset, size)
+
+    def _py3_get_buffer(self, key, index):
+        mv = memoryview(self.dct[key])
+        beg = int(index / self.buffer_length) * self.buffer_length
+        return mv[beg:index+1]
