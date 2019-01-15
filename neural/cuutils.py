@@ -178,7 +178,7 @@ def cu_lpf(stimulus, dt, freq):
         The cut-off frequency of the low pass filter.
     """
     num = len(stimulus)
-    num_fft = num/2 + 1
+    num_fft = int(num/2 + 1)
     idtype = stimulus.dtype
     odtype = np.complex128 if idtype == np.float64 else np.complex64
 
@@ -194,7 +194,7 @@ def cu_lpf(stimulus, dt, freq):
     df = 1./dt/num
     idx = int(freq//df)
 
-    unit = d_fstimulus.dtype.itemsize / 4
+    unit = int(d_fstimulus.dtype.itemsize / 4)
     offset = int(d_fstimulus.gpudata) + d_fstimulus.dtype.itemsize * idx
 
     cuda.memset_d32(offset, 0, unit*(num_fft-idx))
