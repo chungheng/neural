@@ -354,6 +354,32 @@ class Model(with_metaclass(ModelMetaClass, object)):
         for func in self.cuda_kernel.callbacks:
             func()
 
+    def cuda_profile(self, **kwargs):
+        num = kwargs.pop('num', 1000)
+        niter = kwargs.pop('niter', 1000)
+        dtype = kwargs.pop('dtype', np.float64)
+
+        self.cuda_prerun(num=num, dtype=dtype)
+
+        args = {key: garray.empty(num, dtype) for key in self.cuda_kernel.args}
+
+        start = drv.Event()
+        end = drv.Event()
+        secs = 0.
+
+        for i in range(niter):
+            start.record()
+            self.cuda_update(0., **args)
+            end.record()
+            end.synchronize()
+            secs += start.time_till(end)
+
+        for key in args:
+            args[key].gpudata.free()
+
+        name = self.__class__.__name__
+        print('Average run time of {}: {} ms'.format(name, secs/niter))
+
     def get_cuda_kernel(self, **kwargs):
         if CudaGenerator is None:
             return
