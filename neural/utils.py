@@ -76,7 +76,7 @@ def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
             wav[peak:stop] = amp*np.linspace(1, 0., stop-peak)**2
 
     sigma = kwargs.pop('sigma', None)
-    dtype = kwargs.pop('dtype', np.float32)
+    dtype = kwargs.pop('dtype', np.float64)
 
     num = int(duration // d_t)
 
