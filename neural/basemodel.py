@@ -235,7 +235,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
         # reset gpu data
         if hasattr(self, 'gdata'):
             for key in self.gdata.keys():
-                del self.gdata[key]
+                if isinstance(self.gdata[key], garray.GPUArray):
+                    self.gdata[key].gpudata.free()
+                else:
+                    self.gdata[key].free()
         self.gdata = {}
 
         # allocate gpu data for state variables
