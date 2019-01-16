@@ -290,6 +290,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             assert num, 'Please give the number of models to run'
 
         self.cuda = SimpleNamespace(num=num, dtype=dtype)
+
         # reset gpu data
         self._cuda_reset()
 
@@ -300,22 +301,16 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self._process_cuda_variables(kwargs, 'inters')
 
         # allocate gpu data for parameters if necessary
-        params_gdata = self._process_cuda_variables(kwargs, 'params', True)
+        params = self._process_cuda_variables(kwargs, 'params', True)
 
-        inputs_gdata = kwargs.copy()
+        # assume the rest of kwargs are input-related
+        inputs = kwargs.copy()
 
-        self.cuda.kernel = self.get_cuda_kernel(
-            dtype=dtype, inputs_gdata=inputs_gdata, params_gdata=params_gdata)
+        self.get_cuda_kernel(inputs_gdata=inputs, params_gdata=params)
 
-        self.cuda.block = (self.cuda.kernel.threadsPerBlock, 1, 1)
-        self.cuda.grid = (
-            int(min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
-                (self.cuda.num-1) / self.cuda.kernel.threadsPerBlock + 1)),
-            1)
-
-        if self.cuda.kernel.has_random:
+        if self.cuda.has_random:
             self.gdata['seed'] = drv.mem_alloc(self.cuda.num * 48)
-            self.cuda.kernel.init_random_seed.prepared_async_call(
+            self.cuda.init_random_seed.prepared_async_call(
                 self.cuda.grid,
                 self.cuda.block,
                 None,
@@ -328,7 +323,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
     def cuda_update(self, d_t, **kwargs):
         st = kwargs.pop('st', None)
         args = []
-        for key, dtype in zip(self.cuda_kernel.args, self.cuda_kernel.arg_type[2:]):
+        for key, dtype in zip(self.cuda.args, self.cuda.arg_ctype[2:]):
             val = self.gdata.get(key, None)
             if key == 'seed':
                 args.append(val)
@@ -338,7 +333,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             if hasattr(val, '__len__'):
                 assert dtype == 'P', \
                     "Expect GPU array but get a scalar input: %s" % key
-                assert val.dtype == self.cuda_kernel.dtype, \
+                assert val.dtype == self.cuda.dtype, \
                     "GPU array float type mismatches: %s" % key
             else:
                 assert dtype != 'P', \
@@ -346,15 +341,15 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
             args.append(val.gpudata if dtype == 'P' else val)
 
-        self.cuda_kernel.prepared_async_call(
-            self.cuda_kernel.grid,
-            self.cuda_kernel.block,
+        self.cuda.kernel.prepared_async_call(
+            self.cuda.grid,
+            self.cuda.block,
             st,
             self.cuda.num,
             d_t*self.time_scale,
             *args)
 
-        for func in self.cuda_kernel.callbacks:
+        for func in self.cuda.callbacks:
             func()
 
     def cuda_profile(self, **kwargs):
@@ -364,7 +359,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         self.cuda_prerun(num=num, dtype=dtype)
 
-        args = {key: garray.empty(num, dtype) for key in self.cuda_kernel.args}
+        args = {key: garray.empty(num, dtype) for key in self.cuda.args}
 
         start = drv.Event()
         end = drv.Event()
@@ -386,10 +381,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
     def get_cuda_kernel(self, **kwargs):
         assert CudaGenerator is not None
 
-        dtype = kwargs.pop('dtype', np.float32)
         params_gdata = kwargs.pop('params_gdata', [])
         inputs_gdata = kwargs.pop('inputs_gdata', None)
-        code_generator = CudaGenerator(self, dtype=dtype,
+        code_generator = CudaGenerator(self, dtype=self.cuda.dtype,
             inputs_gdata=inputs_gdata, params_gdata=params_gdata, **kwargs)
         code_generator.generate()
 
@@ -402,37 +396,28 @@ class Model(with_metaclass(ModelMetaClass, object)):
             print(code_generator.cuda_src)
             raise
 
-        func.arg_type = code_generator.arg_type
-        func.prepare(func.arg_type)
+        self.cuda.src = code_generator.cuda_src
+        self.cuda.args = code_generator.args
+        self.cuda.arg_ctype = code_generator.arg_type
+
+        func.prepare(self.cuda.arg_ctype)
+        self.cuda.kernel = func
+
+        self.cuda.has_random = code_generator.has_random
+        if self.cuda.has_random:
+            init_random_seed = mod.get_function('generate_seed')
+            init_random_seed.prepare(code_generator.init_random_seed_arg)
+            self.cuda.init_random_seed = init_random_seed
 
         deviceData = pycuda.tools.DeviceData()
         maxThreads = int(np.float(deviceData.registers // func.num_regs))
         maxThreads = int(2**int(np.log(maxThreads) / np.log(2)))
-        func.threadsPerBlock = int(min(256, maxThreads, deviceData.max_threads))
-
-        func.args = []
-        for key in self.states.keys():
-            func.args.append(key)
-        if hasattr(self, 'inters'):
-            for key in self.inters.keys():
-                func.args.append(key)
-        func.args.extend(params_gdata)
-        for key in code_generator.ode_args:
-            func.args.append(key[0])
-
-        if code_generator.post_args:
-            for key in code_generator.post_args:
-                func.args.append(key[0])
-
-        func.has_random = code_generator.has_random
-        if func.has_random:
-            init_random_seed = mod.get_function('generate_seed')
-            init_random_seed.prepare(code_generator.init_random_seed_arg)
-            func.init_random_seed = init_random_seed
-            func.args.append('seed')
-
-        func.dtype = dtype
-        func.src = code_generator.cuda_src
+        threadsPerBlock = int(min(256, maxThreads, deviceData.max_threads))
+        self.cuda.block = (threadsPerBlock, 1, 1)
+        self.cuda.grid = (
+            int(min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
+                (self.cuda.num-1) / threadsPerBlock + 1)),
+            1)
 
         return func
 

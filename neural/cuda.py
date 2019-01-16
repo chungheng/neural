@@ -289,8 +289,8 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
         self.post_has_random = False
         self.ode_local_variables = None
         self.post_local_variables = None
-        self.ode_args = None
-        self.post_args = None
+        self.ode_args = []
+        self.post_args = []
         self.func_globals = None
 
         self.ode_src = StringIO()
@@ -329,20 +329,20 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
             post_signature=self.post_args,
             post_declaration=self.post_local_variables)
 
-        self.arg_type = 'i' + self.dtype[0] + \
-            'P' * len(self.model.states) + \
-            'P' * len(getattr(self.model, 'inters', [])) + \
-            'P' * len(self.params_gdata)
+        self.args = list(self.model.states.keys()) + \
+            list(getattr(self.model, 'inters', dict()).keys()) + \
+            self.params_gdata
 
-        if self.ode_args is not None:
-            self.arg_type += ''.join(['P' if flag else dtype[0] for _, dtype, flag in self.ode_args])
-        if self.post_args is not None:
-            self.arg_type += ''.join(['P' if flag else dtype[0] for _, dtype, flag in self.post_args])
+        self.arg_type = 'i' + self.dtype[0] + 'P' * len(self.args)
+
+        for key, dtype, flag in (self.ode_args + self.post_args):
+            self.args.append(key)
+            self.arg_type += 'P' if flag else dtype[0]
+
         if self.has_random:
             self.arg_type += 'P'
+            self.args.append('seed')
             self.init_random_seed_arg = 'iP'
-        # print "%s" % self.cuda_src
-        # print self.arg_type
 
     def generate_ode(self):
         _, self.signature, self.kwargs = self.extract_signature(self.model.ode)
