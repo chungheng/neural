@@ -218,6 +218,50 @@ class Model(with_metaclass(ModelMetaClass, object)):
             setattr(cls, 'code_generator', code_gen)
             setattr(cls, 'ode_opt', ode)
 
+    def _cuda_reset(self):
+        if hasattr(self, 'gdata'):
+            for key in self.gdata.keys():
+                if isinstance(self.gdata[key], garray.GPUArray):
+                    self.gdata[key].gpudata.free()
+                else:
+                    self.gdata[key].free()
+        self.gdata = {}
+
+    def _process_cuda_variables(self, kwargs, attr, skip_key=False):
+        """
+        Arguments:
+            kwargs (dict): keyward arguments.
+            attr (string): 'states', 'inters', or 'params'.
+            skip_key (boolean): Skip if key is not in kwargs (for params).
+        """
+        _cuda = self.cuda
+        dct = getattr(self, attr, dict())
+        vars = []
+        for key, val in dct.items():
+            if key in kwargs:
+                vars.append(key)
+                val = kwargs.pop(key)
+            elif skip_key:
+                continue
+
+            if isinstance(val, np.ndarray):
+                if val.dtype != _cuda.dtype:
+                    val = val.astype(_cuda.dtype)
+                self.gdata[key] = garray.to_gpu(val)
+            elif isinstance(val, garray.GPUArray):
+                if val.dtype != _cuda.dtype:
+                    val = val.get()
+                    val = val.astype(_cuda.dtype)
+                    self.gdata[key] = garray.to_gpu(val)
+                else:
+                    self.gdata[key] = val.copy()
+            elif not hasattr(val, '__len__'):
+                self.gdata[key] = garray.empty(_cuda.num, dtype=_cuda.dtype)
+                self.gdata[key].fill(val)
+            else:
+                raise TypeError("Invalid {0} variable: {1}".format(attr, key))
+        return vars
+
     def cuda_prerun(self, **kwargs):
         """
         Keyword Arguments:
@@ -245,71 +289,18 @@ class Model(with_metaclass(ModelMetaClass, object)):
         else:
             assert num, 'Please give the number of models to run'
 
+        self.cuda = SimpleNamespace(num=num, dtype=dtype)
         # reset gpu data
-        if hasattr(self, 'gdata'):
-            for key in self.gdata.keys():
-                if isinstance(self.gdata[key], garray.GPUArray):
-                    self.gdata[key].gpudata.free()
-                else:
-                    self.gdata[key].free()
-        self.gdata = {}
+        self._cuda_reset()
 
         # allocate gpu data for state variables
-        for key, val in self.states.items():
-            val = kwargs.pop(key, val)
-            if isinstance(val, np.ndarray):
-                if val.dtype != dtype:
-                    val = val.astype(dtype)
-                self.gdata[key] = garray.to_gpu(val)
-            elif isinstance(val, garray.GPUArray):
-                if val.dtype != dtype:
-                    val = val.get()
-                    val = val.astype(dtype)
-                    self.gdata[key] = garray.to_gpu(val)
-                else:
-                    self.gdata[key] = val.copy()
-            elif not hasattr(val, '__len__'):
-                self.gdata[key] = garray.empty(num, dtype=dtype)
-                self.gdata[key].fill(val)
-            else:
-                raise TypeError('Unrecognized type for state variables %s' % key)
+        self._process_cuda_variables(kwargs, 'states')
 
         # allocate gpu data for intermediate variables
-        for key, val in getattr(self, 'inters', dict()).items():
-            val = kwargs.pop(key, val)
-            if isinstance(val, np.ndarray):
-                if val.dtype != dtype:
-                    val = val.astype(dtype)
-                self.gdata[key] = garray.to_gpu(val)
-            elif isinstance(val, garray.GPUArray):
-                if val.dtype != dtype:
-                    val = val.get()
-                    val = val.astype(dtype)
-                    self.gdata[key] = garray.to_gpu(val)
-                else:
-                    self.gdata[key] = val.copy()
-            elif not hasattr(val, '__len__'):
-                self.gdata[key] = garray.empty(num, dtype=dtype)
-                self.gdata[key].fill(val)
-            else:
-                raise TypeError('Unrecognized type for intermediate variables %s' % key)
+        self._process_cuda_variables(kwargs, 'inters')
 
-        params_gdata = []
-        for key, val in getattr(self, 'params', dict()).items():
-            val = kwargs.pop(key, None)
-            if val is not None:
-                params_gdata.append(key)
-            if isinstance(val, np.ndarray):
-                if val.dtype != dtype:
-                    val = val.astype(dtype)
-                self.gdata[key] = garray.to_gpu(val)
-            elif isinstance(val, garray.GPUArray):
-                if val.dtype != dtype:
-                    val = val.get()
-                    val = val.astype(dtype)
-                    self.gdata[key] = garray.to_gpu(val)
-                else:
-                    self.gdata[key] = val.copy()
+        # allocate gpu data for parameters if necessary
+        params_gdata = self._process_cuda_variables(kwargs, 'params', True)
 
         inputs_gdata = kwargs.copy()
 
@@ -319,17 +310,16 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock, 1, 1)
         self.cuda_kernel.grid = (
             int(min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
-                (num-1) / self.cuda_kernel.threadsPerBlock + 1)),
+                (self.cuda.num-1) / self.cuda_kernel.threadsPerBlock + 1)),
             1)
-        self.cuda_kernel.num = num
 
         if self.cuda_kernel.has_random:
-            self.gdata['seed'] = drv.mem_alloc(num * 48)
+            self.gdata['seed'] = drv.mem_alloc(self.cuda.num * 48)
             self.cuda_kernel.init_random_seed.prepared_async_call(
                 self.cuda_kernel.grid,
                 self.cuda_kernel.block,
                 None,
-                self.cuda_kernel.num,
+                self.cuda.num,
                 self.gdata['seed'])
 
         self.cuda_kernel.callbacks = callbacks
@@ -360,7 +350,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             self.cuda_kernel.grid,
             self.cuda_kernel.block,
             st,
-            self.cuda_kernel.num,
+            self.cuda.num,
             d_t*self.time_scale,
             *args)
 
