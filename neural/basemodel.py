@@ -384,8 +384,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         print('Average run time of {}: {} ms'.format(name, secs/niter))
 
     def get_cuda_kernel(self, **kwargs):
-        if CudaGenerator is None:
-            return
+        assert CudaGenerator is not None
+
         dtype = kwargs.pop('dtype', np.float32)
         params_gdata = kwargs.pop('params_gdata', [])
         inputs_gdata = kwargs.pop('inputs_gdata', None)
