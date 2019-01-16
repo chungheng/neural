@@ -53,6 +53,7 @@ class CUDARecorder(object):
         self.model = model
         self.steps = steps
         self.num = model.cuda.num
+        self.src_data = self.model.cuda.data
         gpu_buffer = kwargs.pop('gpu_buffer', False)
         callback = kwargs.pop('callback', False)
 
@@ -61,7 +62,7 @@ class CUDARecorder(object):
             self.gpu_dct = {}
             self.dct = {}
             for key in attrs:
-                dtype = self.model.gdata[key].dtype
+                dtype = self.src_data[key].dtype
                 self.gpu_dct[key] = garray.zeros((self.buffer_length,
                     self.num), dtype)
                 self.dct[key] = np.zeros((self.num, self.steps),
@@ -98,9 +99,9 @@ class CUDARecorder(object):
 
     def _copy_memory_dtod(self, index):
         for key in self.dct.keys():
-            dtype = dtype_to_ctype(self.model.gdata[key].dtype)
-            src = self.model.gdata[key].gpudata
-            nbytes = self.model.gdata[key].nbytes
+            dtype = dtype_to_ctype(self.src_data[key].dtype)
+            src = self.src_data[key].gpudata
+            nbytes = self.src_data[key].nbytes
             dst = int(self.gpu_dct[key].gpudata)
 
             idx = index % self.buffer_length

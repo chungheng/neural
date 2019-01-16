@@ -159,9 +159,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
         time_scale = getattr(self.__class__, 'Time_Scale', 1.)
         baseobj.__setattr__('time_scale', time_scale)
 
-        cuda = kwargs.pop('cuda', False) and (pycuda is not None)
-        baseobj.__setattr__('is_cuda', cuda)
-
         # set state variables and parameters
         baseobj.__setattr__('params', self.__class__.Default_Params.copy())
         baseobj.__setattr__('states', self.__class__.Default_States.copy())
@@ -219,13 +216,11 @@ class Model(with_metaclass(ModelMetaClass, object)):
             setattr(cls, 'ode_opt', ode)
 
     def _cuda_reset(self):
-        if hasattr(self, 'gdata'):
-            for key in self.gdata.keys():
-                if isinstance(self.gdata[key], garray.GPUArray):
-                    self.gdata[key].gpudata.free()
-                else:
-                    self.gdata[key].free()
-        self.gdata = {}
+        if hasattr(self, 'cuda') and hasattr(self.cuda, 'data'):
+            for key in self.cuda.data.keys():
+                self.cuda.data[key].gpudata.free()
+        if hasattr(self, 'cuda') and hasattr(self.cuda, 'seed'):
+            self.cuda.seed.free()
 
     def _process_cuda_variables(self, kwargs, attr, skip_key=False):
         """
@@ -247,17 +242,17 @@ class Model(with_metaclass(ModelMetaClass, object)):
             if isinstance(val, np.ndarray):
                 if val.dtype != _cuda.dtype:
                     val = val.astype(_cuda.dtype)
-                self.gdata[key] = garray.to_gpu(val)
+                _cuda.data[key] = garray.to_gpu(val)
             elif isinstance(val, garray.GPUArray):
                 if val.dtype != _cuda.dtype:
                     val = val.get()
                     val = val.astype(_cuda.dtype)
-                    self.gdata[key] = garray.to_gpu(val)
+                    _cuda.data[key] = garray.to_gpu(val)
                 else:
-                    self.gdata[key] = val.copy()
+                    _cuda.data[key] = val.copy()
             elif not hasattr(val, '__len__'):
-                self.gdata[key] = garray.empty(_cuda.num, dtype=_cuda.dtype)
-                self.gdata[key].fill(val)
+                _cuda.data[key] = garray.empty(_cuda.num, dtype=_cuda.dtype)
+                _cuda.data[key].fill(val)
             else:
                 raise TypeError("Invalid {0} variable: {1}".format(attr, key))
         return vars
@@ -289,7 +284,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         else:
             assert num, 'Please give the number of models to run'
 
-        self.cuda = SimpleNamespace(num=num, dtype=dtype)
+        self.cuda = SimpleNamespace(num=num, dtype=dtype, data=dict())
 
         # reset gpu data
         self._cuda_reset()
@@ -310,25 +305,25 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.get_cuda_kernel(inputs_gdata=inputs, params_gdata=params)
 
         if self.cuda.has_random:
-            self.gdata['seed'] = drv.mem_alloc(self.cuda.num * 48)
+            self.cuda.seed = drv.mem_alloc(self.cuda.num * 48)
             self.cuda.init_random_seed.prepared_async_call(
                 self.cuda.grid,
                 self.cuda.block,
                 None,
                 self.cuda.num,
-                self.gdata['seed'])
+                self.cuda.seed)
 
         self.cuda.callbacks = callbacks
-        self.is_cuda = True
 
     def cuda_update(self, d_t, **kwargs):
         st = kwargs.pop('st', None)
         args = []
         for key, dtype in zip(self.cuda.args, self.cuda.arg_ctype[2:]):
-            val = self.gdata.get(key, None)
             if key == 'seed':
-                args.append(val)
+                args.append(self.cuda.seed)
                 continue
+
+            val = self.cuda.data.get(key, None)
             if val is None:
                 val = kwargs[key]
             if hasattr(val, '__len__'):
@@ -631,8 +626,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         super(Model, self).__setattr__(key, value)
 
     def __getattr__(self, key):
-        if self.is_cuda and hasattr(self, 'gdata') and key in self.gdata:
-            return self.gdata[key]
+        if 'cuda' in self.__dict__ and key in self.cuda.data:
+            return self.cuda.data[key]
         if key[:2] == "d_":
             return self.gstates[key[2:]]
 
