@@ -304,25 +304,25 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         inputs_gdata = kwargs.copy()
 
-        self.cuda_kernel = self.get_cuda_kernel(
+        self.cuda.kernel = self.get_cuda_kernel(
             dtype=dtype, inputs_gdata=inputs_gdata, params_gdata=params_gdata)
 
-        self.cuda_kernel.block = (self.cuda_kernel.threadsPerBlock, 1, 1)
-        self.cuda_kernel.grid = (
+        self.cuda.block = (self.cuda.kernel.threadsPerBlock, 1, 1)
+        self.cuda.grid = (
             int(min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
-                (self.cuda.num-1) / self.cuda_kernel.threadsPerBlock + 1)),
+                (self.cuda.num-1) / self.cuda.kernel.threadsPerBlock + 1)),
             1)
 
-        if self.cuda_kernel.has_random:
+        if self.cuda.kernel.has_random:
             self.gdata['seed'] = drv.mem_alloc(self.cuda.num * 48)
-            self.cuda_kernel.init_random_seed.prepared_async_call(
-                self.cuda_kernel.grid,
-                self.cuda_kernel.block,
+            self.cuda.kernel.init_random_seed.prepared_async_call(
+                self.cuda.grid,
+                self.cuda.block,
                 None,
                 self.cuda.num,
                 self.gdata['seed'])
 
-        self.cuda_kernel.callbacks = callbacks
+        self.cuda.callbacks = callbacks
         self.is_cuda = True
 
     def cuda_update(self, d_t, **kwargs):

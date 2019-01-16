@@ -52,7 +52,7 @@ class CUDARecorder(object):
     def __init__(self, model, attrs, steps, **kwargs):
         self.model = model
         self.steps = steps
-        self.num = model.cuda_kernel.num
+        self.num = model.cuda.num
         gpu_buffer = kwargs.pop('gpu_buffer', False)
         callback = kwargs.pop('callback', False)
 
@@ -83,7 +83,7 @@ class CUDARecorder(object):
         if callback:
             self.iter = iter(self)
             func = lambda: next(self.iter)
-            self.model.cuda_kernel.callbacks.append(func)
+            self.model.cuda.callbacks.append(func)
 
     def __iter__(self):
         for i in range(self.steps):
