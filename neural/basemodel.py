@@ -306,6 +306,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         # assume the rest of kwargs are input-related
         inputs = kwargs.copy()
 
+        # generate cuda kernel, a.k.a self.cuda.kernel
         self.get_cuda_kernel(inputs_gdata=inputs, params_gdata=params)
 
         if self.cuda.has_random:
@@ -381,10 +382,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
     def get_cuda_kernel(self, **kwargs):
         assert CudaGenerator is not None
 
-        params_gdata = kwargs.pop('params_gdata', [])
-        inputs_gdata = kwargs.pop('inputs_gdata', None)
-        code_generator = CudaGenerator(self, dtype=self.cuda.dtype,
-            inputs_gdata=inputs_gdata, params_gdata=params_gdata, **kwargs)
+        code_generator = CudaGenerator(self, dtype=self.cuda.dtype, **kwargs)
         code_generator.generate()
 
         try:
