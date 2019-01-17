@@ -75,6 +75,10 @@ class ModelMetaClass(type):
         dct['Default_Bounds'] = bounds
         dct['Default_States'] = states
 
+        for attr in ('Default_Params', 'Default_Inters'):
+            if attr not in dct:
+                dct[attr] = dict()
+
         if clsname == 'Model':
             solvers = dict()
             for key, val in dct.items():
