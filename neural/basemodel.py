@@ -140,8 +140,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         states (dict): the state variables, updated by the ODE.
         params (dict): parameters of the model, can only be set during
             contrusction.
-        inters (dict): intermediate variables. Optional, exists only if
-            `__class__.defaultInters` is defined.
+        inters (dict): intermediate variables.
         gstates (dict): the gradient of the state variables.
         bounds (dict): lower and upper bounds of the state variables.
     """
@@ -167,15 +166,13 @@ class Model(with_metaclass(ModelMetaClass, object)):
         baseobj.__setattr__('params', self.__class__.Default_Params.copy())
         baseobj.__setattr__('states', self.__class__.Default_States.copy())
         baseobj.__setattr__('bounds', self.__class__.Default_Bounds.copy())
+        baseobj.__setattr__('inters', self.__class__.Default_Inters.copy())
 
         gstates = {key:0. for key in self.states}
         baseobj.__setattr__('gstates', gstates)
 
-        # check if intermediate variables are defined.
-        baseobj.__setattr__('_gettableAttrs', ['states', 'params'])
-        if hasattr(self.__class__, 'Default_Inters'):
-            baseobj.__setattr__('inters', self.__class__.Default_Inters.copy())
-            self._gettableAttrs.append('inters')
+        baseobj.__setattr__('_gettableAttrs',
+            ['states', 'params', 'inters', 'bounds'])
 
         # set numerical solver
         solver = kwargs.pop('solver', 'forward_euler')
@@ -188,8 +185,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
         for key, val in kwargs.items():
             self.__setattr__(key, val)
 
-        # make params unchangable
+        # make params and bounds unchangable
         self._settableAttrs.remove('params')
+        self._settableAttrs.remove('bounds')
 
         # optimize the ode function
         if optimize:
