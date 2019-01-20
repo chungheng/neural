@@ -50,7 +50,7 @@ struct States {
     {{ float_type }} {{ key }};
     {%- endfor %}
 };
-{% if inters %}
+{% if inters|length %}
 struct Inters {
     {%- for key in inters %}
     {{ float_type }} {{ key }};
@@ -82,7 +82,7 @@ __device__ void forward(
 __device__ int ode(
     States &states,
     States &gstates
-    {%- if inters %},\n    Inters &inters{%- endif %}
+    {%- if inters|length %},\n    Inters &inters{%- endif %}
     {%- for key in params_gdata -%}
     ,\n    {{ float_type }} {{ key.upper() }}
     {%- endfor %}
@@ -103,7 +103,7 @@ __device__ int ode(
 /* post processing */
 __device__ int post(
     States &states
-    {%- if inters %},\n    Inters &inters{%- endif %}
+    {%- if inters|length %},\n    Inters &inters{%- endif %}
     {%- for key in params_gdata -%}
     ,\n    {{ float_type }} {{ key.upper() }}
     {%- endfor %}
@@ -126,7 +126,7 @@ __global__ void {{ model_name }} (
     {%- for key in states -%}
     ,\n    {{ float_type }} *g_{{ key }}
     {%- endfor %}
-    {%- if inters %}
+    {%- if inters|length %}
     {%- for key in inters -%}
     ,\n    {{ float_type }} *g_{{ key }}
     {%- endfor %}
@@ -160,7 +160,7 @@ __global__ void {{ model_name }} (
     for (int nid = tid; nid < num_thread; nid += total_threads) {
 
         States states, gstates;
-        {%- if inters %}
+        {%- if inters|length %}
         Inters inters;
         {% endif %}
 
@@ -168,7 +168,7 @@ __global__ void {{ model_name }} (
         {%- for key in states %}
         states.{{ key }} = g_{{ key }}[nid];
         {%- endfor %}
-        {%- if inters %}
+        {%- if inters|length %}
         {%- for key in inters %}
         inters.{{ key }} = g_{{ key }}[nid];
         {%- endfor %}
@@ -191,7 +191,7 @@ __global__ void {{ model_name }} (
 
         {% macro call_ode(states=states, gstates=gstates) -%}
         ode(states, gstates
-            {%- if inters %}, inters{%  endif %}
+            {%- if inters|length %}, inters{%  endif %}
             {%- for key in params_gdata -%}
             , {{ key.upper() }}
             {%- endfor -%}
@@ -233,10 +233,10 @@ __global__ void {{ model_name }} (
         clip(states);
         {%- endif %}
 
-        {%- if post_src|length > 0 -%}
+        {% if post_src|length > 0 -%}
         /* post processing */
         post(states
-            {%- if inters %}, inters{%  endif %}
+            {%- if inters|length %}, inters{%  endif %}
             {%- for key in params_gdata -%}
             , {{ key.upper() }}
             {%- endfor -%}
@@ -250,7 +250,7 @@ __global__ void {{ model_name }} (
         {%- for key in states %}
         g_{{ key }}[nid] = states.{{ key }};
         {%- endfor %}
-        {%- if inters %}
+        {%- if inters|length %}
         {%- for key in inters %}
         g_{{ key }}[nid] = inters.{{ key }};
         {%- endfor %}
@@ -318,7 +318,7 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
             states=self.model.states,
             bounds=self.model.bounds,
             params=self.model.params,
-            inters=getattr(self.model, 'inters', None),
+            inters=self.model.inters,
             params_gdata=self.params_gdata,
             has_random=self.has_random,
             ode_src=self.ode_src.getvalue(),
@@ -330,7 +330,7 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
             post_declaration=self.post_local_variables)
 
         self.args = list(self.model.states.keys()) + \
-            list(getattr(self.model, 'inters', dict()).keys()) + \
+            list(self.model.inters.keys()) + \
             self.params_gdata
 
         self.arg_type = 'i' + self.dtype[0] + 'P' * len(self.args)
@@ -420,7 +420,7 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
                 self.var[-1] = "gstates.{0}".format(key[2:])
             elif key in self.model.Default_Params:
                 self.var[-1] = key.upper()
-            elif hasattr(self.model, 'Default_Inters') and key in self.model.Default_Inters:
+            elif key in self.model.Default_Inters:
                 self.var[-1] = "inters.{0}".format(key)
         else:
             self.var[-1] = "{0}.{1}".format(self.var[-1], key)
