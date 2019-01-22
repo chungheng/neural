@@ -10,10 +10,6 @@ class OdeGenerator(CodeGenerator):
     def __init__(self, model, **kwargs):
         self.model = model
         CodeGenerator.__init__(self, model.ode.func_code, **kwargs)
-        self.modelAttrs = []
-        for key in ['Default_States', 'Default_Inters', 'Default_Params']:
-            if hasattr(self.model, key):
-                self.modelAttrs.append([key, key.split('_')[-1].lower()])
 
         args = get_func_signature(model.ode)
         self.ostream.write("def ode(%s):\n" % (", ".join(args)))
@@ -26,9 +22,9 @@ class OdeGenerator(CodeGenerator):
                 self.var[-1] += ".gstate['%s']" % key
                 return
 
-            for (defaultParam, param)  in self.modelAttrs:
-                attr = getattr(self.model, defaultParam)
-                if key in attr:
-                    self.var[-1] += ".%s['%s']" % (param, key)
+            for attr in ['states', 'inters', 'params']:
+                dct = getattr(self.model, attr)
+                if key in dct:
+                    self.var[-1] += ".%s['%s']" % (attr, key)
                     return
         self.var[-1] += ".%s" % key
