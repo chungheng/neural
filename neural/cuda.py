@@ -10,6 +10,11 @@ from pycodegen.codegen import CodeGenerator
 from pycodegen.utils import get_func_signature
 
 cuda_src_template = """
+{%- if has_random %}
+#include <cuda.h>
+#include <curand.h>
+#include <curand_kernel.h>
+{%- endif %}
 {% set float_char = 'f' if float_type == 'float' else '' %}
 {% for key, val in params.items() -%}
 {%- if key not in params_gdata -%}
@@ -24,10 +29,6 @@ cuda_src_template = """
 {% endif %}
 
 {%- if has_random %}
-#include <cuda.h>
-#include <curand.h>
-#include <curand_kernel.h>
-
 extern "C"{
 
 __global__ void  generate_seed(
