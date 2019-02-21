@@ -256,6 +256,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
                     val = val.astype(_cuda.dtype)
                 _cuda.data[key] = garray.to_gpu(val)
             elif isinstance(val, garray.GPUArray):
+                if attr == 'params':
+                    assert val.dtype == _cuda.dtype
+                    _cuda.data[key] = val
+                    continue
                 if val.dtype != _cuda.dtype:
                     val = val.get()
                     val = val.astype(_cuda.dtype)
