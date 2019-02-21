@@ -65,6 +65,7 @@ class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
         bounds = dict()
         states = dict()
+        variables = dict()
         if 'Default_States' in dct:
             for key, val in dct['Default_States'].items():
                 if hasattr(val, '__len__'):
@@ -72,12 +73,17 @@ class ModelMetaClass(type):
                     states[key] = val[0]
                 else:
                     states[key] = val
+                variables[key] = 'states'
         dct['Default_Bounds'] = bounds
         dct['Default_States'] = states
 
         for attr in ('Default_Params', 'Default_Inters'):
             if attr not in dct:
                 dct[attr] = dict()
+            attr_lower = attr[8:].lower()
+            variables.update({key: attr_lower for key in dct[attr].keys()})
+
+        dct['Variables'] = variables
 
         if clsname == 'Model':
             solvers = dict()
