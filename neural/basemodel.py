@@ -189,7 +189,11 @@ class Model(with_metaclass(ModelMetaClass, object)):
         # set additional variables
         baseobj.__setattr__('_settableAttrs', self._gettableAttrs[:])
         for key, val in kwargs.items():
-            self.__setattr__(key, val)
+            attr = self.__class__.Variables.get(key, None)
+            if attr is None:
+                raise AttributeError("Unrecognized variable '{}'".format(key))
+            dct = getattr(self, attr)
+            dct[key] = val
 
         # make params and bounds unchangable
         self._settableAttrs.remove('params')
