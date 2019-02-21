@@ -5,7 +5,7 @@ Basic neuron models.
 """
 import numpy as np
 
-from basemodel import Model
+from .basemodel import Model
 
 class IAF(Model):
     """
