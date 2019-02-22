@@ -654,11 +654,3 @@ class Model(with_metaclass(ModelMetaClass, object)):
             if key in attr:
                 return attr[key]
         return super(Model, self).__getattribute__(key)
-
-    def get_conductance(self):
-        """
-        Access the conductance of the model.
-        """
-        return self.gmax*self.s
-
-    conductance = property(get_conductance)
