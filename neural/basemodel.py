@@ -208,6 +208,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
             self._ode = self.ode
             self.ode = self.ode_opt
 
+        self.update = self._cpu_update
+
     @classmethod
     def optimize(cls):
         if not hasattr(cls, 'ode_opt'):
@@ -330,8 +332,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 self.cuda.seed)
 
         self.cuda.callbacks = callbacks
+        self.update = self._cuda_update
 
-    def cuda_update(self, d_t, **kwargs):
+    def _cuda_update(self, d_t, **kwargs):
+        """
+
+        """
         st = kwargs.pop('st', None)
         args = []
         for key, dtype in zip(self.cuda.args, self.cuda.arg_ctype[2:]):
@@ -430,9 +436,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         return func
 
-    def update(self, d_t, **kwargs):
+    def _cpu_update(self, dt, **kwargs):
         """
-        Wrapper function for each iteration of update.
+        Wrapper function for running solver on CPU.
 
         Arguments:
             d_t (float): time steps.
@@ -448,6 +454,26 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
         self.solver(d_t*self.time_scale, **kwargs)
         self.post()
+
+    def update(self, d_t, **kwargs):
+        """
+        Wrapper function for each iteration of update.
+
+        ``update`` is a proxy to one of ``_cpu_update`` or ``_cuda_update``.
+
+        Arguments:
+            d_t (float): time steps.
+            kwargs (dict): Arguments for input(s) or other purposes. For
+            example, one can use an extra boolean flag to indicate the
+            period for counting spikes.
+
+        Notes:
+            The signature of the function does not specify _stimulus_
+            arguments. However, the developer should provide the stimulus
+            to the model, ex. `input` or `spike`. If mulitple stimuli are
+            required, the developer could specify them as `input1` and `input2`.
+        """
+        pass
 
     @abstractmethod
     def ode(self, **kwargs):
