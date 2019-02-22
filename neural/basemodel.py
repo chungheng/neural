@@ -273,7 +273,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 raise TypeError("Invalid {0} variable: {1}".format(attr, key))
         return vars
 
-    def cuda_prerun(self, **kwargs):
+    def cuda_compile(self, **kwargs):
         """
         Keyword Arguments:
             num (int): The number of units for CUDA kernel excution.
