@@ -229,7 +229,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             setattr(cls, 'code_generator', code_gen)
             setattr(cls, 'ode_opt', ode)
 
-    def _cuda_reset(self):
+    def _cuda_free(self):
         if hasattr(self, 'cuda') and hasattr(self.cuda, 'data'):
             for key in self.cuda.data.keys():
                 self.cuda.data[key].gpudata.free()
@@ -275,8 +275,31 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 raise TypeError("Invalid {0} variable: {1}".format(attr, key))
         return vars
 
+    def cuda_reset(self, **kwargs):
+        """
+        reset the gpu data.
+
+        Reset the GPU data to default values.
+        """
+
+        # free up gpu data
+        self._cuda_free()
+
+        # allocate gpu data for state variables
+        self._process_cuda_variables(kwargs, 'states')
+
+        # allocate gpu data for intermediate variables
+        self._process_cuda_variables(kwargs, 'inters')
+
+        # allocate gpu data for parameters if necessary
+        params = self._process_cuda_variables(kwargs, 'params', True)
+
+        return params
+
     def cuda_compile(self, **kwargs):
         """
+        compile the cuda kernel.
+
         Keyword Arguments:
             num (int): The number of units for CUDA kernel excution.
             dtype (type): The default type of floating point for CUDA.
@@ -305,16 +328,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.cuda = SimpleNamespace(num=num, dtype=dtype, data=dict())
 
         # reset gpu data
-        self._cuda_reset()
-
-        # allocate gpu data for state variables
-        self._process_cuda_variables(kwargs, 'states')
-
-        # allocate gpu data for intermediate variables
-        self._process_cuda_variables(kwargs, 'inters')
-
-        # allocate gpu data for parameters if necessary
-        params = self._process_cuda_variables(kwargs, 'params', True)
+        params = self.cuda_reset(**kwargs)
 
         # assume the rest of kwargs are input-related
         inputs = kwargs.copy()
