@@ -48,14 +48,19 @@ for key, val in _copy.items():
 class CUDARecorder(object):
     """
     Recorder for reading CUDA arrays of Neural models.
+
+    Attributes:
     """
     def __init__(self, model, attrs, steps, **kwargs):
         self.model = model
         self.steps = steps
         self.num = model.cuda.num
         self.src_data = self.model.cuda.data
+        self.rate = kwargs.pop('rate', 1)
         gpu_buffer = kwargs.pop('gpu_buffer', False)
         callback = kwargs.pop('callback', False)
+
+        self.shape = (self.num, int(self.steps/self.rate))
 
         if gpu_buffer:
             self.buffer_length = self._get_buffer_length(gpu_buffer)
@@ -65,11 +70,10 @@ class CUDARecorder(object):
                 dtype = self.src_data[key].dtype
                 self.gpu_dct[key] = garray.zeros((self.buffer_length,
                     self.num), dtype)
-                self.dct[key] = np.zeros((self.num, self.steps),
-                    order='F', dtype=dtype)
+                self.dct[key] = np.zeros(self.shape, order='F', dtype=dtype)
             self.copy_memory = self._copy_memory_dtod
         else:
-            self.dct = {key: np.zeros((self.num, self.steps)) for key in attrs}
+            self.dct = {key: np.zeros(self.shape) for key in attrs}
             self.copy_memory = self._copy_memory_dtoh
 
         if PY2:
@@ -88,34 +92,38 @@ class CUDARecorder(object):
 
     def __iter__(self):
         for i in range(self.steps):
-            self.copy_memory(i)
+            if i % self.rate == 0:
+                self.copy_memory(i)
             yield i
 
     def _get_buffer_length(self, gpu_buffer):
         if gpu_buffer == 'full' or gpu_buffer == 'whole' or gpu_buffer is True:
-            return self.steps
+            return self.shape[1]
         else:
-            return min(gpu_buffer, self.steps)
+            return min(gpu_buffer, self.shape[1])
 
     def _copy_memory_dtod(self, index):
+        # downsample index
+        d_index = int(index/self.rate)
+        # buffer index
+        b_index = d_index % self.buffer_length
         for key in self.dct.keys():
             dtype = dtype_to_ctype(self.src_data[key].dtype)
             src = self.src_data[key].gpudata
             nbytes = self.src_data[key].nbytes
             dst = int(self.gpu_dct[key].gpudata)
 
-            idx = index % self.buffer_length
-            cuda.memcpy_dtod(dst + idx * nbytes, src, nbytes)
+            cuda.memcpy_dtod(dst + b_index * nbytes, src, nbytes)
 
-
-        if index == self.steps-1 or ((index + 1) % self.buffer_length == 0):
+        if (d_index == self.shape[1]-1) or (b_index == self.buffer_length-1):
             for key in self.dct.keys():
-                buffer = self.get_buffer(key, index)
+                buffer = self.get_buffer(key, d_index)
                 cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
 
     def _copy_memory_dtoh(self, index):
+        d_index = int(index/self.rate) # downsample index
         for key in self.dct.keys():
-            self.dct[key][:,index] = getattr(self.model, key).get()
+            self.dct[key][:,d_index] = getattr(self.model, key).get()
 
     def __getitem__(self, key):
         return self.dct[key]
