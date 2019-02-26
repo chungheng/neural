@@ -90,6 +90,9 @@ class CUDARecorder(object):
             func = lambda: next(self.iter)
             self.model.cuda.callbacks.append(func)
 
+    def reset(self):
+        self.iter = iter(self)
+
     def __iter__(self):
         for i in range(self.steps):
             if i % self.rate == 0:
