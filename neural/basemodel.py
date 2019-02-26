@@ -264,10 +264,14 @@ class Model(with_metaclass(ModelMetaClass, object)):
             elif skip_key:
                 continue
 
+            # allocate GPU memory
+            if attr != 'params' or hasattr(val, '__len__'):
+                self._allocate_cuda_memory(key)
+
             if isinstance(val, np.ndarray):
                 if val.dtype != _cuda.dtype:
                     val = val.astype(_cuda.dtype)
-                _cuda.data[key] = garray.to_gpu(val)
+                drv.memcpy_htod(_cuda.data[key].gpudata, val)
             elif isinstance(val, garray.GPUArray):
                 if attr == 'params':
                     assert val.dtype == _cuda.dtype
@@ -276,11 +280,13 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 if val.dtype != _cuda.dtype:
                     val = val.get()
                     val = val.astype(_cuda.dtype)
-                    _cuda.data[key] = garray.to_gpu(val)
+                    drv.memcpy_htod(_cuda.data[key].gpudata, val)
                 else:
-                    _cuda.data[key] = val.copy()
+                    drv.memcpy_dtod(_cuda.data[key].gpudata, val.gpudata)
             elif not hasattr(val, '__len__'):
-                _cuda.data[key] = garray.empty(_cuda.num, dtype=_cuda.dtype)
+                if attr == 'params':
+                    self.params[key] = val
+                    continue
                 _cuda.data[key].fill(val)
             else:
                 raise TypeError("Invalid {0} variable: {1}".format(attr, key))
