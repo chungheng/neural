@@ -259,8 +259,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
         vars = []
         for key, val in dct.items():
             if key in kwargs:
-                vars.append(key)
                 val = kwargs.pop(key)
+                if hasattr(val, '__len__'):
+                    vars.append(key)
             elif skip_key:
                 continue
 
