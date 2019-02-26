@@ -85,6 +85,9 @@ class ModelMetaClass(type):
 
         dct['Variables'] = variables
 
+        if 'Time_Scale' not in dct:
+            dct['Time_Scale'] = 1.
+
         if clsname == 'Model':
             solvers = dict()
             for key, val in dct.items():
@@ -395,7 +398,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             self.cuda.block,
             st,
             self.cuda.num,
-            d_t*self.time_scale,
+            d_t*self.Time_Scale,
             *args)
 
         for func in self.cuda.callbacks:
@@ -483,7 +486,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             to the model, ex. `input` or `spike`. If mulitple stimuli are
             required, the developer could specify them as `input1` and `input2`.
         """
-        self.solver(d_t*self.time_scale, **kwargs)
+        self.solver(d_t*self.Time_Scale, **kwargs)
         self.post()
 
     def update(self, d_t, **kwargs):
