@@ -405,7 +405,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         niter = kwargs.pop('niter', 1000)
         dtype = kwargs.pop('dtype', np.float64)
 
-        self.cuda_prerun(num=num, dtype=dtype)
+        self.cuda_compile(num=num, dtype=dtype)
 
         args = {key: garray.empty(num, dtype) for key in self.cuda.args}
 
@@ -415,7 +415,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         for i in range(niter):
             start.record()
-            self.cuda_update(0., **args)
+            self._cuda_update(0., **args)
             end.record()
             end.synchronize()
             secs += start.time_till(end)
