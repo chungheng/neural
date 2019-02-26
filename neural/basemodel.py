@@ -281,10 +281,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         Reset the GPU data to default values.
         """
-
-        # free up gpu data
-        self._cuda_free()
-
         # allocate gpu data for state variables
         self._process_cuda_variables(kwargs, 'states')
 
@@ -324,6 +320,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
                     assert num == _num, 'Mismatch in data size: %s' % key
         else:
             assert num, 'Please give the number of models to run'
+
+        # free up GPU memory
+        self._cuda_free()
 
         self.cuda = SimpleNamespace(num=num, dtype=dtype, data=dict())
 
