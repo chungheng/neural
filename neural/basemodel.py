@@ -236,6 +236,17 @@ class Model(with_metaclass(ModelMetaClass, object)):
         if hasattr(self, 'cuda') and hasattr(self.cuda, 'seed'):
             self.cuda.seed.free()
 
+    def _allocate_cuda_memory(self, key):
+        """
+        allocate GPU memroy for variable
+        """
+        if key in self.cuda.data and len(self.cuda.data[key]) != self.cuda.num:
+            del self.cuda.data[key]
+
+        if key not in self.cuda.data:
+            array = garray.empty(self.cuda.num, dtype=self.cuda.dtype)
+            self.cuda.data[key] = array
+
     def _process_cuda_variables(self, kwargs, attr, skip_key=False):
         """
         Arguments:
