@@ -163,6 +163,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             float (type): The data type of float point.
         """
         optimize = kwargs.pop('optimize', False) and (OdeGenerator is not None)
+        solver = kwargs.pop('solver', 'forward_euler')
         float = kwargs.pop('float', np.float32)
 
         # set state variables and parameters
@@ -171,13 +172,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.bounds = self.Default_Bounds.copy()
         self.inters = self.Default_Inters.copy()
 
-        self.gstates = {key:0. for key in self.states}
-
-        # set numerical solver
-        solver = kwargs.pop('solver', 'forward_euler')
-        solver = self.solver_alias[solver]
-        self.solver = getattr(self, solver)
-
         # set additional variables
         for key, val in kwargs.items():
             attr = self.Variables.get(key, None)
@@ -185,6 +179,14 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 raise AttributeError("Unrecognized variable '{}'".format(key))
             dct = getattr(self, attr)
             dct[key] = val
+
+        self.initial_states = self.states.copy()
+        self.initial_inters = self.inters.copy()
+        self.gstates = {key:0. for key in self.states}
+
+        # set numerical solver
+        solver = self.solver_alias[solver]
+        self.solver = getattr(self, solver)
 
         # optimize the ode function
         if optimize:
