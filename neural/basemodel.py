@@ -166,10 +166,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
         float = kwargs.pop('float', np.float32)
 
         # set state variables and parameters
-        self.params = self.__class__.Default_Params.copy()
-        self.states = self.__class__.Default_States.copy()
-        self.bounds = self.__class__.Default_Bounds.copy()
-        self.inters = self.__class__.Default_Inters.copy()
+        self.params = self.Default_Params.copy()
+        self.states = self.Default_States.copy()
+        self.bounds = self.Default_Bounds.copy()
+        self.inters = self.Default_Inters.copy()
 
         self.gstates = {key:0. for key in self.states}
 
@@ -180,7 +180,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         # set additional variables
         for key, val in kwargs.items():
-            attr = self.__class__.Variables.get(key, None)
+            attr = self.Variables.get(key, None)
             if attr is None:
                 raise AttributeError("Unrecognized variable '{}'".format(key))
             dct = getattr(self, attr)
