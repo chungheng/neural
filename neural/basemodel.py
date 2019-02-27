@@ -454,7 +454,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         return func
 
-    def _cpu_update(self, dt, **kwargs):
+    def _cpu_update(self, d_t, **kwargs):
         """
         Wrapper function for running solver on CPU.
 
