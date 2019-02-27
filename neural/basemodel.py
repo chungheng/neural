@@ -180,9 +180,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
         gstates = {key:0. for key in self.states}
         baseobj.__setattr__('gstates', gstates)
 
-        baseobj.__setattr__('_gettableAttrs',
-            ['states', 'params', 'inters', 'bounds'])
-
         # set numerical solver
         solver = kwargs.pop('solver', 'forward_euler')
         solver = self.solver_alias[solver]
@@ -190,17 +187,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
         baseobj.__setattr__('solver', solver)
 
         # set additional variables
-        baseobj.__setattr__('_settableAttrs', self._gettableAttrs[:])
         for key, val in kwargs.items():
             attr = self.__class__.Variables.get(key, None)
             if attr is None:
                 raise AttributeError("Unrecognized variable '{}'".format(key))
             dct = getattr(self, attr)
             dct[key] = val
-
-        # make params and bounds unchangable
-        self._settableAttrs.remove('params')
-        self._settableAttrs.remove('bounds')
 
         # optimize the ode function
         if optimize:
