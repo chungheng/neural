@@ -165,26 +165,18 @@ class Model(with_metaclass(ModelMetaClass, object)):
         optimize = kwargs.pop('optimize', False) and (OdeGenerator is not None)
         float = kwargs.pop('float', np.float32)
 
-        baseobj = super(Model, self)
-
-        # set time scale, ex. Hodgkin-Huxley uses ms rather than s.
-        time_scale = getattr(self.__class__, 'Time_Scale', 1.)
-        baseobj.__setattr__('time_scale', time_scale)
-
         # set state variables and parameters
-        baseobj.__setattr__('params', self.__class__.Default_Params.copy())
-        baseobj.__setattr__('states', self.__class__.Default_States.copy())
-        baseobj.__setattr__('bounds', self.__class__.Default_Bounds.copy())
-        baseobj.__setattr__('inters', self.__class__.Default_Inters.copy())
+        self.params = self.__class__.Default_Params.copy()
+        self.states = self.__class__.Default_States.copy()
+        self.bounds = self.__class__.Default_Bounds.copy()
+        self.inters = self.__class__.Default_Inters.copy()
 
-        gstates = {key:0. for key in self.states}
-        baseobj.__setattr__('gstates', gstates)
+        self.gstates = {key:0. for key in self.states}
 
         # set numerical solver
         solver = kwargs.pop('solver', 'forward_euler')
         solver = self.solver_alias[solver]
-        solver = getattr(self, solver)
-        baseobj.__setattr__('solver', solver)
+        self.solver = getattr(self, solver)
 
         # set additional variables
         for key, val in kwargs.items():
