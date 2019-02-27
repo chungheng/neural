@@ -690,10 +690,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
             self.gstates[key[2:]] = value
             return
 
-        for param in self._settableAttrs:
-            if param == key:
-                super(Model, self).__setattr__(param, value)
-                return
+        if key in ['states', 'params', 'inters', 'bounds']:
+            return super(Model, self).__setattr__(key, value)
+
+        for param in ['states', 'params', 'inters', 'bounds']:
             attr = getattr(self, param)
             if key in attr:
                 attr[key] = value
