@@ -707,10 +707,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
         if key[:2] == "d_":
             return self.gstates[key[2:]]
 
-        for param in self._gettableAttrs:
+        if key in ['states', 'params', 'inters', 'bounds']:
+            return getattr(self, key)
+
+        for param in ['states', 'params', 'inters', 'bounds']:
             attr = getattr(self, param)
-            if key == param:
-                return attr
             if key in attr:
                 return attr[key]
+
         return super(Model, self).__getattribute__(key)
