@@ -475,6 +475,24 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.solver(d_t*self.Time_Scale, **kwargs)
         self.post()
 
+    def reset(self, **kwargs):
+        """
+        reset state and intermediate variables to their initial condition.
+        """
+        for key, val in kwargs.items():
+             assert key in self.Varaibles
+             attr = self.Varaibles[key]
+             if attr in ['states', 'inters']:
+                 key = 'initial_' + key
+             dct = getattr(self, attr)
+             dct[key] = val
+        for key, val in self.initial_states.items():
+            self.states[key] = val
+        for key, val in self.initial_inters.items():
+            self.inters[key] = val
+        for key in self.gstates.keys():
+            self.gstates[key] = 0.
+
     def update(self, d_t, **kwargs):
         """
         Wrapper function for each iteration of update.
