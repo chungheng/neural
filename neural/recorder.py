@@ -51,11 +51,11 @@ class CUDARecorder(object):
 
     Attributes:
     """
-    def __init__(self, model, attrs, steps, **kwargs):
-        self.model = model
+    def __init__(self, obj, attrs, steps, **kwargs):
+        self.obj = obj
         self.steps = steps
-        self.num = model.cuda.num
-        self.src_data = self.model.cuda.data
+        self.num = obj.cuda.num
+        self.src_data = self.obj.cuda.data
         self.rate = kwargs.pop('rate', 1)
         gpu_buffer = kwargs.pop('gpu_buffer', False)
         callback = kwargs.pop('callback', False)
@@ -88,7 +88,7 @@ class CUDARecorder(object):
         if callback:
             self.iter = iter(self)
             func = lambda: next(self.iter)
-            self.model.cuda.callbacks.append(func)
+            self.obj.cuda.callbacks.append(func)
 
     def reset(self):
         self.iter = iter(self)
@@ -111,12 +111,10 @@ class CUDARecorder(object):
         # buffer index
         b_index = d_index % self.buffer_length
         for key in self.dct.keys():
-            dtype = dtype_to_ctype(self.src_data[key].dtype)
-            src = self.src_data[key].gpudata
-            nbytes = self.src_data[key].nbytes
-            dst = int(self.gpu_dct[key].gpudata)
+            src = getattr(self.obj, key)
+            dst = int(self.gpu_dct[key].gpudata) + b_index * src.nbytes
 
-            cuda.memcpy_dtod(dst + b_index * nbytes, src, nbytes)
+            cuda.memcpy_dtod(dst, src.gpudata, src.nbytes)
 
         if (d_index == self.shape[1]-1) or (b_index == self.buffer_length-1):
             for key in self.dct.keys():
@@ -126,7 +124,7 @@ class CUDARecorder(object):
     def _copy_memory_dtoh(self, index):
         d_index = int(index/self.rate) # downsample index
         for key in self.dct.keys():
-            self.dct[key][:,d_index] = getattr(self.model, key).get()
+            self.dct[key][:,d_index] = getattr(self.obj, key).get()
 
     def __getitem__(self, key):
         return self.dct[key]
