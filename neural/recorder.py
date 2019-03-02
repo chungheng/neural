@@ -53,10 +53,10 @@ class CUDARecorder(object):
     """
     def __init__(self, obj, attrs, steps, **kwargs):
         self.obj = obj
-        self.steps = steps
-        self.num = obj.cuda.num
-        self.src_data = self.obj.cuda.data
+        self.total_steps = steps
+        # self.num = obj.cuda.num
         self.rate = kwargs.pop('rate', 1)
+        self.steps = int(self.steps/self.rate)
         gpu_buffer = kwargs.pop('gpu_buffer', False)
         callback = kwargs.pop('callback', False)
 
@@ -67,10 +67,12 @@ class CUDARecorder(object):
             self.gpu_dct = {}
             self.dct = {}
             for key in attrs:
-                dtype = self.src_data[key].dtype
+                src = getattr(self.obj, key)
+                num = len(src)
+                dtype = src.dtype
                 self.gpu_dct[key] = garray.zeros((self.buffer_length,
-                    self.num), dtype)
-                self.dct[key] = np.zeros(self.shape, order='F', dtype=dtype)
+                    num), dtype)
+                self.dct[key] = np.zeros((num, self.steps) order='F', dtype=dtype)
             self.copy_memory = self._copy_memory_dtod
         else:
             self.dct = {key: np.zeros(self.shape) for key in attrs}
@@ -80,10 +82,6 @@ class CUDARecorder(object):
             self.get_buffer = self._py2_get_buffer
         if PY3:
             self.get_buffer = self._py3_get_buffer
-
-        self.block = (256, 1, 1)
-        self.grid = (min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
-                    (self.num-1) / self.block[0] + 1), 1)
 
         if callback:
             self.iter = iter(self)
@@ -101,9 +99,9 @@ class CUDARecorder(object):
 
     def _get_buffer_length(self, gpu_buffer):
         if gpu_buffer == 'full' or gpu_buffer == 'whole' or gpu_buffer is True:
-            return self.shape[1]
+            return self.steps
         else:
-            return min(gpu_buffer, self.shape[1])
+            return min(gpu_buffer, self.steps)
 
     def _copy_memory_dtod(self, index):
         # downsample index
@@ -116,7 +114,7 @@ class CUDARecorder(object):
 
             cuda.memcpy_dtod(dst, src.gpudata, src.nbytes)
 
-        if (d_index == self.shape[1]-1) or (b_index == self.buffer_length-1):
+        if (d_index == self.steps-1) or (b_index == self.buffer_length-1):
             for key in self.dct.keys():
                 buffer = self.get_buffer(key, d_index)
                 cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
