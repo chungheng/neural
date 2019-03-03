@@ -54,28 +54,26 @@ class CUDARecorder(object):
     def __init__(self, obj, attrs, steps, **kwargs):
         self.obj = obj
         self.total_steps = steps
-        # self.num = obj.cuda.num
         self.rate = kwargs.pop('rate', 1)
-        self.steps = int(self.steps/self.rate)
+        self.steps = int(steps/self.rate)
         gpu_buffer = kwargs.pop('gpu_buffer', False)
         callback = kwargs.pop('callback', False)
 
-        self.shape = (self.num, int(self.steps/self.rate))
+        self.dct = {}
+        for key in attrs:
+            src = getattr(self.obj, key)
+            shape = (src.size, self.steps)
+            self.dct[key] = np.zeros(shape, order='F', dtype=src.dtype)
 
         if gpu_buffer:
             self.buffer_length = self._get_buffer_length(gpu_buffer)
             self.gpu_dct = {}
-            self.dct = {}
             for key in attrs:
                 src = getattr(self.obj, key)
-                num = len(src)
-                dtype = src.dtype
-                self.gpu_dct[key] = garray.zeros((self.buffer_length,
-                    num), dtype)
-                self.dct[key] = np.zeros((num, self.steps) order='F', dtype=dtype)
+                shape = (self.buffer_length, src.size)
+                self.gpu_dct[key] = garray.zeros(shape, dtype=src.dtype)
             self.copy_memory = self._copy_memory_dtod
         else:
-            self.dct = {key: np.zeros(self.shape) for key in attrs}
             self.copy_memory = self._copy_memory_dtoh
 
         if PY2:
@@ -92,7 +90,7 @@ class CUDARecorder(object):
         self.iter = iter(self)
 
     def __iter__(self):
-        for i in range(self.steps):
+        for i in range(self.total_steps):
             if i % self.rate == 0:
                 self.copy_memory(i)
             yield i
