@@ -2,6 +2,7 @@
 Utility modules for recording data from Neural models
 """
 from abc import abstractmethod
+from numbers import Number
 
 import sys
 import time
@@ -47,12 +48,25 @@ for key, val in _copy.items():
     func.prepare('iiiPP')
     _copy[key] = func
 
-class BaseRecorder(object):
+class Recorder(object):
     """
     Base recorder module.
 
     Attributes:
     """
+    def __new__(cls, obj, attrs, steps, **kwargs):
+        if cls is Recorder:
+            attr = getattr(obj, attrs[0])
+            if isinstance(attr, Number):
+                return super(Recorder, cls).__new__(ScalarRecorder)
+            elif isinstance(attr, np.ndarray):
+                return super(Recorder, cls).__new__(NumpyRecorder)
+            elif isinstance(attr, garray.GPUArray):
+                return super(Recorder, cls).__new__(CUDARecorder)
+            else:
+                raise TypeError("{} of type: {}".format(attr, type(attr)))
+        return super(Recorder, cls).__new__(cls, obj, attrs, steps, **kwargs)
+
     def __init__(self, obj, attrs, steps, **kwargs):
         self.obj = obj
         self.total_steps = steps
@@ -97,9 +111,9 @@ class BaseRecorder(object):
     def __getattr__(self, key):
         if key in self.dct:
             return self.dct[key]
-        return super(BaseRecorder, self).__getattribute__(key)
+        return super(Recorder, self).__getattribute__(key)
 
-class ScalarRecorder(BaseRecorder):
+class ScalarRecorder(Recorder):
     """
     Recorder for scalar data.
 
@@ -116,7 +130,7 @@ class ScalarRecorder(BaseRecorder):
         for key in self.dct.keys():
             self.dct[key][d_index] = getattr(self.obj, key)
 
-class NumpyRecorder(BaseRecorder):
+class NumpyRecorder(Recorder):
     """
     Recorder for reading Numpy arrays of Neural models.
 
@@ -134,7 +148,7 @@ class NumpyRecorder(BaseRecorder):
         for key in self.dct.keys():
             self.dct[key][:,d_index] = getattr(self.obj, key)
 
-class CUDARecorder(BaseRecorder):
+class CUDARecorder(Recorder):
     """
     Recorder for reading CUDA arrays of Neural models.
 
