@@ -99,7 +99,22 @@ class BaseRecorder(object):
             return self.dct[key]
         return super(BaseRecorder, self).__getattribute__(key)
 
+class ScalarRecorder(BaseRecorder):
+    """
+    Recorder for scalar data.
 
+    Attributes:
+    """
+    def init_dct(self):
+        for key in self.dct.keys():
+            src = getattr(self.obj, key)
+            assert isinstance(src, Number)
+            self.dct[key] = np.zeros(self.steps, dtype=type(src))
+
+    def update(self, index):
+        d_index = int(index/self.rate) # downsample index
+        for key in self.dct.keys():
+            self.dct[key][d_index] = getattr(self.obj, key)
 
 class NumpyRecorder(BaseRecorder):
     """
