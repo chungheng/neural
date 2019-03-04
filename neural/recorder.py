@@ -1,6 +1,8 @@
 """
 Utility modules for recording data from Neural models
 """
+from abc import abstractmethod
+
 import sys
 import time
 import numpy as np
@@ -45,9 +47,9 @@ for key, val in _copy.items():
     func.prepare('iiiPP')
     _copy[key] = func
 
-class CUDARecorder(object):
+class BaseRecorder(object):
     """
-    Recorder for reading CUDA arrays of Neural models.
+    Base recorder module.
 
     Attributes:
     """
@@ -56,31 +58,11 @@ class CUDARecorder(object):
         self.total_steps = steps
         self.rate = kwargs.pop('rate', 1)
         self.steps = int(steps/self.rate)
-        gpu_buffer = kwargs.pop('gpu_buffer', False)
+
+        self.dct = {key:None for key in attrs}
+        self.init_dct()
+
         callback = kwargs.pop('callback', False)
-
-        self.dct = {}
-        for key in attrs:
-            src = getattr(self.obj, key)
-            shape = (src.size, self.steps)
-            self.dct[key] = np.zeros(shape, order='F', dtype=src.dtype)
-
-        if gpu_buffer:
-            self.buffer_length = self._get_buffer_length(gpu_buffer)
-            self.gpu_dct = {}
-            for key in attrs:
-                src = getattr(self.obj, key)
-                shape = (self.buffer_length, src.size)
-                self.gpu_dct[key] = garray.zeros(shape, dtype=src.dtype)
-            self.copy_memory = self._copy_memory_dtod
-        else:
-            self.copy_memory = self._copy_memory_dtoh
-
-        if PY2:
-            self.get_buffer = self._py2_get_buffer
-        if PY3:
-            self.get_buffer = self._py3_get_buffer
-
         if callback:
             self.iter = iter(self)
             func = lambda: next(self.iter)
@@ -89,11 +71,70 @@ class CUDARecorder(object):
     def reset(self):
         self.iter = iter(self)
 
+    @abstractmethod
+    def init_dct(self):
+        """
+        initialize the dict that contains the numpy arrays
+        """
+        pass
+
+    @abstractmethod
+    def update(self, index):
+        """
+        update the record
+        """
+        pass
+
     def __iter__(self):
         for i in range(self.total_steps):
             if i % self.rate == 0:
-                self.copy_memory(i)
+                self.update(i)
             yield i
+
+    def __getitem__(self, key):
+        return self.dct[key]
+
+    def __getattr__(self, key):
+        if key in self.dct:
+            return self.dct[key]
+        return super(BaseRecorder, self).__getattribute__(key)
+
+class CUDARecorder(BaseRecorder):
+    """
+    Recorder for reading CUDA arrays of Neural models.
+
+    Attributes:
+    """
+    def __init__(self, obj, attrs, steps, **kwargs):
+
+        super(CUDARecorder, self).__init__(obj, attrs, steps, **kwargs)
+
+        gpu_buffer = kwargs.pop('gpu_buffer', False)
+        if gpu_buffer:
+            self.buffer_length = self._get_buffer_length(gpu_buffer)
+            self.gpu_dct = {}
+            for key in attrs:
+                src = getattr(self.obj, key)
+                shape = (self.buffer_length, src.size)
+                self.gpu_dct[key] = garray.zeros(shape, dtype=src.dtype)
+            self._update = self._copy_memory_dtod
+        else:
+            self._update = self._copy_memory_dtoh
+
+        if PY2:
+            self.get_buffer = self._py2_get_buffer
+        if PY3:
+            self.get_buffer = self._py3_get_buffer
+
+    def init_dct(self):
+        for key in self.dct.keys():
+            src = getattr(self.obj, key)
+            assert isinstance(src, garray.GPUArray)
+            shape = (src.size, self.steps)
+            self.dct[key] = np.zeros(shape, order='F', dtype=src.dtype)
+
+    def update(self, index):
+        self._update(index)
 
     def _get_buffer_length(self, gpu_buffer):
         if gpu_buffer == 'full' or gpu_buffer == 'whole' or gpu_buffer is True:
@@ -121,14 +162,6 @@ class CUDARecorder(object):
         d_index = int(index/self.rate) # downsample index
         for key in self.dct.keys():
             self.dct[key][:,d_index] = getattr(self.obj, key).get()
-
-    def __getitem__(self, key):
-        return self.dct[key]
-
-    def __getattr__(self, key):
-        if key in self.dct:
-            return self.dct[key]
-        return super(CUDARecorder, self).__getattribute__(key)
 
     def _py2_get_buffer(self, key, index):
         beg = int(index / self.buffer_length) * self.buffer_length
