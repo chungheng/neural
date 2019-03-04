@@ -84,7 +84,7 @@ class CUDARecorder(object):
         if callback:
             self.iter = iter(self)
             func = lambda: next(self.iter)
-            self.obj.cuda.callbacks.append(func)
+            self.obj.add_callback(func)
 
     def reset(self):
         self.iter = iter(self)

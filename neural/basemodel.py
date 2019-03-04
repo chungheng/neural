@@ -165,6 +165,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         optimize = kwargs.pop('optimize', False) and (OdeGenerator is not None)
         solver = kwargs.pop('solver', 'forward_euler')
         float = kwargs.pop('float', np.float32)
+        callback = kwargs.pop('callback', [])
 
         # set state variables and parameters
         self.params = self.Default_Params.copy()
@@ -197,7 +198,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
             self._ode = self.ode
             self.ode = self.ode_opt
 
-        self.update = self._cpu_update
+        self._update = self._cpu_update
+        self.callbacks = []
+        self.add_callback(callback)
 
     @classmethod
     def optimize(cls):
@@ -309,13 +312,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
         num = kwargs.pop('num', None)
         dtype = kwargs.pop('dtype', np.float32)
-        callbacks = kwargs.pop('callbacks', [])
-        if not hasattr(callbacks, '__len__'):
-            callbacks = [callbacks]
-        if isinstance(callbacks, tuple):
-            callbacks = list(callbacks)
-        for func in callbacks:
-            assert callable(func)
+        callback = kwargs.pop('callback', [])
 
         # decide the number of threads
         if len(kwargs) > 0:
@@ -351,8 +348,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 self.cuda.num,
                 self.cuda.seed)
 
-        self.cuda.callbacks = callbacks
-        self.update = self._cuda_update
+        self._update = self._cuda_update
+        self.callbacks = []
+        self.add_callback(callback)
 
     def _cuda_update(self, d_t, **kwargs):
         """
@@ -386,9 +384,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
             self.cuda.num,
             d_t*self.Time_Scale,
             *args)
-
-        for func in self.cuda.callbacks:
-            func()
 
     def cuda_profile(self, **kwargs):
         num = kwargs.pop('num', 1000)
@@ -475,6 +470,13 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.solver(d_t*self.Time_Scale, **kwargs)
         self.post()
 
+    def add_callback(self, callbacks):
+        if not hasattr(callbacks, '__len__'):
+            callbacks = [callbacks,]
+        for func in callbacks:
+            assert callable(func)
+            self.callbacks.append(func)
+
     def reset(self, **kwargs):
         """
         reset state and intermediate variables to their initial condition.
@@ -511,7 +513,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
             to the model, ex. `input` or `spike`. If mulitple stimuli are
             required, the developer could specify them as `input1` and `input2`.
         """
-        pass
+        self._update(d_t, **kwargs)
+        for func in self.callbacks:
+            func()
 
     @abstractmethod
     def ode(self, **kwargs):
