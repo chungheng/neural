@@ -99,6 +99,26 @@ class BaseRecorder(object):
             return self.dct[key]
         return super(BaseRecorder, self).__getattribute__(key)
 
+
+
+class NumpyRecorder(BaseRecorder):
+    """
+    Recorder for reading Numpy arrays of Neural models.
+
+    Attributes:
+    """
+    def init_dct(self):
+        for key in self.dct.keys():
+            src = getattr(self.obj, key)
+            assert isinstance(src, np.ndarray)
+            shape = (src.size, self.steps)
+            self.dct[key] = np.zeros(shape, order='F', dtype=src.dtype)
+
+    def update(self, index):
+        d_index = int(index/self.rate) # downsample index
+        for key in self.dct.keys():
+            self.dct[key][:,d_index] = getattr(self.obj, key)
+
 class CUDARecorder(BaseRecorder):
     """
     Recorder for reading CUDA arrays of Neural models.
