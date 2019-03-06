@@ -14,7 +14,34 @@ Examples:
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
 
+class Container(object):
+    """
+    A wrapper holds an Model instance with symbolic reference to its varaibles.
+
+    Examples:
+    >>> hhn = Container(HodgkinHuxley)
+    >>> hhn.v # reference to hhn.states['v']
+    """
+    def __init__(self):
+        pass
+
+    def __call__(self):
+        pass
+
 class Network(object):
     """
     """
-    pass
+    def __init__(self):
+        pass
+
+    def add(self, module, **kwargs):
+        pass
+
+    def run(self):
+        pass
+
+    def compile(self):
+        pass
+
+    def record(self):
+        pass
