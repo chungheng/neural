@@ -313,14 +313,14 @@ class Model(with_metaclass(ModelMetaClass, object)):
         dtype = kwargs.pop('dtype', np.float32)
         callback = kwargs.pop('callback', [])
 
-        # decide the number of threads
-        if len(kwargs) > 0:
-            for key, val in kwargs.items():
-                # assert getattr(self, key)
-                if hasattr(val, '__len__'):
-                    _num = len(val)
-                    num = num or _num
-                    assert num == _num, 'Mismatch in data size: %s' % key
+        # decide the number of threads:
+        for key in self.Variables.keys():
+            val = getattr(self, key)
+            val = kwargs.get(key, val)
+            if hasattr(val, '__len__'):
+                _num = len(val)
+                num = num or _num
+                assert num == _num, 'Mismatch in data size: %s' % key
         else:
             assert num, 'Please give the number of models to run'
 
