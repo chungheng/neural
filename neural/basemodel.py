@@ -4,6 +4,7 @@ Base model class for neurons and synapses.
 from __future__ import print_function
 from abc import abstractmethod
 from collections import OrderedDict
+from numbers import Number
 
 from six import StringIO, with_metaclass
 import numpy as np
@@ -241,7 +242,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             array = garray.empty(self.cuda.num, dtype=self.cuda.dtype)
             self.cuda.data[key] = array
 
-    def _process_cuda_variables(self, kwargs, attr, skip_key=False):
+    def _process_cuda_variables(self, kwargs, attr):
         """
         Arguments:
             kwargs (dict): keyward arguments.
@@ -252,15 +253,11 @@ class Model(with_metaclass(ModelMetaClass, object)):
         dct = getattr(self, attr, dict())
         vars = []
         for key, val in dct.items():
-            if key in kwargs:
-                val = kwargs.pop(key)
-                if hasattr(val, '__len__'):
-                    vars.append(key)
-            elif skip_key:
-                continue
+            val = kwargs.pop(key, val)
 
             # allocate GPU memory
             if attr != 'params' or hasattr(val, '__len__'):
+                vars.append(key)
                 self._allocate_cuda_memory(key)
 
             if isinstance(val, np.ndarray):
@@ -278,7 +275,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
                     drv.memcpy_htod(_cuda.data[key].gpudata, val)
                 else:
                     drv.memcpy_dtod(_cuda.data[key].gpudata, val.gpudata)
-            elif not hasattr(val, '__len__'):
+            elif isinstance(val, Number):
                 if attr == 'params':
                     self.params[key] = val
                     continue
@@ -300,7 +297,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self._process_cuda_variables(kwargs, 'inters')
 
         # allocate gpu data for parameters if necessary
-        params = self._process_cuda_variables(kwargs, 'params', True)
+        params = self._process_cuda_variables(kwargs, 'params')
 
         return params
 
