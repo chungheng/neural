@@ -423,7 +423,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 no_extern_c = code_generator.has_random)
             func = mod.get_function(self.__class__.__name__)
         except:
-            print(code_generator.cuda_src)
+            lines = code_generator.cuda_src.split('\n')
+            num_digits = 1 + int(np.floor(np.log10(len(lines))))
+            for index, line in enumerate(lines):
+                print("{: >{}}: {}".format(index, num_digits, line))
             raise
 
         self.cuda.src = code_generator.cuda_src
