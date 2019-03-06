@@ -179,6 +179,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
             if attr is None:
                 raise AttributeError("Unrecognized variable '{}'".format(key))
             dct = getattr(self, attr)
+            if type(val) in (list, tuple):
+                val = np.asarray(val)
             dct[key] = val
 
         self.initial_states = self.states.copy()
