@@ -65,7 +65,7 @@ class Recorder(object):
                 return super(Recorder, cls).__new__(CUDARecorder)
             else:
                 raise TypeError("{} of type: {}".format(attr, type(attr)))
-        return super(Recorder, cls).__new__(cls, obj, attrs, steps, **kwargs)
+        return super(Recorder, cls).__new__(cls)
 
     def __init__(self, obj, attrs, steps, **kwargs):
         self.obj = obj
