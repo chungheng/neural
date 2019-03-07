@@ -13,7 +13,9 @@ Examples:
 >>>
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
+from abc import classmethod
 from numbers import Number
+from inspect import isclass
 
 import numpy as np
 
@@ -36,7 +38,7 @@ class Container(object):
         self.obj = obj
         self.num = num
         self.name = name or ""
-        self.vars = {key: Symbol(self, key) for key in obj.Variables.keys()}
+        self.vars = {}
         self.inputs = dict()
 
     def __call__(self, **kwargs):
@@ -48,9 +50,16 @@ class Container(object):
     def __getattr__(self, key):
         if key in self.vars:
             return self.vars[key]
+        try:
+            _ = getattr(self.obj, key)
+            self.vars[key] = Symbol(self, key)
+            return self.vars[key]
+        except:
+            return super(Container, self).__getattribute__(key)
 
-        return super(Container, self).__getattribute__(key)
-
+    @classmethod
+    def isacceptable(cls, obj):
+        return hasattr(module, "update") and callable(module.update)
 
 class Network(object):
     """
