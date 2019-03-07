@@ -25,6 +25,23 @@ class Symbol(object):
         self.container = container
         self.key = key
 
+class Input(object):
+    def __init__(self, num=None, name=None):
+        self.num = num
+        self.name = name
+
+    def __call__(self, data):
+        assert hasattr(data, '__iter__')
+        self.data = data
+        self.steps = len(data)
+        self.iter = iter(self.data)
+
+        return self
+
+    def __next__(self):
+        return next(self.iter)
+
+
 class Container(object):
     """
     A wrapper holds an Model instance with symbolic reference to its varaibles.
@@ -42,7 +59,7 @@ class Container(object):
 
     def __call__(self, **kwargs):
         for key, val in kwargs.items():
-            assert isinstance(val, (Symbol, Number))
+            assert isinstance(val, (Symbol, Number, Input))
             self.inputs[key] = val
         return self
 
@@ -104,6 +121,13 @@ class Network(object):
                         if c.num is not None and val.container.num != c.num:
                             raise Error("Size mismatches: {} {}".format(
                                 c.name, val.container.name))
+                    else:
+                        dct[key] = dtype(0.)
+                elif isinstance(val, Input):
+                    if val.num is not None:
+                        if c.num is not None and val.num != c.num:
+                            raise Error("Size mismatches: {} {}".format(
+                                c.name, val.name))
                     else:
                         dct[key] = dtype(0.)
                 elif isinstance(val, Number):
