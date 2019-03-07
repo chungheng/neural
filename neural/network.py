@@ -137,19 +137,10 @@ class Network(object):
 
             if hasattr(c.obj, 'cuda_compile'):
                 c.obj.cuda_compile(dtype=dtype, num=c.num, **dct)
-            _dct = "".join([", {}={}".format(k, v) for k, v in dct.items()])
-
-        for c in self.containers:
-            args = {}
-            for key, val in c.inputs.items():
-                if isinstance(val, Symbol):
-                    args[key] = getattr(val.container.obj, val.key)
-                elif isinstance(val, Number):
-                    args[key] = val
-                else:
-                    raise
-
-            self.args[c] = args
+                if debug:
+                    s = ''.join([", {}={}".format(*k) for k in dct.items()])
+                    print("{}.cuda_compile(dtype=dtype, num={}{})".format(
+                    c.name, c.num, s))
 
     def record(self):
         pass
