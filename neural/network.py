@@ -32,20 +32,53 @@ class Container(object):
     >>> hhn = Container(HodgkinHuxley)
     >>> hhn.v # reference to hhn.states['v']
     """
-    def __init__(self):
-        pass
+    def __init__(self, obj, num, name=None):
+        self.obj = obj
+        self.num = num
+        self.name = name or ""
+        self.vars = {key: Symbol(self, key) for key in obj.Variables.keys()}
+        self.inputs = dict()
 
-    def __call__(self):
-        pass
+    def __call__(self, **kwargs):
+        for key, val in kwargs.items():
+            assert isinstance(val, (Symbol, Number))
+            self.inputs[key] = val
+        return self
+
+    def __getattr__(self, key):
+        if key in self.vars:
+            return self.vars[key]
+
+        return super(Container, self).__getattribute__(key)
+
 
 class Network(object):
     """
     """
     def __init__(self):
+        self.containers = []
+        self.args = {}
+        pass
+
+    def input(self):
         pass
 
     def add(self, module, **kwargs):
-        pass
+        num = kwargs.pop('num', None)
+        name = kwargs.pop('name', 'obj{}'.format(len(self.containers)))
+        record = kwargs.pop('record', [])
+        if isinstance(module, Model):
+            obj = module
+        elif issubclass(module, Model):
+            obj = module(**kwargs)
+        else:
+            msg = "{} is not a submodule nor an instance of {}"
+            raise ValueError(msg.format(module, Model))
+
+        container = Container(obj, num, name)
+        self.containers.append(container)
+
+        return container
 
     def run(self):
         pass
