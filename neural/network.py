@@ -75,22 +75,24 @@ class Container(object):
 
     @classmethod
     def isacceptable(cls, obj):
-        return hasattr(module, "update") and callable(module.update)
+        return hasattr(obj, "update") and callable(obj.update)
 
 class Network(object):
     """
     """
     def __init__(self):
         self.containers = []
-        self.args = {}
-        pass
+        self.inputs = []
 
-    def input(self):
-        pass
+    def input(self, num=None, name=None):
+        name = name or "obj{}".format(len(self.inputs))
+        input = Input(num=num, name=name)
+        self.inputs.append(input)
+        return input
 
-    def add(self, module, **kwargs):
-        num = kwargs.pop('num', None)
-        name = kwargs.pop('name', 'obj{}'.format(len(self.containers)))
+    def add(self, module, num=None, name=None, **kwargs):
+        num = num
+        name = name or "obj{}".format(len(self.containers))
         record = kwargs.pop('record', [])
         if isinstance(module, Model):
             obj = module
