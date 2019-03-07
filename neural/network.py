@@ -13,7 +13,6 @@ Examples:
 >>>
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
-from abc import classmethod
 from numbers import Number
 from inspect import isclass
 
@@ -104,7 +103,7 @@ class Network(object):
                     if val.container.num is not None:
                         if c.num is not None and val.container.num != c.num:
                             raise Error("Size mismatches: {} {}".format(
-                                c.name, val.container.name)
+                                c.name, val.container.name))
                     else:
                         dct[key] = dtype(0.)
                 elif isinstance(val, Number):
