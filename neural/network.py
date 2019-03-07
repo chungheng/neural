@@ -83,8 +83,36 @@ class Network(object):
     def run(self):
         pass
 
-    def compile(self):
-        pass
+    def compile(self, dtype=None):
+        dtype = dtype or np.float64
+        for c in self.containers:
+            dct = {}
+            for key, val in c.inputs.items():
+                if isinstance(val, Symbol):
+                    if val.container.num is not None:
+                        assert val.container.num == c.num, "Size mismatches"
+                    else:
+                        dct[key] = dtype(0.)
+                elif isinstance(val, Number):
+                    dct[key] = dtype(val)
+                else:
+                    raise
+
+            if hasattr(c.obj, 'cuda_compile'):
+                c.obj.cuda_compile(dtype=dtype, num=c.num, **dct)
+            _dct = "".join([", {}={}".format(k, v) for k, v in dct.items()])
+
+        for c in self.containers:
+            args = {}
+            for key, val in c.inputs.items():
+                if isinstance(val, Symbol):
+                    args[key] = getattr(val.container.obj, val.key)
+                elif isinstance(val, Number):
+                    args[key] = val
+                else:
+                    raise
+
+            self.args[c] = args
 
     def record(self):
         pass
