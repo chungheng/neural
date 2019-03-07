@@ -13,10 +13,12 @@ Examples:
 >>>
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
+
 from numbers import Number
 from inspect import isclass
 
 import numpy as np
+from tqdm import tqdm
 
 from .basemodel import SimpleNamespace, Model
 
@@ -110,8 +112,23 @@ class Network(object):
 
         return container
 
-    def run(self):
-        pass
+    def run(self, dt, steps):
+        for i in tqdm(range(steps)):
+            for c in self.containers:
+                args = {}
+                for key, val in c.inputs.items():
+                    if isinstance(val, Symbol):
+                        args[key] = getattr(val.container.obj, val.key)
+                    elif isinstance(val, Input):
+                        args[key] = next(val)
+                    elif isinstance(val, Number):
+                        args[key] = val
+                    else:
+                        raise
+                try:
+                    c.obj.update(dt, **args)
+                except:
+                    print(c.name)
 
     def compile(self, dtype=None, debug=False):
         dtype = dtype or np.float64
