@@ -80,6 +80,9 @@ class Network(object):
             obj = module
         elif issubclass(module, Model):
             obj = module(**kwargs)
+        elif isclass(module):
+            assert Container.isacceptable(module)
+            obj = module(**kwargs)
         else:
             msg = "{} is not a submodule nor an instance of {}"
             raise ValueError(msg.format(module, Model))
@@ -92,14 +95,16 @@ class Network(object):
     def run(self):
         pass
 
-    def compile(self, dtype=None):
+    def compile(self, dtype=None, debug=False):
         dtype = dtype or np.float64
         for c in self.containers:
             dct = {}
             for key, val in c.inputs.items():
                 if isinstance(val, Symbol):
                     if val.container.num is not None:
-                        assert val.container.num == c.num, "Size mismatches"
+                        if c.num is not None and val.container.num != c.num:
+                            raise Error("Size mismatches: {} {}".format(
+                                c.name, val.container.name)
                     else:
                         dct[key] = dtype(0.)
                 elif isinstance(val, Number):
