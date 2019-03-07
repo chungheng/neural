@@ -13,6 +13,16 @@ Examples:
 >>>
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
+from numbers import Number
+
+import numpy as np
+
+from .basemodel import SimpleNamespace, Model
+
+class Symbol(object):
+    def __init__(self, container, key):
+        self.container = container
+        self.key = key
 
 class Container(object):
     """
