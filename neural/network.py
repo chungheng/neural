@@ -137,8 +137,22 @@ class Network(object):
         self.containers.append(container)
         return container
 
-    def run(self, dt, steps):
-        for i in tqdm(range(steps)):
+    def run(self, dt, steps=0, verbose=False):
+        # calculate number of steps
+        steps = reduce(max, [input.steps for input in self.inputs], steps)
+
+        # reset recorders
+        recorders = []
+        for c in self.containers:
+            recorder = c.set_recorder(steps)
+            if recorder is not None:
+                recorders.append(recorder)
+
+        iterator = range(steps)
+        if verbose:
+            iterator = tqdm(iterator)
+
+        for i in iterator:
             for c in self.containers:
                 args = {}
                 for key, val in c.inputs.items():
@@ -150,10 +164,9 @@ class Network(object):
                         args[key] = val
                     else:
                         raise
-                try:
-                    c.obj.update(dt, **args)
-                except:
-                    print(c.name)
+                c.obj.update(dt, **args)
+            for recorder in recorders:
+                recorder.update(i)
 
     def compile(self, dtype=None, debug=False):
         dtype = dtype or np.float64
