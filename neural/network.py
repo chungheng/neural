@@ -48,6 +48,8 @@ class Input(object):
     def __next__(self):
         return next(self.iter)
 
+    def reset(self):
+        self.iter = iter(self.data)
 
 class Container(object):
     """
@@ -93,7 +95,7 @@ class Container(object):
             self.recorder = None
         elif (self.recorder is None) or \
             (self.recorder.total_steps != steps) or \
-            (set(self.recorder.keys()) != set(self._rec)):
+            (set(self.recorder.dct.keys()) != set(self._rec)):
             self.recorder = Recorder(self.obj, self._rec, steps, gpu_buffer=500)
         return self.recorder
 
@@ -150,6 +152,15 @@ class Network(object):
             recorder = c.set_recorder(steps)
             if recorder is not None:
                 recorders.append(recorder)
+
+        # reset Modle variables
+        for c in self.containers:
+            if isinstance(c.obj, Model):
+                c.obj.cuda_reset()
+
+        # reset inputs
+        for input in self.inputs:
+            input.reset()
 
         iterator = range(steps)
         if verbose:
