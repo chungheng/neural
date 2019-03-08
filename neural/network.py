@@ -33,11 +33,14 @@ class Input(object):
     def __init__(self, num=None, name=None):
         self.num = num
         self.name = name
+        self.data = None
+        self.steps = 0
+        self.iter = None
 
     def __call__(self, data):
         assert hasattr(data, '__iter__')
         self.data = data
-        self.steps = len(data)
+        self.steps = len(data) if hasattr(data, "__len__") else 0
         self.iter = iter(self.data)
 
         return self
