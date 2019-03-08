@@ -13,14 +13,16 @@ Examples:
 >>>
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
-
+from functools import reduce
 from numbers import Number
 from inspect import isclass
+
 
 import numpy as np
 from tqdm import tqdm
 
 from .basemodel import SimpleNamespace, Model
+from .recorder import Recorder
 
 class Symbol(object):
     def __init__(self, container, key):
@@ -58,6 +60,8 @@ class Container(object):
         self.name = name or ""
         self.vars = {}
         self.inputs = dict()
+        self.recorder = None
+        self._rec = []
 
     def __call__(self, **kwargs):
         for key, val in kwargs.items():
@@ -74,6 +78,22 @@ class Container(object):
             return self.vars[key]
         except:
             return super(Container, self).__getattribute__(key)
+
+    def record(self, *args):
+        for arg in args:
+            _ = getattr(self.obj, arg)
+            if arg not in self._rec:
+                self._rec.append(arg)
+
+    def set_recorder(self, steps):
+        if not self._rec:
+            self.recorder = None
+        elif (self.recorder is None) or \
+            (self.recorder.total_steps != steps) or \
+            (set(self.recorder.keys()) != set(self._rec)):
+            self.recorder = Recorder(self.obj, self._rec, steps, gpu_buffer=500)
+        return self.recorder
+
 
     @classmethod
     def isacceptable(cls, obj):
@@ -92,10 +112,10 @@ class Network(object):
         self.inputs.append(input)
         return input
 
-    def add(self, module, num=None, name=None, **kwargs):
+    def add(self, module, num=None, name=None, record=None, **kwargs):
         num = num
         name = name or "obj{}".format(len(self.containers))
-        record = kwargs.pop('record', [])
+        record = record or []
         if isinstance(module, Model):
             obj = module
         elif issubclass(module, Model):
@@ -108,8 +128,13 @@ class Network(object):
             raise ValueError(msg.format(module, Model))
 
         container = Container(obj, num, name)
-        self.containers.append(container)
+        if record is not None:
+            if isinstance(record, (tuple, list)):
+                container.record(*record)
+            else:
+                container.record(record)
 
+        self.containers.append(container)
         return container
 
     def run(self, dt, steps):
@@ -161,5 +186,7 @@ class Network(object):
                     print("{}.cuda_compile(dtype=dtype, num={}{})".format(
                     c.name, c.num, s))
 
-    def record(self):
-        pass
+    def record(self, *args):
+        for arg in args:
+            assert isinstance(arg, Symbol)
+            arg.container.record(arg.key)
