@@ -70,8 +70,11 @@ class Container(object):
 
     def __call__(self, **kwargs):
         for key, val in kwargs.items():
-            assert isinstance(val, (Symbol, Number, Input))
-            self.inputs[key] = val
+            if isinstance(self.obj, Model) and (key in self.obj.Variables):
+                setattr(self.obj, key, val)
+            else:
+                assert isinstance(val, (Symbol, Number, Input))
+                self.inputs[key] = val
         return self
 
     def __getattr__(self, key):
