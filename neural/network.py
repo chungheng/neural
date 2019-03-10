@@ -114,10 +114,13 @@ class Network(object):
         self.containers = []
         self.inputs = []
 
+        self._iscompiled = False
+
     def input(self, num=None, name=None):
         name = name or "obj{}".format(len(self.inputs))
         input = Input(num=num, name=name)
         self.inputs.append(input)
+        self._iscompiled = False
         return input
 
     def add(self, module, num=None, name=None, record=None, **kwargs):
@@ -143,9 +146,13 @@ class Network(object):
                 container.record(record)
 
         self.containers.append(container)
+        self._iscompiled = False
         return container
 
     def run(self, dt, steps=0, verbose=False):
+        if not self._iscompiled:
+            raise Error("Please compile before running the network.")
+
         # calculate number of steps
         steps = reduce(max, [input.steps for input in self.inputs], steps)
 
@@ -215,6 +222,8 @@ class Network(object):
                     s = ''.join([", {}={}".format(*k) for k in dct.items()])
                     print("{}.cuda_compile(dtype=dtype, num={}{})".format(
                     c.name, c.num, s))
+
+        self._iscompiled = True
 
     def record(self, *args):
         for arg in args:
