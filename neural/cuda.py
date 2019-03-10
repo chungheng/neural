@@ -282,7 +282,8 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
         self.float_char = 'f' if self.dtype == np.float32 else ''
 
         self.params_gdata = kwargs.pop('params_gdata', [])
-        self.inputs_gdata = kwargs.pop('inputs_gdata', dict())
+        dct = kwargs.pop('inputs_gdata', dict())
+        self.inputs = {k: {'value': v, 'used': False} for k, v in dct.items()}
 
         self.variables = []
         self.has_random = False
@@ -304,6 +305,9 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
                 offset=4, ostream=self.ode_src, **kwargs)
 
         self.tpl = Template(cuda_src_template)
+
+        for key, (value, isused) in self.inputs.items():
+            assert isused, "Unused input argument: '{}'".format(key)
 
     def generate(self, instructions=None):
         if self.has_post and not len(self.post_src.getvalue()):
@@ -380,13 +384,14 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
     def process_signature(self):
         new_signature = []
         for key in self.signature:
-            val = self.inputs_gdata.get(key, None)
+            val = self.inputs.get(key, None)
             if val is None:
                 isArray = True
                 dtype = self.dtype
             else:
+                val['used'] = True
                 isArray = hasattr(val, '__len__')
-                dtype = val.dtype if isArray else type(val)
+                dtype = val['value'].dtype if isArray else type(val['value'])
                 dtype = dtype_to_ctype(dtype)
             new_signature.append((key, dtype, isArray))
         return new_signature
