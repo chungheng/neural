@@ -306,15 +306,14 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
         self.tpl = Template(cuda_src_template)
 
-        for key, val in self.inputs.items():
-            print(key, val)
-            assert val['used'], "Unexpected input argument: '{}'".format(key)
-
     def generate(self, instructions=None):
         if self.has_post and not len(self.post_src.getvalue()):
             self.generate_post()
         if not len(self.ode_src.getvalue()):
             self.generate_ode()
+
+        for key, val in self.inputs.items():
+            assert val['used'], "Unexpected input argument: '{}'".format(key)
 
         self.cuda_src = self.tpl.render(
             model_name=self.model.__class__.__name__,
