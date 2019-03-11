@@ -306,8 +306,9 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
 
         self.tpl = Template(cuda_src_template)
 
-        for key, (value, isused) in self.inputs.items():
-            assert isused, "Unused input argument: '{}'".format(key)
+        for key, val in self.inputs.items():
+            print(key, val)
+            assert val['used'], "Unexpected input argument: '{}'".format(key)
 
     def generate(self, instructions=None):
         if self.has_post and not len(self.post_src.getvalue()):
@@ -390,7 +391,7 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
                 dtype = self.dtype
             else:
                 val['used'] = True
-                isArray = hasattr(val, '__len__')
+                isArray = hasattr(val['value'], '__len__')
                 dtype = val['value'].dtype if isArray else type(val['value'])
                 dtype = dtype_to_ctype(dtype)
             new_signature.append((key, dtype, isArray))
