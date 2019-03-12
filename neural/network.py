@@ -16,7 +16,13 @@ Examples:
 from functools import reduce
 from numbers import Number
 from inspect import isclass
+import sys
 
+PY2 = sys.version_info[0] == 2
+PY3 = sys.version_info[0] == 3
+
+if PY2:
+    raise Error("neural.network does not support Python 2.")
 
 import numpy as np
 from tqdm import tqdm
@@ -70,11 +76,18 @@ class Container(object):
 
     def __call__(self, **kwargs):
         for key, val in kwargs.items():
-            if isinstance(self.obj, Model) and (key in self.obj.Variables):
-                setattr(self.obj, key, val)
+            if isinstance(self.obj, Model):
+                if (key in self.obj.Variables):
+                    setattr(self.obj, key, val)
+                elif (key in self.obj.Inputs):
+                    assert isinstance(val, (Symbol, Number, Input))
+                    self.inputs[key] = val
+                else:
+                    raise KeyError("Unexpected variable '{}'".format(key))
             else:
                 assert isinstance(val, (Symbol, Number, Input))
                 self.inputs[key] = val
+
         return self
 
     def __getattr__(self, key):
