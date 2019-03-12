@@ -5,9 +5,18 @@ from __future__ import print_function
 from abc import abstractmethod
 from collections import OrderedDict
 from numbers import Number
+import sys
 
 from six import StringIO, with_metaclass
 import numpy as np
+
+PY2 = sys.version_info[0] == 3
+PY3 = sys.version_info[0] == 3
+
+if PY2:
+    from inspect import getargspec as _getfullargspec
+if PY3:
+    from inspect import getfullargspec as _getfullargspec
 
 try:
     from types import SimpleNamespace
@@ -96,6 +105,16 @@ class ModelMetaClass(type):
                     for name in val._solver_names:
                         solvers[name] = val.__name__
             dct['solver_alias'] = solvers
+
+        inputs = dict()
+        func_list = [x for x in ['ode', 'post'] if x in dct]
+        for key in func_list:
+            argspec = _getfullargspec(dct[key])
+            if argspec.defaults is None:
+                continue
+            for val, key in zip(argspec.defaults[::-1], argspec.args[::-1]):
+                inputs[key] = val
+        dct['Inputs'] = inputs
 
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
@@ -334,6 +353,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         # assume the rest of kwargs are input-related
         inputs = kwargs.copy()
+        for key in inputs.keys():
+            assert key in self.Inputs, "Unexpected input '{}'".format(key)
 
         # generate cuda kernel, a.k.a self.cuda.kernel
         self.get_cuda_kernel(inputs_gdata=inputs, params_gdata=params)
