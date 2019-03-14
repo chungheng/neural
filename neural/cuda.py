@@ -1,3 +1,4 @@
+from collections import namedtuple
 from six import StringIO, get_function_globals, get_function_code
 from six import with_metaclass
 from functools import wraps
@@ -263,6 +264,7 @@ __global__ void {{ model_name }} (
 
 {% if has_random %}}{%- endif %}
 """
+CUDASrc = namedtuple('CUDASrc', ('src', 'has_random', 'args', 'variables'))
 
 class MetaClass(type):
     def __new__(cls, clsname, bases, dct):
@@ -275,111 +277,28 @@ class MetaClass(type):
         return super(MetaClass, cls).__new__(cls, clsname, bases, dct)
 
 class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
-    def __init__(self, model, **kwargs):
+    def __init__(self, model, func, **kwargs):
         self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
         self.model = model
-        self.solver = model.solver.__name__
+        self.func = func
+
         self.float_char = 'f' if self.dtype == np.float32 else ''
 
         self.params_gdata = kwargs.pop('params_gdata', [])
-        dct = kwargs.pop('inputs_gdata', dict())
-        self.inputs = {k: {'value': v, 'used': False} for k, v in dct.items()}
+        self.inputs = kwargs.pop('inputs', dict())
 
         self.variables = []
         self.has_random = False
-        self.ode_has_random = False
-        self.post_has_random = False
-        self.ode_local_variables = None
-        self.post_local_variables = None
-        self.ode_args = []
-        self.post_args = []
-        self.func_globals = None
+        self.func_globals = get_function_globals(self.func)
 
-        self.ode_src = StringIO()
-        self.post_src = StringIO()
-        cls = self.model.__class__
-        self.has_post = np.all([cls.post != base.post for base in cls.__bases__])
+        CodeGenerator.__init__(self, self.func, newline=';\n',
+                offset=4, ostream=StringIO(), **kwargs)
 
-        code = get_function_code(self.model.ode)
-        CodeGenerator.__init__(self, code, newline=';\n',
-                offset=4, ostream=self.ode_src, **kwargs)
+        _, self.signature, self.kwargs = self.extract_signature(self.func)
+        self.generate()
 
-        self.tpl = Template(cuda_src_template)
-
-    def generate(self, instructions=None):
-        if self.has_post and not len(self.post_src.getvalue()):
-            self.generate_post()
-        if not len(self.ode_src.getvalue()):
-            self.generate_ode()
-
-        for key, val in self.inputs.items():
-            assert val['used'], "Unexpected input argument: '{}'".format(key)
-
-        self.cuda_src = self.tpl.render(
-            model_name=self.model.__class__.__name__,
-            float_type=self.dtype,
-            run_step='run_step',
-            solver=self.solver,
-            states=self.model.states,
-            bounds=self.model.bounds,
-            params=self.model.params,
-            inters=self.model.inters,
-            params_gdata=self.params_gdata,
-            has_random=self.has_random,
-            ode_src=self.ode_src.getvalue(),
-            ode_signature=self.ode_args,
-            ode_has_random=self.ode_has_random,
-            ode_declaration=self.ode_local_variables,
-            post_src=self.post_src.getvalue(),
-            post_signature=self.post_args,
-            post_declaration=self.post_local_variables)
-
-        self.args = list(self.model.states.keys()) + \
-            list(self.model.inters.keys()) + \
-            self.params_gdata
-
-        self.arg_type = 'i' + self.dtype[0] + 'P' * len(self.args)
-
-        for key, dtype, flag in (self.ode_args + self.post_args):
-            self.args.append(key)
-            self.arg_type += 'P' if flag else dtype[0]
-
-        if self.has_random:
-            self.arg_type += 'P'
-            self.args.append('seed')
-            self.init_random_seed_arg = 'iP'
-
-    def generate_ode(self):
-        _, self.signature, self.kwargs = self.extract_signature(self.model.ode)
-        self.func_globals = get_function_globals(self.model.ode)
-        self.variables = []
-        self.has_random = False
-        self.ostream = self.ode_src
-
-        code = get_function_code(self.model.ode)
-        self.instructions = self.get_instructions(code)
-        super(CudaGenerator, self).generate()
-        self.ode_local_variables = self.variables[:]
-        self.ode_args = self.process_signature()
-        self.ode_has_random = self.has_random
-        self.has_random = self.has_random or self.ode_has_random
-        self.func_globals = None
-
-    def generate_post(self):
-        _, self.signature, self.kwargs = self.extract_signature(self.model.post)
-        self.func_globals = get_function_globals(self.model.post)
-        self.variables = []
-        self.has_random = False
-        self.ostream = self.post_src
-
-        code = get_function_code(self.model.post)
-        self.instructions = self.get_instructions(code)
-        super(CudaGenerator, self).generate()
-        self.post_local_variables = self.variables[:]
-        self.post_args = self.process_signature()
-        self.post_has_random = self.has_random
-        self.has_random = self.has_random or self.post_has_random
-        self.func_globals = None
+        self.args = self.process_signature()
+        self.src = self.ostream.getvalue()
 
     def process_signature(self):
         new_signature = []
@@ -570,3 +489,72 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
             func = "({0}+({1}-{0})*{2})".format(args[0], args[1], func)
 
         return func
+
+class CudaKernelGenerator(object):
+    tpl = Template(cuda_src_template)
+
+    def __init__(self, model, **kwargs):
+        self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
+        self.model = model
+        self.solver = model.solver.__name__
+        self.float_char = 'f' if self.dtype == np.float32 else ''
+
+        self.params_gdata = kwargs.pop('params_gdata', [])
+        dct = kwargs.pop('inputs_gdata', dict())
+        self.inputs = {k: {'value': v, 'used': False} for k, v in dct.items()}
+
+        cls = self.model.__class__
+
+        self.has_post = np.all([cls.post != base.post for base in cls.__bases__])
+
+        self.generate()
+
+    def generate(self):
+
+        ode = CudaGenerator(self.model, self.model.ode, dtype=self.dtype,
+            inputs=self.inputs, params_gdata=self.params_gdata)
+
+        if self.has_post:
+            post = CudaGenerator(self.model, self.model.post, dtype=self.dtype,
+                inputs=self.inputs, params_gdata=self.params_gdata)
+        else:
+            post = CUDASrc(src='', has_random=False, args=[], variables=[])
+
+        for key, val in self.inputs.items():
+            assert val['used'], "Unexpected input argument: '{}'".format(key)
+
+        self.has_random = ode.has_random or post.has_random
+
+        self.cuda_src = self.tpl.render(
+            model_name=self.model.__class__.__name__,
+            float_type=self.dtype,
+            run_step='run_step',
+            solver=self.solver,
+            states=self.model.states,
+            bounds=self.model.bounds,
+            params=self.model.params,
+            inters=self.model.inters,
+            params_gdata=self.params_gdata,
+            has_random= self.has_random,
+            ode_src=ode.src,
+            ode_signature=ode.args,
+            ode_has_random=ode.has_random,
+            ode_declaration=ode.variables,
+            post_src=post.src,
+            post_signature=post.args,
+            post_declaration=post.variables)
+
+        self.args = list(self.model.states.keys()) + \
+            list(self.model.inters.keys()) + \
+            self.params_gdata
+
+        self.arg_type = 'i' + self.dtype[0] + 'P' * len(self.args)
+
+        for key, dtype, flag in (ode_codegen.args + post_codegen.args):
+            self.args.append(key)
+            self.arg_type += 'P' if flag else dtype[0]
+
+        if self.has_random:
+            self.arg_type += 'P'
+            self.args.append('seed')
+            self.init_random_seed_arg = 'iP'

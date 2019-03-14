@@ -44,9 +44,9 @@ try:
     from pycuda.tools import dtype_to_ctype
     import pycuda.driver as drv
     from pycuda.compiler import SourceModule
-    from .cuda import CudaGenerator, get_func_signature
+    from .cuda import CudaKernelGenerator, get_func_signature
 except ImportError:
-    CudaGenerator = None
+    CudaKernelGenerator = None
     pycuda = None
 
 def _dict_iadd_(dct_a, dct_b):
@@ -172,6 +172,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
             (`value`) of one state variables.
         Default_Bounds (dict): The lower and the upper bound of the state
             variables. It is created through the `ModelMetaClass`.
+        Variables (dict):
+        Inputs (dict):
 
     Attributes:
         states (dict): the state variables, updated by the ODE.
@@ -440,9 +442,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
         print('Average run time of {}: {} ms'.format(name, secs/niter))
 
     def get_cuda_kernel(self, **kwargs):
-        assert CudaGenerator is not None
+        assert CudaKernelGenerator is not None
 
-        code_generator = CudaGenerator(self, dtype=self.cuda.dtype, **kwargs)
+        code_generator = CudaKernelGenerator(self,
+            dtype=self.cuda.dtype, **kwargs)
         code_generator.generate()
 
         try:
