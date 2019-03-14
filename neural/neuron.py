@@ -15,8 +15,7 @@ class IAF(Model):
     Default_States = dict(v=0)
     Default_Params = dict(vt=0.025, c=5., bias=0.01)
 
-    def ode(self, **kwargs):
-        stimulus = kwargs.pop('stimulus', 0)
+    def ode(self, stimulus=0.):
 
         self.spike = 0.
         self.d_v = 1./self.c*(stimulus+self.bias)
@@ -34,8 +33,7 @@ class LeakyIAF(Model):
     Default_States = dict(v=(-0.05, -0.070, 0.025))
     Default_Params = dict(vt=-0.025, c=1.5, vr=-0.070, r=0.2)
 
-    def ode(self, **kwargs):
-        stimulus = kwargs.pop('stimulus', 0)
+    def ode(self, stimulus=0.):
 
         self.spike = 0.
         self.d_v = 1./self.c*(-self.v/self.r + stimulus)
@@ -54,8 +52,7 @@ class Rinzel(Model):
     Default_Params = dict(C=0.75, gNa=120., gK=36., gL=0.3, \
         ENa=50., EK=-77., EL=-54.387, s=1.27135220916422)
 
-    def ode(self, **kwargs):
-        stimulus = kwargs.pop('stimulus', 0.)
+    def ode(self, stimulus=0.):
 
         alpha = np.exp(-(self.v+55.)/10.)-1.
         beta = (0.125*np.exp(-(self.v+65.)/80.))
@@ -99,8 +96,7 @@ class Wilson(Model):
     Default_States = dict(r=0.088, v=-70.)
     Default_Params = dict(C=1.2, EK=-92., gK=26., ENa=55.)
 
-    def ode(self, **kwargs):
-        stimulus = kwargs.pop('stimulus', 0)
+    def ode(self, stimulus=0.):
 
         r_infty = 0.0135*self.v+1.03
         self.d_r = (r_infty-self.r)/1.9
@@ -132,8 +128,7 @@ class ConnorStevens(Model):
         gNa=120., gK=20., gL=0.3, ga=47.7, \
         ENa=55., EK=-72., EL=-17., Ea=-75.)
 
-    def ode(self, **kwargs):
-        stimulus = kwargs.pop('stimulus', 0)
+    def ode(self, stimulus=0.):
 
         alpha = np.exp(-(self.v+50.+self.ns)/10.)-1.
         if abs(alpha) <= 1e-7:
@@ -187,8 +182,7 @@ class HodgkinHuxley(Model):
         m=(0., 0., 1.), h=(1., 0., 1.))
     Default_Params = dict(gNa=120., gK=36., gL=0.3, ENa=50., EK=-77., EL=-54.387)
 
-    def ode(self, **kwargs):
-        stimulus = kwargs.pop('stimulus', 0)
+    def ode(self, stimulus=0.):
 
         alpha = np.exp(-(self.v+55.)/10.)-1.
         beta = (0.125*np.exp(-(self.v+65.)/80.))
