@@ -550,7 +550,7 @@ class CudaKernelGenerator(object):
 
         self.arg_type = 'i' + self.dtype[0] + 'P' * len(self.args)
 
-        for key, dtype, flag in (ode_codegen.args + post_codegen.args):
+        for key, dtype, flag in (ode.args + post.args):
             self.args.append(key)
             self.arg_type += 'P' if flag else dtype[0]
 
