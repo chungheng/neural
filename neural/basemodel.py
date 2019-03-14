@@ -15,8 +15,10 @@ PY3 = sys.version_info[0] == 3
 
 if PY2:
     from inspect import getargspec as _getfullargspec
+    varkw = 'keywords'
 if PY3:
     from inspect import getfullargspec as _getfullargspec
+    varkw = 'varkw'
 
 try:
     from types import SimpleNamespace
@@ -112,6 +114,12 @@ class ModelMetaClass(type):
             argspec = _getfullargspec(dct[key])
             if argspec.defaults is None:
                 continue
+            if argspec.varargs is not None:
+                raise TypeError("Variable positional argument is not allowed" \
+                                " in {}.{}".format(clsname, key))
+            if getattr(argspec, varkw, None) is not None:
+                raise TypeError("Variable keyword argument is not allowed in" \
+                                " {}.{}".format(clsname, key))
             for val, key in zip(argspec.defaults[::-1], argspec.args[::-1]):
                 inputs[key] = val
         dct['Inputs'] = inputs
