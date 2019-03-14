@@ -466,20 +466,15 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
     def handle_call_function(self, ins):
         narg = int(ins.arg)
 
-        # hacky way to handle keyword arguments
-        if self.kwargs and self.var[-(narg+1)] == (self.kwargs + ".pop"):
-            self.var[-(narg+1)] = self.var[-narg]
-            self.signature.append(str(self.var[-narg]))
+        args = [] if narg == 0 else list(map(str, self.var[-narg:]))
+        func_name = self.var[-(narg+1)]
+        pyfunc = eval(func_name, self.func_globals)
+        cufunc = self.pyfunc_to_cufunc.get(pyfunc)
+        if cufunc is not None:
+            self.var[-(narg+1)] = cufunc(self, args)
         else:
-            args = [] if narg == 0 else list(map(str, self.var[-narg:]))
-            func_name = self.var[-(narg+1)]
-            pyfunc = eval(func_name, self.func_globals)
-            cufunc = self.pyfunc_to_cufunc.get(pyfunc)
-            if cufunc is not None:
-                self.var[-(narg+1)] = cufunc(self, args)
-            else:
-                temp = ', '.join(args)
-                self.var[-(narg+1)] = "{0}({1})".format(func_name, temp)
+            temp = ', '.join(args)
+            self.var[-(narg+1)] = "{0}({1})".format(func_name, temp)
 
         if narg:
             del self.var[-narg:]
