@@ -34,7 +34,7 @@ except:
             return self.__dict__ == other.__dict__
 
 try:
-    from optimizer import OdeGenerator
+    from .codegen.optimizer import OdeGenerator
 except ImportError:
     OdeGenerator = None
 
@@ -44,7 +44,7 @@ try:
     from pycuda.tools import dtype_to_ctype
     import pycuda.driver as drv
     from pycuda.compiler import SourceModule
-    from .cuda import CudaKernelGenerator, get_func_signature
+    from .codegen.cuda import CudaKernelGenerator, get_func_signature
 except ImportError:
     CudaKernelGenerator = None
     pycuda = None
@@ -72,6 +72,58 @@ def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
     for key in dct_a.keys():
         out[key] += sal*dct_b[key]
     return out
+
+class ModelMetaClass1(type):
+    def __new__(cls, clsname, bases, dct):
+
+        defaults = dct.get('Defaults', dict())
+        bounds = dict()
+
+        # extract bound from defaults
+        for key, val in defaults.items():
+            if hasattr(val, '__len__'):
+                assert len(val) == 3, "Variable {} ".format(key) + \
+                    "should be a scalar of a iterable of 3 elements " + \
+                    "(initial value, upper bound, lower bound), " + \
+                    "but {} is given.".format(val)
+                defaults[key] = val[0]
+                bounds[key] = val[1:]
+
+        dct['Default_Bounds'] = bounds
+
+        # extract variables from member functions
+        func_list = [x for x in ['ode', 'post'] if x in dct]
+
+        variables = {}
+        locals = {}
+        for key in func_list:
+            _vars, _locals = analyze_variable(dct[key], defaults, variables)
+            variables.update(_vars)
+            locals[key] = _locals
+
+        dct['Locals'] = locals
+        dct['Variables'] = variables
+
+        for attr in ['Inters', 'Params', 'States']:
+            dct["Default_{}".format(attr)] = dict()
+        for key, val in variables.items():
+            if val == 'inputs':
+                continue
+            attr = "Default_{}".format(val.title())
+            dct[attr][key] = defaults[key]
+
+        if 'Time_Scale' not in dct:
+            dct['Time_Scale'] = 1.
+
+        if clsname == 'Model':
+            solvers = dict()
+            for key, val in dct.items():
+                if callable(val) and hasattr(val, '_solver_names'):
+                    for name in val._solver_names:
+                        solvers[name] = val.__name__
+            dct['solver_alias'] = solvers
+
+        return super(ModelMetaClass1, cls).__new__(cls, clsname, bases, dct)
 
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
@@ -183,7 +235,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
         gstates (dict): the gradient of the state variables.
         bounds (dict): lower and upper bounds of the state variables.
     """
-
     def __init__(self, **kwargs):
         """
         Initialize the model.
