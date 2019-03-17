@@ -322,63 +322,48 @@ class Model(with_metaclass(ModelMetaClass, object)):
             array = garray.empty(self.cuda.num, dtype=self.cuda.dtype)
             self.cuda.data[key] = array
 
-    def _process_cuda_variables(self, kwargs, attr):
-        """
-        Arguments:
-            kwargs (dict): keyward arguments.
-            attr (string): 'states', 'inters', or 'params'.
-            skip_key (boolean): Skip if key is not in kwargs (for params).
-        """
-        _cuda = self.cuda
-        dct = getattr(self, attr, dict())
-        vars = []
-        for key, val in dct.items():
-            val = kwargs.pop(key, val)
-
-            # allocate GPU memory
-            if attr != 'params' or hasattr(val, '__len__'):
-                vars.append(key)
-                self._allocate_cuda_memory(key)
-
-            if isinstance(val, np.ndarray):
-                if val.dtype != _cuda.dtype:
-                    val = val.astype(_cuda.dtype)
-                drv.memcpy_htod(_cuda.data[key].gpudata, val)
-            elif isinstance(val, garray.GPUArray):
-                if attr == 'params':
-                    assert val.dtype == _cuda.dtype
-                    _cuda.data[key] = val
-                    continue
-                if val.dtype != _cuda.dtype:
-                    val = val.get()
-                    val = val.astype(_cuda.dtype)
-                    drv.memcpy_htod(_cuda.data[key].gpudata, val)
-                else:
-                    drv.memcpy_dtod(_cuda.data[key].gpudata, val.gpudata)
-            elif isinstance(val, Number):
-                if attr == 'params':
-                    self.params[key] = val
-                    continue
-                _cuda.data[key].fill(val)
-            else:
-                raise TypeError("Invalid {0} variable: {1}".format(attr, key))
-        return vars
-
     def cuda_reset(self, **kwargs):
         """
         reset the gpu data.
 
         Reset the GPU data to default values.
+
+        Arguments:
+            kwargs (dict): keyward arguments.
         """
-        # allocate gpu data for state variables
-        self._process_cuda_variables(kwargs, 'states')
+        params = []
+        for key, attr in self.Variables.items():
+            dct = getattr(self, attr)
+            val = kwargs.pop(key, dct[key])
 
-        # allocate gpu data for intermediate variables
-        self._process_cuda_variables(kwargs, 'inters')
+            # allocate GPU memory
+            if hasattr(val, '__len__'):
+                self._allocate_cuda_memory(key)
+                if attr == 'params':
+                    params.append(key)
 
-        # allocate gpu data for parameters if necessary
-        params = self._process_cuda_variables(kwargs, 'params')
-
+            if isinstance(val, np.ndarray):
+                if val.dtype != self.cuda.dtype:
+                    val = val.astype(self.cuda.dtype)
+                drv.memcpy_htod(self.cuda.data[key].gpudata, val)
+            elif isinstance(val, garray.GPUArray):
+                if attr == 'params':
+                    assert val.dtype == self.cuda.dtype
+                    self.cuda.data[key] = val
+                    continue
+                if val.dtype != self.cuda.dtype:
+                    val = val.get()
+                    val = val.astype(self.cuda.dtype)
+                    drv.memcpy_htod(self.cuda.data[key].gpudata, val)
+                else:
+                    drv.memcpy_dtod(self.cuda.data[key].gpudata, val.gpudata)
+            elif isinstance(val, Number):
+                if attr == 'params':
+                    self.params[key] = val
+                    continue
+                self.cuda.data[key].fill(val)
+            else:
+                raise TypeError("Invalid {0} variable: {1}".format(attr, key))
         return params
 
     def cuda_compile(self, **kwargs):
