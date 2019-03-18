@@ -337,10 +337,11 @@ class Model(with_metaclass(ModelMetaClass, object)):
             val = kwargs.pop(key, dct[key])
 
             # allocate GPU memory
-            if hasattr(val, '__len__'):
+            if attr != 'params':
                 self._allocate_cuda_memory(key)
-                if attr == 'params':
-                    params.append(key)
+            elif hasattr(val, '__len__'): # params with __len__
+                self._allocate_cuda_memory(key)
+                params.append(key)
 
             if isinstance(val, np.ndarray):
                 if val.dtype != self.cuda.dtype:
