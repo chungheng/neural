@@ -47,7 +47,8 @@ class VariableAnalyzer(CodeGenerator):
 
         _, self.signature, self.kwargs = self._extract_signature(self.model.ode)
         with open(os.devnull, 'w') as f:
-            CodeGenerator.__init__(self, model.ode.func_code, ostream=f)
+            code = get_function_code(model.ode)
+            CodeGenerator.__init__(self, code, ostream=f)
             self.variables = {}
             self.generate()
             self.generate()
@@ -91,7 +92,7 @@ class VariableAnalyzer(CodeGenerator):
         """
         symbol1 = rvalue
         """
-        key = ins.arg_name
+        key = ins.argval
         if key not in self.variables:
             self.variables[key] = _Variable(type='local')
         self.var[-1] = key + ' = ' + self.var[-1]
@@ -100,7 +101,7 @@ class VariableAnalyzer(CodeGenerator):
         """
         ... symbol1.symbol2 ...
         """
-        key = ins.arg_name
+        key = ins.argval
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
                 key = key.split('d_')[-1]
@@ -109,13 +110,13 @@ class VariableAnalyzer(CodeGenerator):
                 self._set_variable(key, type='parameter')
             self.var[-1] = key
         else:
-            self.var[-1] += "." + ins.arg_name
+            self.var[-1] += "." + ins.argval
 
     def handle_store_attr(self, ins):
         """
         symbol1.symbol2 = rvalue
         """
-        key = ins.arg_name
+        key = ins.argval
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
                 key = key.split('d_')[-1]
@@ -127,7 +128,7 @@ class VariableAnalyzer(CodeGenerator):
                 self._set_variable(key, type='intermediate')
             self.var[-1] = key
         else:
-            self.var[-1] += "." + ins.arg_name
+            self.var[-1] += "." + ins.argval
         self.var[-2] = self.var[-1] + ' = ' + self.var[-2]
         del self.var[-1]
 
@@ -222,7 +223,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             del self.var[-narg:]
 
     def _handle_load_attr(self, ins):
-        key = ins.arg_name
+        key = ins.argval
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
                 key = key.split('d_')[-1]
@@ -249,10 +250,10 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
 
 
     def _handle_store_fast(self, ins):
-        key = ins.arg_name
+        key = ins.argval
 
         prefix = ''
-        if ins.arg_name == self.var[-1]:
+        if ins.argval == self.var[-1]:
             del self.var[-1]
             return
         elif self.variables[key].type == 'local':
