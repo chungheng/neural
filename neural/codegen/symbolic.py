@@ -177,6 +177,9 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             if val.type != 'local':
                 src = "{0} = Symbol('{0}'){1}".format(key, self.newline)
                 self.symbol_src.write(src)
+        for key in self.signature:
+            src = "{0} = Symbol('{0}'){1}".format(key, self.newline)
+            self.symbol_src.write(src)
 
     def compile_sympy(self):
         exec(self.sympy_src, globals(), self.sympy_dct)
