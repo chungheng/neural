@@ -1,6 +1,7 @@
 import numpy as np
 import os
-from StringIO import StringIO
+from six import StringIO, get_function_code, get_function_globals
+from six import with_metaclass
 from sympy import *
 import types
 
@@ -138,8 +139,8 @@ class VariableAnalyzer(CodeGenerator):
             setattr(self.variables[variable], key, val)
 
 
-class SympyGenerator(VariableAnalyzer):
-    __metaclass__ = MetaClass
+class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
+
     def __init__(self, model, **kwargs):
         VariableAnalyzer.__init__(self, model, **kwargs)
         # for attr in ['state', 'parameter', 'input']:
@@ -209,7 +210,8 @@ class SympyGenerator(VariableAnalyzer):
         else:
             args = [] if narg == 0 else self.var[-narg:]
             func_name = self.var[-(narg+1)]
-            pyfunc = eval(func_name, self.model.ode.func_globals)
+            func_globals = get_function_globals(self.model.ode)
+            pyfunc = eval(func_name, func_globals)
             sympyfunc = self.pyfunc_to_sympyfunc.get(pyfunc)
             if sympyfunc is not None:
                 self.var[-(narg+1)] = sympyfunc(self, args)
