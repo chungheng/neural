@@ -179,7 +179,7 @@ class Network(object):
         # reset Modle variables
         for c in self.containers:
             if isinstance(c.obj, Model):
-                c.obj.cuda_reset()
+                c.obj.cuda.reset()
 
         # reset inputs
         for input in self.inputs:
@@ -230,7 +230,7 @@ class Network(object):
                     raise
 
             if hasattr(c.obj, 'cuda_compile'):
-                c.obj.cuda_compile(dtype=dtype, num=c.num, **dct)
+                c.obj.compile(dtype=dtype, num=c.num, **dct)
                 if debug:
                     s = ''.join([", {}={}".format(*k) for k in dct.items()])
                     print("{}.cuda_compile(dtype=dtype, num={}{})".format(

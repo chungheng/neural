@@ -49,6 +49,8 @@ except ImportError:
     CudaKernelGenerator = None
     pycuda = None
 
+from .backend import CUDABackend
+
 def _dict_iadd_(dct_a, dct_b):
     for key in dct_a.keys():
         dct_a[key] += dct_b[key]
@@ -366,6 +368,21 @@ class Model(with_metaclass(ModelMetaClass, object)):
             else:
                 raise TypeError("Invalid {0} variable: {1}".format(attr, key))
         return params
+
+    def compile(self, **kwargs):
+        """
+        compile the cuda kernel.
+
+        Keyword Arguments:
+            num (int): The number of units for CUDA kernel excution.
+            dtype (type): The default type of floating point for CUDA.
+        """
+        num = kwargs.pop('num', None)
+        dtype = kwargs.pop('dtype', np.float64)
+
+        self.cuda = CUDABackend(model=self, num=num, dtype=dtype, **kwargs)
+
+        self._update = self.cuda.update
 
     def cuda_compile(self, **kwargs):
         """
