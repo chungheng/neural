@@ -584,7 +584,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             to the model, ex. `input` or `spike`. If mulitple stimuli are
             required, the developer could specify them as `input1` and `input2`.
         """
-        self._update(d_t, **kwargs)
+        self._update(d_t*self.Time_Scale, **kwargs)
         for func in self.callbacks:
             func()
 
