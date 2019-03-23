@@ -380,9 +380,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
         num = kwargs.pop('num', None)
         dtype = kwargs.pop('dtype', np.float64)
 
-        self.cuda = CUDABackend(model=self, num=num, dtype=dtype, **kwargs)
+        self.backend = CUDABackend(model=self, num=num, dtype=dtype, **kwargs)
 
-        self._update = self.cuda.update
+        self._update = self.backend.update
 
     def cuda_compile(self, **kwargs):
         """
@@ -797,8 +797,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         super(Model, self).__setattr__(key, value)
 
     def __getattr__(self, key):
-        if 'cuda' in self.__dict__ and key in self.cuda.data:
-            return self.cuda.data[key]
+        if 'backend' in self.__dict__ and key in self.backend.data:
+            return self.backend.data[key]
         if key[:2] == "d_":
             return self.gstates[key[2:]]
 

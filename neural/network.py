@@ -179,7 +179,7 @@ class Network(object):
         # reset Modle variables
         for c in self.containers:
             if isinstance(c.obj, Model):
-                c.obj.cuda.reset()
+                c.obj.backend.reset()
 
         # reset inputs
         for input in self.inputs:
