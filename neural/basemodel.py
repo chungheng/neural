@@ -231,7 +231,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
             self._ode = self.ode
             self.ode = self.ode_opt
 
-        self._update = self._cpu_update
+        self._update = self._scalar_update
+        self._reset = self._scalar_reset
         self.callbacks = []
         self.add_callback(callback)
 
@@ -268,6 +269,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.backend = CUDABackend(model=self, num=num, dtype=dtype, **kwargs)
 
         self._update = self.backend.update
+        self._reset = self.backend.reset
 
     def cuda_profile(self, **kwargs):
         num = kwargs.pop('num', 1000)
@@ -295,24 +297,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
         name = self.__class__.__name__
         print('Average run time of {}: {} ms'.format(name, secs/niter))
 
-    def _cpu_update(self, d_t, **kwargs):
-        """
-        Wrapper function for running solver on CPU.
-
-        Arguments:
-            d_t (float): time steps.
-            kwargs (dict): Arguments for input(s) or other purposes. For
-            example, one can use an extra boolean flag to indicate the
-            period for counting spikes.
-
-        Notes:
-            The signature of the function does not specify _stimulus_
-            arguments. However, the developer should provide the stimulus
-            to the model, ex. `input` or `spike`. If mulitple stimuli are
-            required, the developer could specify them as `input1` and `input2`.
-        """
-        self.solver(d_t*self.Time_Scale, **kwargs)
-        self.post()
 
     def add_callback(self, callbacks):
         if not hasattr(callbacks, '__len__'):
@@ -324,20 +308,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
     def reset(self, **kwargs):
         """
         reset state and intermediate variables to their initial condition.
+
+        Notes:
+            This function is a wrapper to the underlying `_reset`.
         """
-        for key, val in kwargs.items():
-             assert key in self.Varaibles
-             attr = self.Varaibles[key]
-             if attr in ['states', 'inters']:
-                 key = 'initial_' + key
-             dct = getattr(self, attr)
-             dct[key] = val
-        for key, val in self.initial_states.items():
-            self.states[key] = val
-        for key, val in self.initial_inters.items():
-            self.inters[key] = val
-        for key in self.gstates.keys():
-            self.gstates[key] = 0.
+        # '_reset' depends on the 'backend'
+        self._reset(**kwargs)
 
     def update(self, d_t, **kwargs):
         """
@@ -356,7 +332,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
             arguments. However, the developer should provide the stimulus
             to the model, ex. `input` or `spike`. If mulitple stimuli are
             required, the developer could specify them as `input1` and `input2`.
+
+            This function is a wrapper to the underlying `_update`.
         """
+        # '_update' depends on the 'backend'
         self._update(d_t*self.Time_Scale, **kwargs)
         for func in self.callbacks:
             func()
@@ -535,6 +514,40 @@ class Model(with_metaclass(ModelMetaClass, object)):
             incr = (k1[key] + 2.*k2[key] + 2.*k3[key] + k4[key]) / 6.
             self.states[key] += incr
         self.clip()
+
+    def _scalar_update(self, d_t, **kwargs):
+        """
+        Wrapper function for running solver on CPU.
+
+        Arguments:
+            d_t (float): time steps.
+            kwargs (dict): Arguments for input(s) or other purposes. For
+            example, one can use an extra boolean flag to indicate the
+            period for counting spikes.
+
+        Notes:
+            The signature of the function does not specify _stimulus_
+            arguments. However, the developer should provide the stimulus
+            to the model, ex. `input` or `spike`. If mulitple stimuli are
+            required, the developer could specify them as `input1` and `input2`.
+        """
+        self.solver(d_t*self.Time_Scale, **kwargs)
+        self.post()
+
+    def _scalar_reset(self, **kwargs):
+        for key, val in kwargs.items():
+            assert key in self.Varaibles
+            attr = self.Varaibles[key]
+            if attr in ['states', 'inters']:
+                key = 'initial_' + key
+            dct = getattr(self, attr)
+            dct[key] = val
+        for key, val in self.initial_states.items():
+            self.states[key] = val
+        for key, val in self.initial_inters.items():
+            self.inters[key] = val
+        for key in self.gstates.keys():
+            self.gstates[key] = 0.
 
     def __setattr__(self, key, value):
         if key[:2] == "d_":
