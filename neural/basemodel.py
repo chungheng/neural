@@ -75,58 +75,6 @@ def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
         out[key] += sal*dct_b[key]
     return out
 
-class ModelMetaClass1(type):
-    def __new__(cls, clsname, bases, dct):
-
-        defaults = dct.get('Defaults', dict())
-        bounds = dict()
-
-        # extract bound from defaults
-        for key, val in defaults.items():
-            if hasattr(val, '__len__'):
-                assert len(val) == 3, "Variable {} ".format(key) + \
-                    "should be a scalar of a iterable of 3 elements " + \
-                    "(initial value, upper bound, lower bound), " + \
-                    "but {} is given.".format(val)
-                defaults[key] = val[0]
-                bounds[key] = val[1:]
-
-        dct['Default_Bounds'] = bounds
-
-        # extract variables from member functions
-        func_list = [x for x in ['ode', 'post'] if x in dct]
-
-        variables = {}
-        locals = {}
-        for key in func_list:
-            _vars, _locals = analyze_variable(dct[key], defaults, variables)
-            variables.update(_vars)
-            locals[key] = _locals
-
-        dct['Locals'] = locals
-        dct['Variables'] = variables
-
-        for attr in ['Inters', 'Params', 'States']:
-            dct["Default_{}".format(attr)] = dict()
-        for key, val in variables.items():
-            if val == 'inputs':
-                continue
-            attr = "Default_{}".format(val.title())
-            dct[attr][key] = defaults[key]
-
-        if 'Time_Scale' not in dct:
-            dct['Time_Scale'] = 1.
-
-        if clsname == 'Model':
-            solvers = dict()
-            for key, val in dct.items():
-                if callable(val) and hasattr(val, '_solver_names'):
-                    for name in val._solver_names:
-                        solvers[name] = val.__name__
-            dct['solver_alias'] = solvers
-
-        return super(ModelMetaClass1, cls).__new__(cls, clsname, bases, dct)
-
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
         bounds = dict()
