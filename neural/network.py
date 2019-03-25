@@ -27,7 +27,7 @@ if PY2:
 import numpy as np
 from tqdm import tqdm
 
-from .basemodel import SimpleNamespace, Model
+from .basemodel import Model
 from .recorder import Recorder
 
 class Symbol(object):
