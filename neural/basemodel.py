@@ -253,6 +253,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
         num = kwargs.pop('num', None)
         dtype = kwargs.pop('dtype', np.float64)
+        backend = kwargs.pop('backend', 'cuda')
 
         self.backend = CUDABackend(model=self, num=num, dtype=dtype, **kwargs)
 
