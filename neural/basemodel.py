@@ -520,7 +520,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             to the model, ex. `input` or `spike`. If mulitple stimuli are
             required, the developer could specify them as `input1` and `input2`.
         """
-        self.solver(d_t*self.Time_Scale, **kwargs)
+        self.solver(d_t, **kwargs)
         self.post()
 
     def _scalar_reset(self, **kwargs):
