@@ -95,6 +95,7 @@ class ScalarBackend(Backend):
                 break
 
         self.source = ostream.getvalue()
+        self.func_globals = get_function_globals(model.ode)
         self.name = "Optimized{}".format(model.__class__.__name__)
         self.compile()
 
@@ -143,6 +144,9 @@ class ScalarBackend(Backend):
             spec = importlib.util.spec_from_file_location(self.name, cache_path)
             self.module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
+
+        for key, val in self.func_globals.items():
+            setattr(self.module, key, val)
 
 class CUDABackend(Backend):
     def __init__(self, model, **kwargs):
