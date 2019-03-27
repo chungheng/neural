@@ -36,7 +36,7 @@ except ImportError:
     CudaKernelGenerator = None
     pycuda = None
 
-from .backend import CUDABackend
+from .backend import Backend
 from .future import SimpleNamespace
 
 def _dict_iadd_(dct_a, dct_b):
@@ -251,14 +251,14 @@ class Model(with_metaclass(ModelMetaClass, object)):
             num (int): The number of units for CUDA kernel excution.
             dtype (type): The default type of floating point for CUDA.
         """
-        num = kwargs.pop('num', None)
-        dtype = kwargs.pop('dtype', np.float64)
-        backend = kwargs.pop('backend', 'cuda')
 
-        self.backend = CUDABackend(model=self, num=num, dtype=dtype, **kwargs)
+        self.backend = Backend(model=self)
 
-        self._update = self.backend.update
-        self._reset = self.backend.reset
+        for func in ('ode', 'post'):
+            setattr(self, func, getattr(self.backend, func))
+
+        for func in ('data', 'reset', 'update'):
+            setattr(self, '_'+func, getattr(self.backend, func))
 
     def cuda_profile(self, **kwargs):
         num = kwargs.pop('num', 1000)
@@ -555,8 +555,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         super(Model, self).__setattr__(key, value)
 
     def __getattr__(self, key):
-        if 'backend' in self.__dict__ and key in self.backend.data:
-            return self.backend.data[key]
+        if '_data' in self.__dict__ and key in self._data:
+            return self._data[key]
         if key[:2] == "d_":
             return self.gstates[key[2:]]
 
