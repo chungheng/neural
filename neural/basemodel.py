@@ -21,9 +21,9 @@ if PY3:
     varkw = 'varkw'
 
 try:
-    from .codegen.optimizer import OdeGenerator
+    from .codegen.optimizer import FuncGenerator
 except ImportError:
-    OdeGenerator = None
+    FuncGenerator = None
 
 try:
     import pycuda
@@ -181,7 +181,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             optimize (bool): optimize the `ode` function.
             float (type): The data type of float point.
         """
-        optimize = kwargs.pop('optimize', False) and (OdeGenerator is not None)
+        optimize = kwargs.pop('optimize', False) and (Backend is not None)
         solver = kwargs.pop('solver', 'forward_euler')
         float = kwargs.pop('float', np.float32)
         callback = kwargs.pop('callback', [])
@@ -210,38 +210,14 @@ class Model(with_metaclass(ModelMetaClass, object)):
         solver = self.solver_alias[solver]
         self.solver = getattr(self, solver)
 
-        # optimize the ode function
-        if optimize:
-            if not hasattr(self.__class__, 'ode_opt'):
-                self.__class__.optimize()
-
-            # ode_opt = types.MethodType(self.__class__.ode_opt, self, self.__class__)
-            self._ode = self.ode
-            self.ode = self.ode_opt
-
         self._update = self._scalar_update
         self._reset = self._scalar_reset
         self.callbacks = []
         self.add_callback(callback)
 
-    @classmethod
-    def optimize(cls):
-        if not hasattr(cls, 'ode_opt'):
-            sio = StringIO()
-
-            code_gen = OdeGenerator(cls, offset=4, ostream=sio)
-            code_gen.generate()
-            co = compile(sio.getvalue(), '<string>', 'exec')
-            locs  = dict()
-            eval(co, globals(), locs)
-
-            ode = locs['ode']
-
-            ode.__doc__ = sio.getvalue()
-            # ode = types.MethodType(ode, self, self.__class__)
-            del locs
-            setattr(cls, 'code_generator', code_gen)
-            setattr(cls, 'ode_opt', ode)
+        # optimize the ode function
+        if optimize:
+            self.compile(backend='scalar')
 
     def compile(self, **kwargs):
         """
@@ -252,13 +228,15 @@ class Model(with_metaclass(ModelMetaClass, object)):
             dtype (type): The default type of floating point for CUDA.
         """
 
-        self.backend = Backend(model=self)
+        self.backend = Backend(model=self, **kwargs)
 
-        for func in ('ode', 'post'):
-            setattr(self, func, getattr(self.backend, func))
+        for attr in ('ode', 'post'):
+            if hasattr(self.backend, attr):
+                setattr(self, attr, getattr(self.backend, attr))
 
-        for func in ('data', 'reset', 'update'):
-            setattr(self, '_'+func, getattr(self.backend, func))
+        for attr in ('data', 'reset', 'update'):
+            if hasattr(self.backend, attr):
+                setattr(self, '_'+attr, getattr(self.backend, attr))
 
     def cuda_profile(self, **kwargs):
         num = kwargs.pop('num', 1000)
