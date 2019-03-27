@@ -21,7 +21,7 @@ class FuncGenerator(CodeGenerator):
         if self.var[-1] == 'self':
             if 'd_' in key:
                 key = key.split('d_')[-1]
-                self.var[-1] += ".gstate['%s']" % key
+                self.var[-1] += ".gstates['%s']" % key
                 return
 
             for attr in ['states', 'inters', 'params']:
