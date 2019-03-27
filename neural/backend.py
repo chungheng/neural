@@ -21,9 +21,9 @@ if PY3:
     varkw = 'varkw'
 
 try:
-    from .codegen.optimizer import OdeGenerator
+    from .codegen.optimizer import FuncGenerator
 except ImportError:
-    OdeGenerator = None
+    FuncGenerator = None
 
 try:
     import pycuda
@@ -35,6 +35,29 @@ try:
 except ImportError:
     CudaKernelGenerator = None
     pycuda = None
+
+
+# copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
+def _new_md5():
+    try:
+        import hashlib
+        return hashlib.md5()
+    except ImportError:
+        # for Python << 2.5
+        import md5
+        return md5.new()
+
+# copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
+def _get_per_user_string():
+    try:
+        from os import getuid
+    except ImportError:
+        checksum = _new_md5()
+        from os import environ
+        checksum.update(environ["HOME"])
+        return checksum.hexdigest()
+    else:
+        return "uid%d" % getuid()
 
 class Backend(object):
     def __init__(self):
