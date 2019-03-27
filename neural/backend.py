@@ -74,18 +74,14 @@ class Backend(object):
                 raise TypeError("Unexpected backend '{}'".format(backend))
         return super(Backend, cls).__new__(cls)
 
-    def __init__(self, backend=None, **kwargs):
+    def __init__(self, model, **kwargs):
         pass
 
     def compile(self):
         pass
 
-    def update(self):
-        pass
-
-class ScalarBackend(object):
+class ScalarBackend(Backend):
     def __init__(self, model, **kwargs):
-
         ostream = StringIO()
         code_gen = FuncGenerator(model, model.ode, offset=4, ostream=ostream)
         code_gen.generate()
@@ -147,12 +143,13 @@ class ScalarBackend(object):
             self.module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
 
-class CUDABackend(object):
-    def __init__(self, model, dtype=np.float64, num=None, **kwargs):
-        self.num = num
+class CUDABackend(Backend):
+    def __init__(self, model, **kwargs):
+        backend = kwargs.pop('backend', None)
+        self.num = kwargs.pop('num', None)
         self.data = dict()
         self.model = model
-        self.dtype = dtype
+        self.dtype = kwargs.pop('dtype', np.float64)
         self.compile(**kwargs)
 
     def _allocate_cuda_memory(self, key):
