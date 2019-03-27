@@ -6,19 +6,21 @@ import types
 from pycodegen.codegen import CodeGenerator
 from pycodegen.utils import get_func_signature
 
-class OdeGenerator(CodeGenerator):
-    def __init__(self, model, **kwargs):
+class FuncGenerator(CodeGenerator):
+    def __init__(self, model, func, **kwargs):
         self.model = model
-        CodeGenerator.__init__(self, model.ode.func_code, **kwargs)
+        self.func = func
+        CodeGenerator.__init__(self, self.func, **kwargs)
 
-        args = get_func_signature(model.ode)
-        self.ostream.write("def ode(%s):\n" % (", ".join(args)))
+        args = get_func_signature(self.func)
+        signature = "def {}({}):\n".format(self.func.__name__, ", ".join(args))
+        self.ostream.write(signature)
 
     def handle_load_attr(self, ins):
         key = ins.argval
         if self.var[-1] == 'self':
             if 'd_' in key:
-                key = self.split('d_')[-1]
+                key = key.split('d_')[-1]
                 self.var[-1] += ".gstate['%s']" % key
                 return
 
