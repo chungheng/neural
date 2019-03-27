@@ -60,7 +60,21 @@ def _get_per_user_string():
         return "uid%d" % getuid()
 
 class Backend(object):
-    def __init__(self):
+    def __new__(cls, model, **kwargs):
+        """
+        Factory for instantiating different backends.
+        """
+        if cls is Backend:
+            backend = kwargs.pop('backend', None)
+            if backend == 'scalar':
+                return super(Backend, cls).__new__(ScalarBackend)
+            elif backend == 'cuda':
+                return super(Backend, cls).__new__(CUDABackend)
+            else:
+                raise TypeError("Unexpected backend '{}'".format(backend))
+        return super(Backend, cls).__new__(cls)
+
+    def __init__(self, backend=None, **kwargs):
         pass
 
     def compile(self):
@@ -70,7 +84,7 @@ class Backend(object):
         pass
 
 class ScalarBackend(object):
-    def __init__(self, model):
+    def __init__(self, model, **kwargs):
 
         ostream = StringIO()
         code_gen = FuncGenerator(model, model.ode, offset=4, ostream=ostream)
