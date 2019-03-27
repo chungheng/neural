@@ -6,8 +6,9 @@ from abc import abstractmethod
 from collections import OrderedDict
 from numbers import Number
 import sys
+from types import MethodType
 
-from six import StringIO, with_metaclass
+from six import StringIO, get_function_globals, with_metaclass
 import numpy as np
 
 PY2 = sys.version_info[0] == 3
@@ -97,9 +98,9 @@ class ScalarBackend(Backend):
         self.name = "Optimized{}".format(model.__class__.__name__)
         self.compile()
 
-        self.ode = self.module.ode
+        self.ode = MethodType(self.module.ode, model)
         if 'post' in self.module.__dict__:
-            self.post = self.module.post
+            self.post = MethodType(self.module.post, model)
 
     def compile(self):
 
