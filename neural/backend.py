@@ -69,6 +69,70 @@ class Backend(object):
     def update(self):
         pass
 
+class ScalarBackend(object):
+    def __init__(self, model):
+
+        ostream = StringIO()
+        code_gen = FuncGenerator(model, model.ode, offset=4, ostream=ostream)
+        code_gen.generate()
+
+        post = model.__class__.post
+        for cls in model.__class__.__bases__:
+            if cls.__name__ == 'Model' and post != cls.post:
+                code_gen = FuncGenerator(model, post, offset=4, ostream=ostream)
+                code_gen.generate()
+                break
+
+        self.source = ostream.getvalue()
+        self.name = "Optimized{}".format(model.__class__.__name__)
+        self.compile()
+
+        self.ode = self.module.ode
+        if 'post' in self.module.__dict__:
+            self.post = self.module.post
+
+    def compile(self):
+
+        from os import mkdir
+        from os.path import join, isfile
+        from tempfile import gettempdir
+
+        cache_dir = join(gettempdir(),
+                "pyneural-compiler-cache-%s" % _get_per_user_string())
+
+        try:
+            mkdir(cache_dir)
+        except OSError as e:
+            from errno import EEXIST
+            if e.errno != EEXIST:
+                raise
+
+        source = self.source.encode('utf-8')
+
+        checksum = _new_md5()
+
+        checksum.update(source)
+
+        cache_file = checksum.hexdigest()
+        cache_path = join(cache_dir, cache_file + ".py")
+
+        if not isfile(cache_path):
+            outf = open(cache_path, "wb")
+            outf.write(source)
+            outf.close()
+
+        if PY2:
+            import imp
+
+            self.module = imp.load_source(self.name, cache_path)
+
+        elif PY3:
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location(self.name, cache_path)
+            self.module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+
 class CUDABackend(object):
     def __init__(self, model, dtype=np.float64, num=None, **kwargs):
         self.num = num
