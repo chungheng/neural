@@ -229,8 +229,8 @@ class Network(object):
                 else:
                     raise
 
-            if hasattr(c.obj, 'cuda_compile'):
-                c.obj.compile(dtype=dtype, num=c.num, **dct)
+            if hasattr(c.obj, 'compile'):
+                c.obj.compile(backend='cuda', dtype=dtype, num=c.num, **dct)
                 if debug:
                     s = ''.join([", {}={}".format(*k) for k in dct.items()])
                     print("{}.cuda_compile(dtype=dtype, num={}{})".format(
