@@ -242,3 +242,33 @@ class Network(object):
         for arg in args:
             assert isinstance(arg, Symbol)
             arg.container.record(arg.key)
+
+    def to_graph(self):
+        import pydot
+        from io import BytesIO
+        graph = pydot.Dot(graph_type='digraph', rankdir='LR')
+
+        nodes = {}
+        for c in self.containers+self.inputs:
+            node = pydot.Node(c.name)
+            nodes[c.name] = node
+            graph.add_node(node)
+
+        for c in self.containers:
+            v = nodes[c.name]
+            for key, val in c.inputs.items():
+                if isinstance(val, Symbol):
+                    u = nodes[val.container.name]
+                    label = val.key
+                elif isinstance(val, Input):
+                    u = nodes[val.name]
+                    label = ''
+                else:
+                    raise
+                graph.add_edge(pydot.Edge(u, v, label=label))
+
+        png_str = graph.create_png(prog='dot')
+        bio = BytesIO()
+        bio.write(png_str)
+        bio.seek(0)
+        return bio
