@@ -245,7 +245,6 @@ class Network(object):
 
     def to_graph(self):
         import pydot
-        from io import BytesIO
         graph = pydot.Dot(graph_type='digraph', rankdir='LR')
 
         nodes = {}
@@ -268,7 +267,5 @@ class Network(object):
                 graph.add_edge(pydot.Edge(u, v, label=label))
 
         png_str = graph.create_png(prog='dot')
-        bio = BytesIO()
-        bio.write(png_str)
-        bio.seek(0)
-        return bio
+
+        return png_str
