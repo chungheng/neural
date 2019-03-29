@@ -161,6 +161,33 @@ class VariableAnalyzer(CodeGenerator):
         for key, val in kwargs.items():
             setattr(self.variables[variable], key, val)
 
+    def to_graph(self):
+        import pydot
+        graph = pydot.Dot(graph_type='digraph', rankdir='LR')
+
+        nodes = {}
+        for key in self.signature:
+            node = pydot.Node(key)
+            nodes[key] = node
+            graph.add_node(node)
+
+        for key, val in self.variables.items():
+            if val.type == 'parameter' or val.integral is not None:
+                continue
+            node = pydot.Node(key)
+            nodes[key] = node
+            graph.add_node(node)
+
+        for target, val in self.variables.items():
+            if target not in nodes:
+                continue
+            for source in val.dependencies:
+                if source in nodes:
+                    graph.add_edge(pydot.Edge(source, target))
+
+        png_str = graph.create_png(prog='dot')
+
+        return png_str
 
 class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
 
