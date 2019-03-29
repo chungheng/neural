@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import os
 from six import StringIO, get_function_code, get_function_globals
@@ -12,12 +14,15 @@ class _Variable(object):
     default = {
         'type': None,
         'integral': None,
-        'derivative': None
+        'derivative': None,
+        'dependencies': set()
     }
     def __init__(self, **kwargs):
         for key, val in self.default.items():
-            val = kwargs.pop(key, val)
-            self.__dict__[key] = val
+            if key in kwargs:
+                self.__dict__[key] = kwargs.pop(key)
+            else:
+                self.__dict__[key] = copy.copy(val)
         if len(kwargs):
             raise AttributeError('Invalid attribute: %s' % kwargs.keys()[0])
     def __setattribute__(self, key, val):
@@ -43,7 +48,7 @@ class VariableAnalyzer(CodeGenerator):
 
     def __init__(self, model, **kwargs):
         self.model = model
-        self.equations = []
+        self._dependencies = set()
 
         _, self.signature, self.kwargs = self._extract_signature(self.model.ode)
         with open(os.devnull, 'w') as f:
@@ -52,6 +57,10 @@ class VariableAnalyzer(CodeGenerator):
             self.variables = {}
             self.generate()
             self.generate()
+        for key, val in self.variables.items():
+            if val.integral is None:
+                continue
+            self.variables[val.integral].dependencies.update(val.dependencies)
 
     def _extract_signature(self, func):
         old_signature = get_func_signature(func)
@@ -95,7 +104,9 @@ class VariableAnalyzer(CodeGenerator):
         key = ins.argval
         if key not in self.variables:
             self.variables[key] = _Variable(type='local')
-        self.var[-1] = key + ' = ' + self.var[-1]
+        self.var[-1] = '{} = {}'.format(key, self.var[-1])
+        self.variables[key].dependencies.update(self._dependencies)
+        self._dependencies = set()
 
     def handle_load_attr(self, ins):
         """
@@ -108,9 +119,17 @@ class VariableAnalyzer(CodeGenerator):
                 self._set_variable(key, type='state')
             elif key not in self.variables:
                 self._set_variable(key, type='parameter')
+            if self.variables[key].type != 'parameter':
+                self._dependencies.add(key)
+
             self.var[-1] = key
         else:
             self.var[-1] += "." + ins.argval
+
+    def handle_load_fast(self, ins):
+        if ins.argval in self.signature or ins.argval in self.variables:
+            self._dependencies.add(ins.argval)
+        self.var.append(ins.argval)
 
     def handle_store_attr(self, ins):
         """
@@ -124,9 +143,12 @@ class VariableAnalyzer(CodeGenerator):
                 if self.var[-2] in self.variables:
                     self.variables[key].derivative = self.var[-2]
                     self.variables[self.var[-2]].integral = key
-            elif key not in self.variables:
+            elif key not in self.variables or self.variables[key] != 'state':
                 self._set_variable(key, type='intermediate')
             self.var[-1] = key
+            self.variables[key].dependencies.update(self._dependencies)
+            self._dependencies = set()
+
         else:
             self.var[-1] += "." + ins.argval
         self.var[-2] = self.var[-1] + ' = ' + self.var[-2]
