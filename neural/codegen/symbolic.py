@@ -90,9 +90,9 @@ class VariableAnalyzer(CodeGenerator):
             self.signature.append(new_arg)
             self.variables[new_arg] = _Variable(type='input')
         else:
-            args = [] if narg == 0 else self.var[-narg:]
+            args = [] if narg == 0 else [str(x) for x in self.var[-narg:]]
             func_name = self.var[-(narg+1)]
-            self.var[-(narg+1)] = func_name + "(%s)" % ','.join(args)
+            self.var[-(narg+1)] = "{}({})".format(func_name, ','.join(args))
 
         if narg:
             del self.var[-narg:]
@@ -173,6 +173,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         self.ode_src = StringIO()
         self.symbol_src = StringIO()
         self.ostream = self.ode_src
+        self.equations = []
 
         for key in dir(self):
             if key[:8] == '_handle_':
@@ -234,7 +235,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             self.signature.append(new_arg)
 
         else:
-            args = [] if narg == 0 else self.var[-narg:]
+            args = [] if narg == 0 else [str(x) for x in self.var[-narg:]]
             func_name = self.var[-(narg+1)]
             func_globals = get_function_globals(self.model.ode)
             pyfunc = eval(func_name, func_globals)
@@ -242,7 +243,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             if sympyfunc is not None:
                 self.var[-(narg+1)] = sympyfunc(self, args)
             else:
-                self.var[-(narg+1)] = func_name + "(%s)" % ','.join(args)
+                self.var[-(narg+1)] = "{}({})".format(func_name, ','.join(args))
 
         if narg:
             del self.var[-narg:]
