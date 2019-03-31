@@ -28,7 +28,9 @@ import numpy as np
 from tqdm import tqdm
 
 from .basemodel import Model
+from .future import SimpleNamespace
 from .recorder import Recorder
+
 
 class Symbol(object):
     def __init__(self, container, key):
@@ -243,7 +245,7 @@ class Network(object):
             assert isinstance(arg, Symbol)
             arg.container.record(arg.key)
 
-    def to_graph(self):
+    def to_graph(self, bqplot=False):
         import pydot
         graph = pydot.Dot(graph_type='digraph', rankdir='LR')
 
@@ -253,19 +255,74 @@ class Network(object):
             nodes[c.name] = node
             graph.add_node(node)
 
+        edges = []
         for c in self.containers:
-            v = nodes[c.name]
+            target = c.name
+            v = nodes[target]
             for key, val in c.inputs.items():
                 if isinstance(val, Symbol):
-                    u = nodes[val.container.name]
+                    source = val.container.name
                     label = val.key
                 elif isinstance(val, Input):
-                    u = nodes[val.name]
+                    source = val.name
                     label = ''
                 else:
                     raise
+                u = nodes[source]
                 graph.add_edge(pydot.Edge(u, v, label=label))
+                edges.append((source, target))
 
-        png_str = graph.create_png(prog='dot')
+        if not bqplot:
+            png_str = graph.create_png(prog='dot')
 
-        return png_str
+            return png_str
+        else:
+            D_bytes = graph.create_dot(prog='dot')
+            D = str(D_bytes, encoding='utf-8')
+
+            if D == "":  # no data returned
+                print("Graphviz layout with %s failed" % (prog))
+                print()
+                print("To debug what happened try:")
+                print("P = nx.nx_pydot.to_pydot(G)")
+                print("P.write_dot(\"file.dot\")")
+                print("And then run %s on file.dot" % (prog))
+
+
+            # List of "pydot.Dot" instances deserialized from this string.
+            Q_list = pydot.graph_from_dot_data(D)
+            assert len(Q_list) == 1
+            Q = Q_list[0]
+
+            node_data = SimpleNamespace(label=[], x=[], y=[])
+            for n in nodes.keys():
+                node = Q.get_node(n)
+
+                if isinstance(node, list):
+                    node = node[0]
+                # strip leading and trailing double quotes
+                pos = node.get_pos()[1:-1]
+                if pos is not None:
+                    xx, yy = pos.split(",")
+                    node_data.label.append(n)
+                    node_data.x.append(float(xx))
+                    node_data.y.append(float(yy))
+
+            node2id = {n:i for i, n in enumerate(nodes.keys())}
+            edges = [(node2id[u], node2id[v]) for u, v in edges]
+            link_data = [{'source': u, 'target': v} for u, v in edges]
+
+            from bqplot import LinearScale
+            from bqplot.marks import Graph
+            xs = LinearScale()
+            ys = LinearScale()
+            bq_graph = Graph(
+                node_data=node_data.label,
+                link_data=link_data,
+                link_type='slant_line',
+                x=node_data.x, y=node_data.y,
+                colors=['orange'] * len(nodes),
+                scales={'x': xs, 'y': ys, },
+                directed=True)
+
+            return bq_graph
