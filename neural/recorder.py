@@ -79,8 +79,10 @@ class Recorder(object):
         callback = kwargs.pop('callback', False)
         if callback:
             self.iter = iter(self)
-            func = lambda: next(self.iter)
-            self.obj.add_callback(func)
+            self.obj.add_callback(self)
+
+    def __call__(self):
+        return next(self.iter)
 
     def reset(self):
         self.iter = iter(self)
