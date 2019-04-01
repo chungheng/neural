@@ -324,6 +324,22 @@ class Model(with_metaclass(ModelMetaClass, object)):
         for key, val in self.bounds.items():
             states[key] = np.clip(states[key], val[0], val[1])
 
+    def to_graph(self, local=False):
+        """
+        Generate block diagram of the model
+
+        Parameters:
+            local (boolean): Include local variable or not.
+        """
+        try:
+            from .codegen.symbolic import VariableAnalyzer
+        except ImportError as e:
+            raise e("'to_graph' requires 'pycodegen'")
+
+        g = VariableAnalyzer(self)
+        return g.to_graph(local=local)
+
+
     def _increment(self, d_t, states, out_states=None, **kwargs):
         """
         Compute the increment of state variables.
