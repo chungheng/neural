@@ -20,24 +20,7 @@ if PY3:
     from inspect import getfullargspec as _getfullargspec
     varkw = 'varkw'
 
-try:
-    from .codegen.optimizer import FuncGenerator
-except ImportError:
-    FuncGenerator = None
-
-try:
-    import pycuda
-    import pycuda.gpuarray as garray
-    from pycuda.tools import dtype_to_ctype
-    import pycuda.driver as drv
-    from pycuda.compiler import SourceModule
-    from .codegen.cuda import CudaKernelGenerator, get_func_signature
-except ImportError:
-    CudaKernelGenerator = None
-    pycuda = None
-
 from .backend import Backend
-from .future import SimpleNamespace
 
 def _dict_iadd_(dct_a, dct_b):
     for key in dct_a.keys():
