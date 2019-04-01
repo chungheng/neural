@@ -221,33 +221,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
             if hasattr(self.backend, attr):
                 setattr(self, '_'+attr, getattr(self.backend, attr))
 
-    def cuda_profile(self, **kwargs):
-        num = kwargs.pop('num', 1000)
-        niter = kwargs.pop('niter', 1000)
-        dtype = kwargs.pop('dtype', np.float64)
-
-        self.cuda_compile(num=num, dtype=dtype)
-
-        args = {key: garray.empty(num, dtype) for key in self.cuda.args}
-
-        start = drv.Event()
-        end = drv.Event()
-        secs = 0.
-
-        for i in range(niter):
-            start.record()
-            self._cuda_update(0., **args)
-            end.record()
-            end.synchronize()
-            secs += start.time_till(end)
-
-        for key in args:
-            args[key].gpudata.free()
-
-        name = self.__class__.__name__
-        print('Average run time of {}: {} ms'.format(name, secs/niter))
-
-
     def add_callback(self, callbacks):
         if not hasattr(callbacks, '__len__'):
             callbacks = [callbacks,]
