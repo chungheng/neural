@@ -324,7 +324,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         for key, val in self.bounds.items():
             states[key] = np.clip(states[key], val[0], val[1])
 
-    def to_graph(self, local=False):
+    @classmethod
+    def to_graph(cls, local=False):
         """
         Generate block diagram of the model
 
@@ -336,7 +337,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         except ImportError as e:
             raise e("'to_graph' requires 'pycodegen'")
 
-        g = VariableAnalyzer(self)
+        g = VariableAnalyzer(cls)
         return g.to_graph(local=local)
 
 
