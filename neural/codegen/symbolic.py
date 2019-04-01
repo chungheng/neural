@@ -161,7 +161,37 @@ class VariableAnalyzer(CodeGenerator):
         for key, val in kwargs.items():
             setattr(self.variables[variable], key, val)
 
-    def to_graph(self):
+    def to_graph(self, local=False):
+        """
+        Parameters:
+        local (boolean): Include local variables or not.
+        """
+
+        # sort out dependencies for local variables
+        locals = [k for k, v in self.variables.items() if v.type == 'local']
+        flags = dict.fromkeys(locals, False)
+        locals = {k: copy.copy(self.variables[k].dependencies) for k in locals}
+        for key, val in locals.items():
+            if key in val:
+                val.remove(key)
+
+        check_is_local = lambda x: self.variables[x].type != 'local'
+        for i in range(len(self.variables)):
+            flag = True
+            for key, val in locals.items():
+                flags[key] = all(map(check_is_local, val))
+                flag = flag and flags[key]
+            if flag:
+                break
+            for key, val in locals.items():
+                _set = set()
+                for v in val:
+                    if flags.get(v, False):
+                        _set.update(locals[v])
+                    else:
+                        _set.add(v)
+                locals[key] = _set
+
         import pydot
         graph = pydot.Dot(graph_type='digraph', rankdir='LR')
 
@@ -174,6 +204,8 @@ class VariableAnalyzer(CodeGenerator):
         for key, val in self.variables.items():
             if val.type == 'parameter' or val.integral is not None:
                 continue
+            if local is False and val.type == 'local':
+                continue
             node = pydot.Node(key)
             nodes[key] = node
             graph.add_node(node)
@@ -181,7 +213,12 @@ class VariableAnalyzer(CodeGenerator):
         for target, val in self.variables.items():
             if target not in nodes:
                 continue
-            for source in val.dependencies:
+            _set = copy.copy(val.dependencies)
+            for v in val.dependencies:
+                if local is False and v in locals:
+                    _set.remove(v)
+                    _set.update(locals[v])
+            for source in _set:
                 if source in nodes:
                     graph.add_edge(pydot.Edge(source, target))
 
