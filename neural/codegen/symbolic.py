@@ -214,7 +214,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         self.latex_src = None
         #
         self.compile_sympy()
-        self.generate_latex()
+        self.to_latex()
 
 
     @property
@@ -232,9 +232,12 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             self.symbol_src.write(src)
 
     def compile_sympy(self):
-        exec(self.sympy_src, globals(), self.sympy_dct)
+        try:
+            exec(self.sympy_src, globals(), self.sympy_dct)
+        except:
+            print(self.sympy_src)
 
-    def generate_latex(self):
+    def to_latex(self):
         cond = lambda v: v.type == 'state' and v.integral is None
         states = [k for k, v in self.variables.items() if cond(v)]
         states.sort()
