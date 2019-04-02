@@ -55,8 +55,12 @@ class Backend(object):
         if cls is Backend:
             backend = kwargs.pop('backend', None)
             if backend == 'scalar':
+                assert FuncGenerator is not None, \
+                    "PyCodegen is not installed."
                 return super(Backend, cls).__new__(ScalarBackend)
             elif backend == 'cuda':
+                assert CudaKernelGenerator is not None, \
+                    "Either PyCUDA or PyCodegen is not installed."
                 return super(Backend, cls).__new__(CUDABackend)
             else:
                 raise TypeError("Unexpected backend '{}'".format(backend))
@@ -298,8 +302,6 @@ class CUDABackend(Backend):
         print('Average run time of {}: {} ms'.format(name, secs/niter))
 
     def get_cuda_kernel(self, **kwargs):
-        assert CudaKernelGenerator is not None
-
         code_generator = CudaKernelGenerator(self.model,
             dtype=self.dtype, **kwargs)
         code_generator.generate()
