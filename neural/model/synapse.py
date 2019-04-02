@@ -4,7 +4,7 @@
 Basic synapse models.
 """
 
-from .basemodel import Model
+from ..basemodel import Model
 
 class AMPA(Model):
     """
