@@ -31,11 +31,14 @@ from .basemodel import Model
 from .future import SimpleNamespace
 from .recorder import Recorder
 
-
 class Symbol(object):
     def __init__(self, container, key):
         self.container = container
         self.key = key
+
+    def __getitem__(self, given):
+        attr = getattr(self.container.recorder, self.key)
+        return attr.__getitem__(given)
 
 class Input(object):
     def __init__(self, num=None, name=None):

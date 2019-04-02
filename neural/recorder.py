@@ -15,7 +15,6 @@ import pycuda.driver as cuda
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
 
-
 from pycuda.compiler import SourceModule
 from pycuda.tools import dtype_to_ctype
 

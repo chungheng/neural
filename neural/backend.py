@@ -2,6 +2,7 @@
 Base model class for neurons and synapses.
 """
 from __future__ import print_function
+from numbers import Number
 import sys
 from types import MethodType
 
