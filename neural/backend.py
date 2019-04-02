@@ -2,24 +2,14 @@
 Base model class for neurons and synapses.
 """
 from __future__ import print_function
-from abc import abstractmethod
-from collections import OrderedDict
-from numbers import Number
 import sys
 from types import MethodType
 
-from six import StringIO, get_function_globals, with_metaclass
-import numpy as np
-
-PY2 = sys.version_info[0] == 3
+PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
 
-if PY2:
-    from inspect import getargspec as _getfullargspec
-    varkw = 'keywords'
-if PY3:
-    from inspect import getfullargspec as _getfullargspec
-    varkw = 'varkw'
+from six import StringIO, get_function_globals
+import numpy as np
 
 try:
     from .codegen.optimizer import FuncGenerator
@@ -28,15 +18,12 @@ except ImportError:
 
 try:
     import pycuda
-    import pycuda.gpuarray as garray
-    from pycuda.tools import dtype_to_ctype
     import pycuda.driver as drv
+    import pycuda.gpuarray as garray
     from pycuda.compiler import SourceModule
-    from .codegen.cuda import CudaKernelGenerator, get_func_signature
+    from .codegen.cuda import CudaKernelGenerator
 except ImportError:
     CudaKernelGenerator = None
-    pycuda = None
-
 
 # copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
 def _new_md5():
