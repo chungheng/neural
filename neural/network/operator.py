@@ -35,3 +35,20 @@ class BlockMean(object):
     def update(self, input):
         _input = input.reshape(-1, self.block_size)
         skcuda.misc.sum(_input, out=self.output, axis=1)
+
+class Multiply(object):
+    def __init__(self, multiplier, dtype=np.float64):
+        if isinstance(multiplier, np.ndarray):
+            multiplier = multiplier.astype(dtype)
+            self.multiplier = garray.to_gpu(multiplier)
+        elif isinstance(multiplier, garray.GPUArray):
+            self.multiplier = multiplier
+        else:
+            raise TypeError("Unexpected type of multiplier.")
+
+        self.output = garray.empty(multiplier.shape[0], dtype=dtype)
+        self._output = self.output.reshape(-1, 1)
+
+    def update(self, input):
+        _input = input.reshape(-1, 1)
+        skcuda.linalg.dot(self.multiplier, input, out=self._output)
