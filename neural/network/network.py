@@ -241,7 +241,10 @@ class Network(object):
                     raise
 
             if hasattr(c.obj, 'compile'):
-                c.obj.compile(backend='cuda', dtype=dtype, num=c.num, **dct)
+                if isinstance(c.obj, Model):
+                    c.obj.compile(backend='cuda', dtype=dtype, num=c.num, **dct)
+                else:
+                    c.obj.compile(**dct)
                 if debug:
                     s = ''.join([", {}={}".format(*k) for k in dct.items()])
                     print("{}.cuda_compile(dtype=dtype, num={}{})".format(
