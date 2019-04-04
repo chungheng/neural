@@ -349,4 +349,21 @@ class Network(object):
                 scales={'x': xs, 'y': ys, },
                 directed=True)
 
+            bq_graph.hovered_style = {'stroke': '#817DFA'}
+            bq_graph.unhovered_style = {'opacity': '0.4'}
+            try:
+                import ipywidgets as widgets
+                self.tooltip = widgets.Label()
+
+                _nn = self
+                def print_event(self, target):
+                    name = target['data']['id']
+                    self.tooltip.value = _nn.containers[name].obj.__class__.__name__
+
+
+                bq_graph.tooltip = self.tooltip
+                bq_graph.on_hover(print_event)
+            except:
+                pass
+
             return bq_graph
