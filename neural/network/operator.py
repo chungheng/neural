@@ -6,6 +6,18 @@ import skcuda
 import skcuda.misc
 import skcuda.linalg
 
+class Aggregate(object):
+    def __init__(self, size, dtype=np.float64):
+        self.output = garray.empty(size, dtype=dtype)
+        self.dtype = 'double' if dtype == np.float64 else 'float'
+    def update(self):
+        pass
+    def compile(self, num):
+        aggregate = ElementwiseKernel(
+            "float a, float *x, float b, float *y, float *z",
+            "z[i] = a*x[i] + b*y[i]",
+            "linear_combination")
+
 class Sum(object):
     def __init__(self, dtype=np.float64):
         self.output = garray.empty(1, dtype=dtype)

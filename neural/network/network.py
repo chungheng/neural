@@ -13,6 +13,7 @@ Examples:
 >>>
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
+from collections import OrderedDict
 from functools import reduce
 from numbers import Number
 from inspect import isclass
@@ -129,7 +130,7 @@ class Network(object):
     """
     """
     def __init__(self):
-        self.containers = []
+        self.containers = OrderedDict()
         self.inputs = []
 
         self._iscompiled = False
@@ -163,7 +164,7 @@ class Network(object):
             else:
                 container.record(record)
 
-        self.containers.append(container)
+        self.containers[name] = container
         self._iscompiled = False
         return container
 
@@ -176,13 +177,13 @@ class Network(object):
 
         # reset recorders
         recorders = []
-        for c in self.containers:
+        for c in self.containers.values():
             recorder = c.set_recorder(steps)
             if recorder is not None:
                 recorders.append(recorder)
 
         # reset Modle variables
-        for c in self.containers:
+        for c in self.containers.values():
             if isinstance(c.obj, Model):
                 c.obj.reset()
 
@@ -195,7 +196,7 @@ class Network(object):
             iterator = tqdm(iterator)
 
         for i in iterator:
-            for c in self.containers:
+            for c in self.containers.values():
                 args = {}
                 for key, val in c.inputs.items():
                     if isinstance(val, Symbol):
@@ -206,20 +207,24 @@ class Network(object):
                         args[key] = val
                     else:
                         raise
-                c.obj.update(dt, **args)
+                if isinstance(c.obj, Model):
+                    c.obj.update(dt, **args)
+                else:
+                    c.obj.update(**args)
             for recorder in recorders:
                 recorder.update(i)
 
     def compile(self, dtype=None, debug=False):
         dtype = dtype or np.float64
-        for c in self.containers:
+        for c in self.containers.values():
             dct = {}
             for key, val in c.inputs.items():
                 if isinstance(val, Symbol):
                     if val.container.num is not None:
-                        if c.num is not None and val.container.num != c.num:
-                            raise Error("Size mismatches: {} {}".format(
-                                c.name, val.container.name))
+                        # if c.num is not None and val.container.num != c.num:
+                        #     raise Error("Size mismatches: {} {}".format(
+                        #         c.name, val.container.name))
+                        dct[key] = np.zeros(val.container.num)
                     else:
                         dct[key] = dtype(0.)
                 elif isinstance(val, Input):
@@ -227,6 +232,7 @@ class Network(object):
                         if c.num is not None and val.num != c.num:
                             raise Error("Size mismatches: {} {}".format(
                                 c.name, val.name))
+                        dct[key] = np.zeros(val.num)
                     else:
                         dct[key] = dtype(0.)
                 elif isinstance(val, Number):
@@ -253,13 +259,13 @@ class Network(object):
         graph = pydot.Dot(graph_type='digraph', rankdir='LR')
 
         nodes = {}
-        for c in self.containers+self.inputs:
+        for c in list(self.containers.values())+self.inputs:
             node = pydot.Node(c.name)
             nodes[c.name] = node
             graph.add_node(node)
 
         edges = []
-        for c in self.containers:
+        for c in self.containers.values():
             target = c.name
             v = nodes[target]
             for key, val in c.inputs.items():
