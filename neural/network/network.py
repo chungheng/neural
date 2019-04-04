@@ -282,15 +282,16 @@ class Network(object):
                     raise
                 u = nodes[source]
                 graph.add_edge(pydot.Edge(u, v, label=label))
-                edges.append((source, target))
-
+                edges.append((source, target, label))
         if not bqplot:
             png_str = graph.create_png(prog='dot')
 
             return png_str
         else:
             D_bytes = graph.create_dot(prog='dot')
+
             D = str(D_bytes, encoding='utf-8')
+            scale = 50.
 
             if D == "":  # no data returned
                 print("Graphviz layout with %s failed" % (prog))
@@ -306,34 +307,45 @@ class Network(object):
             assert len(Q_list) == 1
             Q = Q_list[0]
 
-            node_data = SimpleNamespace(label=[], x=[], y=[])
+            node_x = []
+            node_y = []
+            node_data = []
             for n in nodes.keys():
+
                 node = Q.get_node(n)
 
-                if isinstance(node, list):
-                    node = node[0]
+                if isinstance(node, list) and len(node) == 0:
+                    node = Q.get_node('"{}"'.format(n))
+                    assert node
+
+                node = node[0]
                 # strip leading and trailing double quotes
                 pos = node.get_pos()[1:-1]
                 if pos is not None:
-                    xx, yy = pos.split(",")
-                    node_data.label.append(n)
-                    node_data.x.append(float(xx))
-                    node_data.y.append(float(yy))
+                    w = float(node.get_width())*scale
+                    h = float(node.get_height())*scale
+                    attrs = {'rx': w/10., 'ry': h/10., 'width': w, 'height': h}
+                    node_data.append({'label': n, 'shape': 'rect', 'id': n,
+                        'shape_attrs': attrs})
+
+                    x, y = pos.split(",")
+                    node_x.append(float(x))
+                    node_y.append(float(y))
 
             node2id = {n:i for i, n in enumerate(nodes.keys())}
-            edges = [(node2id[u], node2id[v]) for u, v in edges]
-            link_data = [{'source': u, 'target': v} for u, v in edges]
+            edges = [(node2id[u], node2id[v], l) for u, v, l in edges]
+            link_data = [{'source': u, 'target': v} for u, v, l in edges]
 
             from bqplot import LinearScale
             from bqplot.marks import Graph
             xs = LinearScale()
             ys = LinearScale()
             bq_graph = Graph(
-                node_data=node_data.label,
+                node_data=node_data,
                 link_data=link_data,
-                link_type='slant_line',
-                x=node_data.x, y=node_data.y,
-                colors=['orange'] * len(nodes),
+                link_type='line',
+                x=node_x, y=node_y,
+                colors=['#7DD9FA'] * len(nodes),
                 scales={'x': xs, 'y': ys, },
                 directed=True)
 
