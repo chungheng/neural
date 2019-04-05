@@ -343,8 +343,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         self.handle_load_attr(ins)
         rval, lval = self.var[-2:]
         del self.var[-1]
-        cond = rval in self.variables and self.variables[rval].type == 'state'
-        if not (cond and 'Derivative' in lval):
+        if rval != lval:
             eqn = "Eq(%s, %s)" % (lval, rval)
             self.equations.append('eqn_%d' % len(self.equations))
             self.var[-1] = "%s = %s" % (self.equations[-1], eqn)
