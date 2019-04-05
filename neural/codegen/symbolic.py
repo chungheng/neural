@@ -1,4 +1,6 @@
 import copy
+from functools import wraps
+import random
 
 import numpy as np
 import os
@@ -363,9 +365,18 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             return func
         return wrapper
 
+    def _random_func(func):
+        """
+        A decorator for registering random functions
+        """
+        @wraps(func)
+        def wrap(self, args):
+            self.has_random = True
+            return func(self, args)
+        return wrap
+
     def _generate_sympy_func(self, func, args):
         return "%s(%s)" % (func, ', '.join(args))
-
 
     @_py2sympy(np.exp)
     def _np_exp(self, args):
@@ -378,3 +389,13 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
     @_py2sympy(np.cbrt)
     def _np_cbrt(self, args):
         return self._generate_sympy_func('cbrt', args)
+
+    @_py2sympy(np.sqrt)
+    def _np_sqrt(self, args):
+        return self._generate_sympy_func('sqrt', args)
+
+    @_py2sympy(random.gauss, np.random.normal)
+    @_random_func
+    def _random_gauss(self, args):
+
+        return "N({0}, {1})".format(args[0], args[1])
