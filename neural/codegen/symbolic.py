@@ -231,6 +231,8 @@ class VariableAnalyzer(CodeGenerator):
 class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
 
     def __init__(self, model, **kwargs):
+
+        self.has_random = False
         VariableAnalyzer.__init__(self, model, **kwargs)
         # for attr in ['state', 'parameter', 'input']:
         #     lst = [k for k, v in self.variables.items() if v.type == attr]
@@ -248,7 +250,6 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         self.generate()
         # print self.ode_src.getvalue()
         self.get_symbols()
-
         self.sympy_dct = {}
         self.latex_src = None
         #
@@ -261,6 +262,8 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         return self.symbol_src.getvalue() + self.ode_src.getvalue()
 
     def get_symbols(self):
+        if self.has_random:
+            self.symbol_src.write("N = Function('N')%c" % self.newline)
         self.symbol_src.write("t = Symbol('t')%c" % self.newline)
         for key, val in self.variables.items():
             if val.type != 'local':
