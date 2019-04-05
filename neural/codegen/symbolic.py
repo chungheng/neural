@@ -152,8 +152,8 @@ class VariableAnalyzer(CodeGenerator):
             self._dependencies = set()
 
         else:
-            self.var[-1] += "." + ins.argval
-        self.var[-2] = self.var[-1] + ' = ' + self.var[-2]
+            self.var[-1] = "{}.{}".format(self.var[-1], ins.argval)
+        self.var[-2] = "{} = {}".format(self.var[-1], self.var[-2])
         del self.var[-1]
 
     def _set_variable(self, variable, **kwargs):
