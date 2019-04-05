@@ -290,9 +290,10 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         template_src = r'\mbox{State Variables: }%s\\\mbox{Parameters: }%s\\'
         self.latex_src = template_src % (states_src, params_src)
 
+        self.latex_src = ''
         self.latex_src += r'\begin{eqnarray}'
         for eq in self.equations:
-            tmp = latex(self.sympy_dct[eq])
+            tmp = latex(self.sympy_dct[eq], mul_symbol='dot')
             self.latex_src += tmp.replace('=',' &=& ') + r'\\'
         self.latex_src += r'\end{eqnarray}'
 
