@@ -326,10 +326,14 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         if self.var[-1] == 'self':
             if key[:2] == 'd_':
                 key = key.split('d_')[-1]
-                tmp, depth = key, 1
-                while self.variables[tmp].integral is not None:
+                depth = 1
+            else:
+                depth = 0
+            if self.variables[key].integral:
+                while self.variables[key].integral is not None:
                     depth += 1
-                    tmp = self.variables[tmp].integral
+                    key = self.variables[key].integral
+            if depth > 0:
                 key = 'Derivative(%s%s)' % (key, ', t'*depth)
             self.var[-1] = key
         else:
