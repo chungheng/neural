@@ -131,14 +131,14 @@ class Network(object):
     """
     def __init__(self):
         self.containers = OrderedDict()
-        self.inputs = []
+        self.inputs = OrderedDict()
 
         self._iscompiled = False
 
     def input(self, num=None, name=None):
-        name = name or "obj{}".format(len(self.inputs))
+        name = name or "input{}".format(len(self.inputs))
         input = Input(num=num, name=name)
-        self.inputs.append(input)
+        self.inputs[name] = input
         self._iscompiled = False
         return input
 
@@ -173,7 +173,7 @@ class Network(object):
             raise Error("Please compile before running the network.")
 
         # calculate number of steps
-        steps = reduce(max, [input.steps for input in self.inputs], steps)
+        steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
 
         # reset recorders
         recorders = []
@@ -188,7 +188,7 @@ class Network(object):
                 c.obj.reset()
 
         # reset inputs
-        for input in self.inputs:
+        for input in self.inputs.values():
             input.reset()
 
         iterator = range(steps)
@@ -259,11 +259,12 @@ class Network(object):
 
     def to_graph(self, bqplot=False):
         import pydot
-        graph = pydot.Dot(graph_type='digraph', rankdir='LR')
+        graph = pydot.Dot(graph_type='digraph', rankdir='LR', splines='ortho',
+        decorate=True)
 
         nodes = {}
-        for c in list(self.containers.values())+self.inputs:
-            node = pydot.Node(c.name)
+        for c in list(self.containers.values())+list(self.inputs.values()):
+            node = pydot.Node(c.name, shape='rect')
             nodes[c.name] = node
             graph.add_node(node)
 
