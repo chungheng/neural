@@ -10,22 +10,26 @@ class Aggregate(object):
     def __init__(self, size, dtype=np.float64):
         self.output = garray.empty(size, dtype=dtype)
         self.dtype = 'double' if dtype == np.float64 else 'float'
-    def update(self):
-        pass
-    def compile(self, num):
-        aggregate = ElementwiseKernel(
-            "float a, float *x, float b, float *y, float *z",
-            "z[i] = a*x[i] + b*y[i]",
-            "linear_combination")
+    def update(self, **input):
+        args = input.values()
+        self._update(self.output, *args)
+    def compile(self, **kwargs):
+        num = len(kwargs)
+        ins = ["in{}".format(i) for i in range(num)]
+        self._update = ElementwiseKernel(
+            ", ".join("{} *{}".format(self.dtype, x) for x in ['out'] + ins),
+            "out[i] = {};".format(" + ".join(["{}[i]".format(x) for x in ins])),
+            "aggregate")
 
 class Sum(object):
     def __init__(self, dtype=np.float64):
-        self.output = garray.empty(1, dtype=dtype)
+        pass
     def update(self, input):
-        skcuda.misc.sum(input, out=self.output)
+        self.output = skcuda.misc.sum(input)
+        # print(skcuda.misc.sum(input), skcuda.misc.sum(input).dtype)
 
 class BlockSum(object):
-    def __init__(self, size=1, block_size=1, dtype=np.float64):
+    def __init__(self, size, block_size=1, dtype=np.float64):
         self.block_size = block_size
         self.size = size
         self.output = garray.empty(int(size//block_size), dtype=dtype)
