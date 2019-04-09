@@ -152,7 +152,7 @@ class Network(object):
             obj = module(**kwargs)
         elif isclass(module):
             assert Container.isacceptable(module)
-            obj = module(**kwargs)
+            obj = module(num, **kwargs)
         else:
             msg = "{} is not a submodule nor an instance of {}"
             raise ValueError(msg.format(module, Model))
@@ -307,64 +307,164 @@ class Network(object):
             Q_list = pydot.graph_from_dot_data(D)
             assert len(Q_list) == 1
             Q = Q_list[0]
+            # return Q
 
-            node_x = []
-            node_y = []
-            node_data = []
-            for n in nodes.keys():
-
+            def get_node(Q, n):
                 node = Q.get_node(n)
 
                 if isinstance(node, list) and len(node) == 0:
                     node = Q.get_node('"{}"'.format(n))
                     assert node
 
-                node = node[0]
+                return node[0]
+
+            def get_label_xy(x, y, ex, ey):
+                min_dist = np.inf
+                min_ex, min_ey = [0, 0], [0, 0]
+                for _ex, _ey in zip(zip(ex, ex[1:]), zip(ey, ey[1:])):
+                    dist = (np.mean(_ex) - x)**2 + (np.mean(_ey) - y)**2
+                    if dist < min_dist:
+                        min_dist = dist
+                        min_ex[:] = _ex[:]
+                        min_ey[:] = _ey[:]
+                if min_ex[0] == min_ex[1]:
+                    _x = min_ex[0]
+                    _x = np.sign(x-_x)*10+_x
+                    _y = y
+                else:
+                    _x = x
+                    _y = min_ey[0]
+                    _y = np.sign(y-_y)*10+_y
+                return _x, _y-3
+
+
+            bq_marks = []
+
+            label_data = {key: [] for key in ['x', 'y', 'text']}
+            node_data = dict()
+            for n in nodes.keys():
+
+                node = get_node(Q, n)
+
                 # strip leading and trailing double quotes
                 pos = node.get_pos()[1:-1]
                 if pos is not None:
-                    w = float(node.get_width())*scale
-                    h = float(node.get_height())*scale
-                    attrs = {'rx': w/10., 'ry': h/10., 'width': w, 'height': h}
-                    node_data.append({'label': n, 'shape': 'rect', 'id': n,
-                        'shape_attrs': attrs})
+                    w = float(node.get_width())*scale*1.45
+                    h = float(node.get_height())*scale*1.70
+                    attrs = {'width': w, 'height': h, 'rx':5, 'ry':5}
+                    x, y = map(float, pos.split(","))
 
-                    x, y = pos.split(",")
-                    node_x.append(float(x))
-                    node_y.append(float(y))
+                    node_data[n] = {'label': ' ', 'shape': 'rect', 'id': n,
+                        'shape_attrs': attrs, 'x': x, 'y': y, 'size': 20}
 
-            node2id = {n:i for i, n in enumerate(nodes.keys())}
-            edges = [(node2id[u], node2id[v], l) for u, v, l in edges]
-            link_data = [{'source': u, 'target': v} for u, v, l in edges]
+                    label_data['x'].append(x)
+                    label_data['y'].append(y-3)
+                    label_data['text'].append(n)
+
+            # node2id = {n:i for i, n in enumerate(nodes.keys())}
+            # edges = [(node2id[u], node2id[v], l) for u, v, l in edges]
+            # link_data = [{'source': u, 'target': v} for u, v, l in edges]
 
             from bqplot import LinearScale
-            from bqplot.marks import Graph
+            from bqplot.marks import Graph, Lines, Label, Scatter
             xs = LinearScale()
             ys = LinearScale()
-            bq_graph = Graph(
-                node_data=node_data,
-                link_data=link_data,
-                link_type='line',
-                x=node_x, y=node_y,
-                colors=['#7DD9FA'] * len(nodes),
-                scales={'x': xs, 'y': ys, },
-                directed=True)
+            rs = LinearScale(min=0, max=180)
+            scales = {'x': xs, 'y': ys}
 
+            arrow_data = {key: [] for key in ['x', 'y', 'rotation']}
+            for e in Q.get_edge_list():
+                pos = (e.get_pos()[1:-1]).split(' ')
+                ax, ay = [float(v) for v in pos[0].split(',')[1:]]
+                pos = [v.split(',') for v in pos[1:]]
+
+                xx = [float(v[0]) for v in pos] + [ax]
+                yy = [float(v[1]) for v in pos] + [ay]
+                x, y, _x, _y = [], [], 0, 0
+                for __x, __y in zip(xx, yy):
+                    if not (__x == _x and __y == _y):
+                        x.append(__x)
+                        y.append(__y)
+                    _x = __x
+                    _y = __y
+
+                line = Lines(x=x, y=y, scales=scales, stroke_width=1.)
+                rot = np.math.atan2(x[-1]-x[-2], y[-1]-y[-2])/np.pi*180
+                arrow_data['x'].append(x[-2]) #np.mean(x[-2:]))
+                arrow_data['y'].append(y[-2]) #np.mean(y[-2:]))
+                arrow_data['rotation'].append(rot)
+                bq_marks.append(line)
+
+                lp = e.get_lp()
+                if lp:
+                    lx, ly = [float(v) for v in lp[1:-1].split(',')]
+                    lx, ly = get_label_xy(lx, ly, x, y)
+                    label_data['x'].append(lx)
+                    label_data['y'].append(ly)
+                    label_data['text'].append(e.get_label() or '')
+
+            label = Label(**label_data, scales=scales, align='middle', default_size=11, colors=['black']*len(label_data))
+            arrow = Scatter(marker='arrow', default_size=10,
+                **arrow_data, scales={'x': xs, 'y': ys, 'rotation': rs})
+
+            x = list([val.pop('x') for val in node_data.values()])
+            y = list([val.pop('y') for val in node_data.values()])
+            bq_graph = Graph(
+                node_data=list(node_data.values()),
+                # link_data=link_data,
+                # link_type='line',
+                x=x, y=y,
+                colors=['#ffffff'] * len(nodes),
+                scales=scales,
+                directed=True)
+            bq_marks.append(bq_graph)
+            bq_marks.append(label)
+            bq_marks.append(arrow)
             bq_graph.hovered_style = {'stroke': '#817DFA'}
             bq_graph.unhovered_style = {'opacity': '0.4'}
-            try:
-                import ipywidgets as widgets
-                self.tooltip = widgets.Label()
+            # try:
+            import ipywidgets as widgets
+            widget_label = widgets.Label()
+            widget_latex = widgets.HTMLMath()
+            self.tooltip =  widget_latex #widgets.VBox([widget_label, widget_latex])
 
-                _nn = self
-                def print_event(self, target):
-                    name = target['data']['id']
-                    self.tooltip.value = _nn.containers[name].obj.__class__.__name__
+            self.latex_src = dict()
+            from ..codegen.symbolic import SympyGenerator
+            for key, val in self.containers.items():
+                if isinstance(val.obj, Model):
+                    sg = SympyGenerator(val.obj)
+                    self.latex_src[key] = [sg.latex_src, sg.signature, []]
+                    for _k, _v in sg.variables.items():
+                        if (_v.type == 'state' or _v.type == 'intermediate') \
+                            and (_v.integral == None):
+                            self.latex_src[key][2].append(_k)
+
+            _nn = self
+            def print_event(self, target):
+                name = target['data']['id']
+                if name in _nn.inputs:
+                    model = 'Stimulus'
+                elif name in _nn.containers:
+                    model = _nn.containers[name].obj.__class__.__name__
+                else:
+                    model = ""
+                widget_latex.description = "<strong>%s</strong>" % model
+
+                if name in _nn.latex_src:
+                    src, inputs, vars = _nn.latex_src[name]
+                    widget_latex.value = src
+                    widget_latex.value += "<br>Input: "
+                    widget_latex.value += ', '.join("$%s$" % x for x in inputs)
+                    widget_latex.value += "<br>Variable: "
+                    widget_latex.value += ', '.join("$%s$" % x for x in vars)
+                else:
+                    widget_latex.value = ""
 
 
-                bq_graph.tooltip = self.tooltip
-                bq_graph.on_hover(print_event)
-            except:
-                pass
 
-            return bq_graph
+            bq_graph.tooltip = self.tooltip
+            bq_graph.on_hover(print_event)
+            # except:
+            #     pass
+
+            return bq_marks
