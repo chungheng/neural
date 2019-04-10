@@ -31,6 +31,7 @@ from tqdm import tqdm
 from ..basemodel import Model
 from ..future import SimpleNamespace
 from ..recorder import Recorder
+from ..codegen.symbolic import SympyGenerator
 
 class Symbol(object):
     def __init__(self, container, key):
@@ -257,7 +258,7 @@ class Network(object):
             assert isinstance(arg, Symbol)
             arg.container.record(arg.key)
 
-    def to_graph(self, bqplot=False):
+    def to_graph(self, bqplot=False, svg=False):
         import pydot
         graph = pydot.Dot(graph_type='digraph', rankdir='LR', splines='ortho',
         decorate=True)
@@ -288,11 +289,11 @@ class Network(object):
             png_str = graph.create_png(prog='dot')
 
             return png_str
+
         else:
             D_bytes = graph.create_dot(prog='dot')
 
             D = str(D_bytes, encoding='utf-8')
-            scale = 50.
 
             if D == "":  # no data returned
                 print("Graphviz layout with %s failed" % (prog))
@@ -337,42 +338,54 @@ class Network(object):
                     _y = np.sign(y-_y)*10+_y
                 return _x, _y-3
 
+            elements =[]
+            bb = Q.get_bb()
+            viewbox = bb[1:-1].replace(',', ' ')
 
-            bq_marks = []
-
-            label_data = {key: [] for key in ['x', 'y', 'text']}
-            node_data = dict()
             for n in nodes.keys():
 
                 node = get_node(Q, n)
 
                 # strip leading and trailing double quotes
                 pos = node.get_pos()[1:-1]
+
                 if pos is not None:
-                    w = float(node.get_width())*scale*1.45
-                    h = float(node.get_height())*scale*1.70
-                    attrs = {'width': w, 'height': h, 'rx':5, 'ry':5}
+                    w = float(node.get_width())
+                    h = float(node.get_height())
+
                     x, y = map(float, pos.split(","))
+                    attrs = {'width': w, 'height': h, 'rx':5, 'ry':5,
+                        'x': x, 'y': y,
+                        'fill': 'none', 'stroke': '#000000'}
 
-                    node_data[n] = {'label': ' ', 'shape': 'rect', 'id': n,
-                        'shape_attrs': attrs, 'x': x, 'y': y, 'size': 20}
+                    if n in self.containers:
+                        val = self.containers[n]
+                        if isinstance(val.obj, Model):
+                            sg = SympyGenerator(val.obj)
+                            latex_src = [sg.latex_src, sg.signature, []]
+                            for _k, _v in sg.variables.items():
+                                if (_v.type == 'state' or _v.type == 'intermediate') \
+                                    and (_v.integral == None):
+                                    latex_src[2].append(_k)
 
-                    label_data['x'].append(x)
-                    label_data['y'].append(y-3)
-                    label_data['text'].append(n)
+                    elements.append({'label':[n, x, y], 'shape': 'rect', 'attrs':attrs, 'latex':latex_src})
 
-            # node2id = {n:i for i, n in enumerate(nodes.keys())}
-            # edges = [(node2id[u], node2id[v], l) for u, v, l in edges]
-            # link_data = [{'source': u, 'target': v} for u, v, l in edges]
+            min_x, min_y, scale_w, scale_h = np.inf, np.inf, 0, 0
+            for el in elements:
+                if min_x > el['attrs']['x']:
+                    min_x = el['attrs']['x']
+                    scale_w = 2*min_x / el['attrs']['width']
+                if min_y > el['attrs']['y']:
+                    min_y = el['attrs']['y']
+                    scale_h = 2*min_y / el['attrs']['height']
+            for el in elements:
+                w = scale_w * el['attrs']['width']
+                h = scale_h * el['attrs']['height']
+                el['attrs']['x'] = el['attrs']['x'] - w/2
+                el['attrs']['y'] = el['attrs']['y'] - h/2
+                el['attrs']['width'] = w
+                el['attrs']['height'] = h
 
-            from bqplot import LinearScale
-            from bqplot.marks import Graph, Lines, Label, Scatter
-            xs = LinearScale()
-            ys = LinearScale()
-            rs = LinearScale(min=0, max=180)
-            scales = {'x': xs, 'y': ys}
-
-            arrow_data = {key: [] for key in ['x', 'y', 'rotation']}
             for e in Q.get_edge_list():
                 pos = (e.get_pos()[1:-1]).split(' ')
                 ax, ay = [float(v) for v in pos[0].split(',')[1:]]
@@ -387,84 +400,14 @@ class Network(object):
                         y.append(__y)
                     _x = __x
                     _y = __y
-
-                line = Lines(x=x, y=y, scales=scales, stroke_width=1.)
-                rot = np.math.atan2(x[-1]-x[-2], y[-1]-y[-2])/np.pi*180
-                arrow_data['x'].append(x[-2]) #np.mean(x[-2:]))
-                arrow_data['y'].append(y[-2]) #np.mean(y[-2:]))
-                arrow_data['rotation'].append(rot)
-                bq_marks.append(line)
-
+                path = ["{} {}".format(_x, _y) for _x, _y in zip(x, y)]
+                p = 'M' + " L".join(path)
+                attrs = dict(d=p, stroke_width=1., fill='none', stroke='black')
                 lp = e.get_lp()
                 if lp:
                     lx, ly = [float(v) for v in lp[1:-1].split(',')]
                     lx, ly = get_label_xy(lx, ly, x, y)
-                    label_data['x'].append(lx)
-                    label_data['y'].append(ly)
-                    label_data['text'].append(e.get_label() or '')
-
-            label = Label(**label_data, scales=scales, align='middle', default_size=11, colors=['black']*len(label_data))
-            arrow = Scatter(marker='arrow', default_size=10,
-                **arrow_data, scales={'x': xs, 'y': ys, 'rotation': rs})
-
-            x = list([val.pop('x') for val in node_data.values()])
-            y = list([val.pop('y') for val in node_data.values()])
-            bq_graph = Graph(
-                node_data=list(node_data.values()),
-                # link_data=link_data,
-                # link_type='line',
-                x=x, y=y,
-                colors=['#ffffff'] * len(nodes),
-                scales=scales,
-                directed=True)
-            bq_marks.append(bq_graph)
-            bq_marks.append(label)
-            bq_marks.append(arrow)
-            bq_graph.hovered_style = {'stroke': '#817DFA'}
-            bq_graph.unhovered_style = {'opacity': '0.4'}
-            # try:
-            import ipywidgets as widgets
-            widget_label = widgets.Label()
-            widget_latex = widgets.HTMLMath()
-            self.tooltip =  widget_latex #widgets.VBox([widget_label, widget_latex])
-
-            self.latex_src = dict()
-            from ..codegen.symbolic import SympyGenerator
-            for key, val in self.containers.items():
-                if isinstance(val.obj, Model):
-                    sg = SympyGenerator(val.obj)
-                    self.latex_src[key] = [sg.latex_src, sg.signature, []]
-                    for _k, _v in sg.variables.items():
-                        if (_v.type == 'state' or _v.type == 'intermediate') \
-                            and (_v.integral == None):
-                            self.latex_src[key][2].append(_k)
-
-            _nn = self
-            def print_event(self, target):
-                name = target['data']['id']
-                if name in _nn.inputs:
-                    model = 'Stimulus'
-                elif name in _nn.containers:
-                    model = _nn.containers[name].obj.__class__.__name__
-                else:
-                    model = ""
-                widget_latex.description = "<strong>%s</strong>" % model
-
-                if name in _nn.latex_src:
-                    src, inputs, vars = _nn.latex_src[name]
-                    widget_latex.value = src
-                    widget_latex.value += "<br>Input: "
-                    widget_latex.value += ', '.join("$%s$" % x for x in inputs)
-                    widget_latex.value += "<br>Variable: "
-                    widget_latex.value += ', '.join("$%s$" % x for x in vars)
-                else:
-                    widget_latex.value = ""
-
-
-
-            bq_graph.tooltip = self.tooltip
-            bq_graph.on_hover(print_event)
-            # except:
-            #     pass
-
-            return bq_marks
+                    label = [e.get_label() or '', lx, ly]
+                elements.append({'label':label, 'shape': 'path', 'attrs':attrs})
+            output = {'elements': elements, 'viewbox': viewbox}
+            return Q, output
