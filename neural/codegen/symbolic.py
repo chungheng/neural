@@ -197,9 +197,10 @@ class VariableAnalyzer(CodeGenerator):
         import pydot
         graph = pydot.Dot(graph_type='digraph', rankdir='LR')
 
+        node_attrs = dict(shape='rect', style='rounded', fontname='sans-serif')
         nodes = {}
         for key in self.signature:
-            node = pydot.Node(key)
+            node = pydot.Node(key, **node_attrs, color='#ff5000')
             nodes[key] = node
             graph.add_node(node)
 
@@ -208,7 +209,7 @@ class VariableAnalyzer(CodeGenerator):
                 continue
             if local is False and val.type == 'local':
                 continue
-            node = pydot.Node(key)
+            node = pydot.Node(key, **node_attrs, color='#ff5000')
             nodes[key] = node
             graph.add_node(node)
 
@@ -222,7 +223,7 @@ class VariableAnalyzer(CodeGenerator):
                     _set.update(locals[v])
             for source in _set:
                 if source in nodes:
-                    graph.add_edge(pydot.Edge(source, target))
+                    graph.add_edge(pydot.Edge(source, target, color='#ffbf00'))
 
         png_str = graph.create_png(prog='dot')
 
