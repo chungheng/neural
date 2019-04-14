@@ -9,7 +9,19 @@ Methods:
     compute_psth: compute PSTH from a set of spike sequences.
 """
 
+import struct, zlib
+from binascii import unhexlify
+
 import numpy as np
+
+def chunk(type, data):
+    return (struct.pack('>I', len(data)) + type + data
+            + struct.pack('>I', zlib.crc32(type + data)))
+
+MINIMUM_PNG = (b'\x89PNG\r\n\x1A\n'
+    + chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 6, 0, 0, 0))
+    + chunk(b'IDAT', unhexlify(b'789c6300010000050001'))
+    + chunk(b'IEND', b''))
 
 def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
     """
