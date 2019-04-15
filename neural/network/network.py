@@ -32,6 +32,7 @@ from ..basemodel import Model
 from ..future import SimpleNamespace
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
+from ..utils import MINIMUM_PNG
 
 class Symbol(object):
     def __init__(self, container, key):
@@ -49,6 +50,8 @@ class Input(object):
         self.data = None
         self.steps = 0
         self.iter = None
+        self.latex_src = "External stimulus"
+        self.graph_src = MINIMUM_PNG
 
     def __call__(self, data):
         assert hasattr(data, '__iter__')
@@ -79,6 +82,8 @@ class Container(object):
         self.vars = {}
         self.inputs = dict()
         self.recorder = None
+        self.latex_src = self._get_latex()
+        self.graph_src = self._get_graph()
         self._rec = []
 
     def __call__(self, **kwargs):
@@ -121,6 +126,31 @@ class Container(object):
             (set(self.recorder.dct.keys()) != set(self._rec)):
             self.recorder = Recorder(self.obj, self._rec, steps, gpu_buffer=500)
         return self.recorder
+
+    def _get_latex(self):
+
+        latex_src = "{}:<br><br>".format(self.obj.__class__.__name__)
+        if isinstance(self.obj, Model):
+            sg = SympyGenerator(self.obj)
+
+            latex_src += sg.latex_src
+            vars = ["\({}\)".format(x) for x in sg.signature]
+            latex_src += "<br>Input: " + ", ".join(vars)
+            vars = []
+            for _k, _v in sg.variables.items():
+                if (_v.type == 'state' or _v.type == 'intermediate') \
+                    and (_v.integral == None):
+                    vars.append("\({}\)".format(_k))
+
+            latex_src += "<br>Variables: " + ", ".join(vars)
+
+        return latex_src
+
+    def _get_graph(self):
+        if isinstance(self.obj, Model):
+            return self.obj.to_graph()
+        else:
+            return MINIMUM_PNG
 
 
     @classmethod
