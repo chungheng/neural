@@ -340,6 +340,19 @@ class Model(with_metaclass(ModelMetaClass, object)):
         g = VariableAnalyzer(cls)
         return g.to_graph(local=local)
 
+    @classmethod
+    def to_latex(cls):
+        """
+        Generate latex source code for the  model
+
+        """
+        try:
+            from .codegen.symbolic import SympyGenerator
+        except ImportError as e:
+            raise e("'to_latex' requires 'pycodegen'")
+
+        g = SympyGenerator(cls)
+        return g.latex_src
 
     def _increment(self, d_t, states, out_states=None, **kwargs):
         """
