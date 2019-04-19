@@ -48,12 +48,17 @@ def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
 
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
+
         bounds = dict()
         states = dict()
         variables = dict()
         if 'Default_States' in dct:
             for key, val in dct['Default_States'].items():
                 if hasattr(val, '__len__'):
+                    assert len(val) == 3, "Variable {} ".format(key) + \
+                        "should be a scalar of a iterable of 3 elements " + \
+                        "(initial value, upper bound, lower bound), " + \
+                        "but {} is given.".format(val)
                     bounds[key] = val[1:]
                     states[key] = val[0]
                 else:
@@ -62,11 +67,19 @@ class ModelMetaClass(type):
         dct['Default_Bounds'] = bounds
         dct['Default_States'] = states
 
-        for attr in ('Default_Params', 'Default_Inters'):
-            if attr not in dct:
-                dct[attr] = dict()
-            attr_lower = attr[8:].lower()
-            variables.update({key: attr_lower for key in dct[attr].keys()})
+
+        if 'Default_Params' not in dct:
+            dct['Default_Params'] = dict()
+        variables.update({key: 'params' for key in dct['Default_Params']})
+
+        # run ode once to get a list of state variables with derivative
+        obj = type(clsname, (object,), dct['Default_Params'])()
+        for key in states.keys():
+            setattr(obj, key, 0.)
+            setattr(obj, 'd_' + key, None)
+        dct['ode'](obj)
+        d = {key: getattr(obj, 'd_' + key) for key in states}
+        dct['Derivates'] = [key for key, val in d.items() if val is not None]
 
         dct['Variables'] = variables
 
@@ -152,7 +165,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
         states (dict): the state variables, updated by the ODE.
         params (dict): parameters of the model, can only be set during
             contrusction.
-        inters (dict): intermediate variables.
         gstates (dict): the gradient of the state variables.
         bounds (dict): lower and upper bounds of the state variables.
     """
@@ -173,7 +185,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.params = self.Default_Params.copy()
         self.states = self.Default_States.copy()
         self.bounds = self.Default_Bounds.copy()
-        self.inters = self.Default_Inters.copy()
 
         # set additional variables
         for key, val in kwargs.items():
@@ -186,8 +197,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             dct[key] = val
 
         self.initial_states = self.states.copy()
-        self.initial_inters = self.inters.copy()
-        self.gstates = {key:0. for key in self.states}
+        self.gstates = {key:0. for key in self.Derivates}
 
         # set numerical solver
         solver = self.solver_alias[solver]
@@ -369,7 +379,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         gstates = self._ode_wrapper(states, **kwargs)
 
-        for key in out_states:
+        for key in gstates:
             out_states[key] = d_t*gstates[key]
 
         return out_states
@@ -406,7 +416,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
         self.ode(**kwargs)
 
-        for key in self.states:
+        for key in self.gstates:
             self.states[key] += d_t*self.gstates[key]
         self.clip()
 
@@ -491,14 +501,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
         for key, val in kwargs.items():
             assert key in self.Varaibles
             attr = self.Varaibles[key]
-            if attr in ['states', 'inters']:
+            if attr == 'states':
                 key = 'initial_' + key
             dct = getattr(self, attr)
             dct[key] = val
         for key, val in self.initial_states.items():
             self.states[key] = val
-        for key, val in self.initial_inters.items():
-            self.inters[key] = val
         for key in self.gstates.keys():
             self.gstates[key] = 0.
 
@@ -508,7 +516,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             self.gstates[key[2:]] = value
             return
 
-        if key in ['states', 'params', 'inters', 'bounds']:
+        if key in ['states', 'params', 'bounds']:
             return super(Model, self).__setattr__(key, value)
 
         if key in self.Variables:
@@ -524,7 +532,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         if key[:2] == "d_":
             return self.gstates[key[2:]]
 
-        if key in ['states', 'params', 'inters', 'bounds']:
+        if key in ['states', 'params', 'bounds']:
             return getattr(self, key)
 
         if key in self.Variables:

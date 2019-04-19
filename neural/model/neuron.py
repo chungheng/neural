@@ -11,8 +11,7 @@ class IAF(Model):
     """
     Integrate-and-Fire neuron model.
     """
-    Default_Inters = dict(spike=0)
-    Default_States = dict(v=0)
+    Default_Inters = dict(spike=0, v=0)
     Default_Params = dict(vt=0.025, c=5., bias=0.01)
 
     def ode(self, stimulus=0.):
@@ -29,8 +28,7 @@ class LeakyIAF(Model):
     """
     Leaky IAF neuron model.
     """
-    Default_Inters = dict(spike=0)
-    Default_States = dict(v=(-0.05, -0.070, 0.025))
+    Default_States = dict(spike=0, v=(-0.05, -0.070, 0.025))
     Default_Params = dict(vt=-0.025, c=1.5, vr=-0.070, r=0.2)
 
     def ode(self, stimulus=0.):
@@ -121,7 +119,6 @@ class ConnorStevens(Model):
     Connor-Stevens neuron model.
     """
     Time_Scale = 1e3 # s to ms
-    Default_Inters = dict(spike=0)
     Default_States = dict(v=(-60, -80, 50), n=(0., 0., 1.), \
         m=(0., 0., 1.), h=(1., 0., 1.), a=(1., 0., 1.), b=(1., 0., 1.))
     Default_Params = dict(ms=-5.3, ns=-4.3, hs=-12., \
@@ -177,7 +174,6 @@ class HodgkinHuxley(Model):
     Hodgkin-Huxley neuron model.
     """
     Time_Scale = 1e3 # s to ms
-    Default_Inters = dict(spike=0)
     Default_States = dict(v=(-60, -80, 30), n=(0., 0., 1.), \
         m=(0., 0., 1.), h=(1., 0., 1.))
     Default_Params = dict(gNa=120., gK=36., gL=0.3, ENa=50., EK=-77., EL=-54.387)

@@ -10,15 +10,16 @@ class AMPA(Model):
     """
     AMPA Synapse
     """
-    Default_States = dict(s=(0., 0., 1.))
+    Default_States = dict(I=0., s=(0., 0., 1.))
     Default_Params = dict(ar=1e-1, ad=5e0, gmax=150.)
 
     def ode(self, stimulus=0.):
 
         self.d_s = -self.ad*self.s
 
-        if stimulus:
-            self.s += self.ar*(1.-self.s)
+        self.s += stimulus*self.ar*(1.-self.s)
+
+        self.I = self.s * self.gmax
 
 class NMDA(Model):
     """
