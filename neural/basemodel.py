@@ -519,10 +519,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
         if key in ['states', 'params', 'bounds']:
             return super(Model, self).__setattr__(key, value)
 
-        if key in self.Variables:
-            attr = getattr(self, self.Variables[key])
-            attr[key] = value
-            return
+        for attr in (self.states, self.params):
+            if key in attr:
+                attr[key] = value
+                return
 
         super(Model, self).__setattr__(key, value)
 
@@ -535,8 +535,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         if key in ['states', 'params', 'bounds']:
             return getattr(self, key)
 
-        if key in self.Variables:
-            attr = getattr(self, self.Variables[key])
-            return attr[key]
+        for attr in (self.states, self.params):
+            if key in attr:
+                return attr[key]
 
         return super(Model, self).__getattribute__(key)

@@ -2,6 +2,7 @@
 Base model class for neurons and synapses.
 """
 from __future__ import print_function
+from itertools import chain
 from numbers import Number
 import sys
 from types import MethodType
@@ -170,12 +171,13 @@ class CUDABackend(Backend):
             kwargs (dict): keyward arguments.
         """
         params = []
-        for key, attr in self.model.Variables.items():
-            dct = getattr(self.model, attr)
-            val = kwargs.pop(key, dct[key])
+        keys = chain(self.model.states.keys(), self.model.params.keys())
+        for key in keys:
+            val = getattr(self.model, key)
+            val = kwargs.pop(key, val)
 
             # allocate GPU memory
-            if attr != 'params':
+            if key in self.model.states:
                 self._allocate_cuda_memory(key)
             elif hasattr(val, '__len__'): # params with __len__
                 self._allocate_cuda_memory(key)
@@ -186,7 +188,7 @@ class CUDABackend(Backend):
                     val = val.astype(self.dtype)
                 drv.memcpy_htod(self.data[key].gpudata, val)
             elif isinstance(val, garray.GPUArray):
-                if attr == 'params':
+                if key in self.model.params:
                     assert val.dtype == self.dtype
                     self.data[key] = val
                     continue
@@ -197,7 +199,7 @@ class CUDABackend(Backend):
                 else:
                     drv.memcpy_dtod(self.data[key].gpudata, val.gpudata)
             elif isinstance(val, Number):
-                if attr == 'params':
+                if key in self.model.params:
                     self.model.params[key] = val
                     continue
                 self.data[key].fill(val)
@@ -213,7 +215,8 @@ class CUDABackend(Backend):
         """
 
         # decide the number of threads:
-        for key in self.model.Variables.keys():
+        keys = chain(self.model.states.keys(), self.model.params.keys())
+        for key in keys:
             val = getattr(self.model, key)
             val = kwargs.get(key, val)
             if hasattr(val, '__len__'):
