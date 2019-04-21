@@ -52,15 +52,14 @@ struct States {
     {{ float_type }} {{ key }};
     {%- endfor %}
 };
-{% if inters|length %}
-struct Inters {
-    {%- for key in inters %}
+
+struct Derivatives {
+    {%- for key in derivatives %}
     {{ float_type }} {{ key }};
     {%- endfor %}
 };
-{% endif %}
 
-{%- if bounds %}
+{% if bounds %}
 __device__ void clip(States &states)
 {
     {%- for key, val in bounds.items() %}
@@ -72,19 +71,18 @@ __device__ void clip(States &states)
 
 __device__ void forward(
     States &states,
-    States &gstates,
+    Derivatives &gstates,
     {{ float_type }} dt
 )
 {
-    {%- for key in states %}
+    {%- for key in derivatives %}
     states.{{ key }} += dt * gstates.{{ key }};
     {%- endfor %}
 }
 
 __device__ int ode(
     States &states,
-    States &gstates
-    {%- if inters|length %},\n    Inters &inters{%- endif %}
+    Derivatives &gstates
     {%- for key in params_gdata -%}
     ,\n    {{ float_type }} {{ key.upper() }}
     {%- endfor %}
@@ -105,7 +103,6 @@ __device__ int ode(
 /* post processing */
 __device__ int post(
     States &states
-    {%- if inters|length %},\n    Inters &inters{%- endif %}
     {%- for key in params_gdata -%}
     ,\n    {{ float_type }} {{ key.upper() }}
     {%- endfor %}
@@ -128,10 +125,7 @@ __global__ void {{ model_name }} (
     {%- for key in states -%}
     ,\n    {{ float_type }} *g_{{ key }}
     {%- endfor %}
-    {%- if inters|length %}
-    {%- for key in inters -%}
-    ,\n    {{ float_type }} *g_{{ key }}
-    {%- endfor %}
+    {%- if params_gdata|length %}
     {%- for key in params_gdata -%}
     ,\n    {{ float_type }} *g_{{ key }}
     {%- endfor %}
@@ -161,20 +155,13 @@ __global__ void {{ model_name }} (
 
     for (int nid = tid; nid < num_thread; nid += total_threads) {
 
-        States states, gstates;
-        {%- if inters|length %}
-        Inters inters;
-        {% endif %}
+        States states;
+        Derivatives gstates;
 
         /* import data */
         {%- for key in states %}
         states.{{ key }} = g_{{ key }}[nid];
         {%- endfor %}
-        {%- if inters|length %}
-        {%- for key in inters %}
-        inters.{{ key }} = g_{{ key }}[nid];
-        {%- endfor %}
-        {%- endif %}
         {%- for key in params_gdata %}
         {{ float_type }} {{ key.upper() }} = g_{{ key }}[nid];
         {%- endfor %}
@@ -193,7 +180,6 @@ __global__ void {{ model_name }} (
 
         {% macro call_ode(states=states, gstates=gstates) -%}
         ode(states, gstates
-            {%- if inters|length %}, inters{%  endif %}
             {%- for key in params_gdata -%}
             , {{ key.upper() }}
             {%- endfor -%}
@@ -238,7 +224,6 @@ __global__ void {{ model_name }} (
         {% if post_src|length > 0 -%}
         /* post processing */
         post(states
-            {%- if inters|length %}, inters{%  endif %}
             {%- for key in params_gdata -%}
             , {{ key.upper() }}
             {%- endfor -%}
@@ -252,11 +237,6 @@ __global__ void {{ model_name }} (
         {%- for key in states %}
         g_{{ key }}[nid] = states.{{ key }};
         {%- endfor %}
-        {%- if inters|length %}
-        {%- for key in inters %}
-        g_{{ key }}[nid] = inters.{{ key }};
-        {%- endfor %}
-        {% endif %}
     }
 
     return;
@@ -345,8 +325,6 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
                 self.var[-1] = "gstates.{0}".format(key[2:])
             elif key in self.model.Default_Params:
                 self.var[-1] = key.upper()
-            elif key in self.model.Default_Inters:
-                self.var[-1] = "inters.{0}".format(key)
         else:
             self.var[-1] = "{0}.{1}".format(self.var[-1], key)
 
@@ -533,7 +511,7 @@ class CudaKernelGenerator(object):
             states=self.model.states,
             bounds=self.model.bounds,
             params=self.model.params,
-            inters=self.model.inters,
+            derivatives=self.model.Derivates,
             params_gdata=self.params_gdata,
             has_random= self.has_random,
             ode_src=ode.src,
@@ -544,9 +522,7 @@ class CudaKernelGenerator(object):
             post_signature=post.args,
             post_declaration=post.variables)
 
-        self.args = list(self.model.states.keys()) + \
-            list(self.model.inters.keys()) + \
-            self.params_gdata
+        self.args = list(self.model.states.keys()) + self.params_gdata
 
         self.arg_type = 'i' + self.dtype[0] + 'P' * len(self.args)
 
