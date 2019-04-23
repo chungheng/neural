@@ -258,11 +258,11 @@ class MetaClass(type):
 
 class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
     def __init__(self, model, func, **kwargs):
-        self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
+        self.dtype = dtype
         self.model = model
         self.func = func
 
-        self.float_char = 'f' if self.dtype == np.float32 else ''
+        self.float_char = 'f' if self.dtype == 'float' else ''
 
         self.params_gdata = kwargs.pop('params_gdata', [])
         self.inputs = kwargs.pop('inputs', dict())
@@ -290,8 +290,10 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
             else:
                 val['used'] = True
                 isArray = hasattr(val['value'], '__len__')
-                dtype = val['value'].dtype if isArray else type(val['value'])
-                dtype = dtype_to_ctype(dtype)
+                if isArray:
+                    dtype = dtype_to_ctype(val['value'].dtype)
+                else:
+                    dtype = self.dtype
             new_signature.append((key, dtype, isArray))
         return new_signature
 
@@ -475,7 +477,7 @@ class CudaKernelGenerator(object):
         self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
         self.model = model
         self.solver = model.solver.__name__
-        self.float_char = 'f' if self.dtype == np.float32 else ''
+        self.float_char = 'f' if self.dtype == 'float' else ''
 
         self.params_gdata = kwargs.pop('params_gdata', [])
         dct = kwargs.pop('inputs_gdata', dict())
