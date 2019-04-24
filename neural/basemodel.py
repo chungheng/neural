@@ -188,13 +188,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         # set additional variables
         for key, val in kwargs.items():
-            attr = self.Variables.get(key, None)
-            if attr is None:
-                raise AttributeError("Unrecognized variable '{}'".format(key))
-            dct = getattr(self, attr)
-            if type(val) in (list, tuple):
-                val = np.asarray(val)
-            dct[key] = val
+            if key in self.states:
+                self.states[key] = val
+            elif key in self.params:
+                self.params[key] = val
+            else:
+                raise AttributeError("Unexpected variable '{}'".format(key))
 
         self.initial_states = self.states.copy()
         self.gstates = {key:0. for key in self.Derivates}
