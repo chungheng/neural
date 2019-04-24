@@ -11,7 +11,7 @@ class IAF(Model):
     """
     Integrate-and-Fire neuron model.
     """
-    Default_Inters = dict(spike=0, v=0)
+    Default_States = dict(spike=0, v=0)
     Default_Params = dict(vt=0.025, c=5., bias=0.01)
 
     def ode(self, stimulus=0.):
