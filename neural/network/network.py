@@ -440,4 +440,12 @@ class Network(object):
                     label = [e.get_label() or '', lx, ly]
                 elements.append({'label':label, 'shape': 'path', 'attrs':attrs})
             output = {'elements': elements, 'viewbox': viewbox}
-            return Q, output
+            return output
+
+    def get_obj(self, name):
+        if name in self.containers:
+            return self.containers[name]
+        elif name in self.inputs:
+            return self.inputs[name]
+        else:
+            raise TypeError("Unexpected name: '{}'".format(name))
