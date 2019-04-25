@@ -432,7 +432,7 @@ class Network(object):
                     _y = __y
                 path = ["{} {}".format(_x, _y) for _x, _y in zip(x, y)]
                 p = 'M' + " L".join(path)
-                attrs = dict(d=p, stroke_width=1., fill='none', stroke='black')
+                attrs = {'d': p, 'stroke-width': 1.5, 'fill': 'none', 'stroke':'black'}
                 lp = e.get_lp()
                 if lp:
                     lx, ly = [float(v) for v in lp[1:-1].split(',')]
