@@ -380,25 +380,21 @@ class Network(object):
                 pos = node.get_pos()[1:-1]
 
                 if pos is not None:
+                    obj = self.get_obj(n)
                     w = float(node.get_width())
                     h = float(node.get_height())
 
                     x, y = map(float, pos.split(","))
                     attrs = {'width': w, 'height': h, 'rx':5, 'ry':5,
-                        'x': x, 'y': y,
-                        'fill': 'none', 'stroke': '#000000'}
+                        'x': x, 'y': y, 'stroke-width': 1.5,
+                        'fill': 'none', 'stroke': '#48caf9'}
 
-                    if n in self.containers:
-                        val = self.containers[n]
-                        if isinstance(val.obj, Model):
-                            sg = SympyGenerator(val.obj)
-                            latex_src = [sg.latex_src, sg.signature, []]
-                            for _k, _v in sg.variables.items():
-                                if (_v.type == 'state' or _v.type == 'intermediate') \
-                                    and (_v.integral == None):
-                                    latex_src[2].append(_k)
-
-                    elements.append({'label':[n, x, y], 'shape': 'rect', 'attrs':attrs, 'latex':latex_src})
+                    elements.append({
+                        'label': [n, x, y],
+                        'shape': 'rect',
+                        'attrs': attrs,
+                        'latex': obj.latex_src,
+                        'graph': obj.graph_src})
 
             min_x, min_y, scale_w, scale_h = np.inf, np.inf, 0, 0
             for el in elements:
