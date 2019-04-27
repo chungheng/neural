@@ -288,7 +288,7 @@ class Network(object):
             assert isinstance(arg, Symbol)
             arg.container.record(arg.key)
 
-    def to_graph(self, bqplot=False, svg=False):
+    def to_graph(self, png=False, svg=False):
         import pydot
         graph = pydot.Dot(graph_type='digraph', rankdir='LR', splines='ortho',
         decorate=True)
@@ -315,7 +315,7 @@ class Network(object):
                 u = nodes[source]
                 graph.add_edge(pydot.Edge(u, v, label=label))
                 edges.append((source, target, label))
-        if not bqplot:
+        if png:
             png_str = graph.create_png(prog='dot')
 
             return png_str
