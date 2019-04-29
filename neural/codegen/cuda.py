@@ -257,7 +257,7 @@ class MetaClass(type):
         return super(MetaClass, cls).__new__(cls, clsname, bases, dct)
 
 class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
-    def __init__(self, model, func, **kwargs):
+    def __init__(self, model, func, dtype, **kwargs):
         self.dtype = dtype
         self.model = model
         self.func = func
@@ -491,11 +491,11 @@ class CudaKernelGenerator(object):
 
     def generate(self):
 
-        ode = CudaGenerator(self.model, self.model.ode, dtype=self.dtype,
+        ode = CudaGenerator(self.model, self.model.ode, self.dtype,
             inputs=self.inputs, params_gdata=self.params_gdata)
 
         if self.has_post:
-            post = CudaGenerator(self.model, self.model.post, dtype=self.dtype,
+            post = CudaGenerator(self.model, self.model.post, self.dtype,
                 inputs=self.inputs, params_gdata=self.params_gdata)
         else:
             post = CUDASrc(src='', has_random=False, args=[], variables=[])
