@@ -6,13 +6,15 @@ import skcuda
 import skcuda.misc
 import skcuda.linalg
 
-class Aggregate(object):
+class Add(object):
     def __init__(self, size, dtype=np.float64):
         self.output = garray.empty(size, dtype=dtype)
         self.dtype = 'double' if dtype == np.float64 else 'float'
+
     def update(self, **input):
         args = input.values()
         self._update(self.output, *args)
+
     def compile(self, **kwargs):
         num = len(kwargs)
         ins = ["in{}".format(i) for i in range(num)]
