@@ -171,9 +171,8 @@ class CUDABackend(Backend):
             kwargs (dict): keyward arguments.
         """
         params = []
-        keys = chain(self.model.states.keys(), self.model.params.keys())
-        for key in keys:
-            val = getattr(self.model, key)
+        items = chain(self.model.states.items(), self.model.params.items())
+        for key, val in items:
             val = kwargs.pop(key, val)
 
             # allocate GPU memory
