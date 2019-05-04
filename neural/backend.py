@@ -171,9 +171,8 @@ class CUDABackend(Backend):
             kwargs (dict): keyward arguments.
         """
         params = []
-        keys = chain(self.model.states.keys(), self.model.params.keys())
-        for key in keys:
-            val = getattr(self.model, key)
+        items = chain(self.model.states.items(), self.model.params.items())
+        for key, val in items:
             val = kwargs.pop(key, val)
 
             # allocate GPU memory
@@ -197,7 +196,8 @@ class CUDABackend(Backend):
                     val = val.astype(self.dtype)
                     drv.memcpy_htod(self.data[key].gpudata, val)
                 else:
-                    drv.memcpy_dtod(self.data[key].gpudata, val.gpudata)
+                    drv.memcpy_dtod(self.data[key].gpudata, val.gpudata,
+                        val.nbytes)
             elif isinstance(val, Number):
                 if key in self.model.params:
                     self.model.params[key] = val
