@@ -84,17 +84,9 @@ class VariableAnalyzer(CodeGenerator):
     def handle_call_function(self, ins):
         narg = int(ins.arg)
 
-        # hacky way to handle keyword arguments
-        if self.kwargs and self.var[-(narg+1)] == (self.kwargs + ".pop"):
-            arg = self.var[-narg][1:-1]
-            self.var[-(narg+1)] = arg
-            new_arg = "%s" % arg
-            self.signature.append(new_arg)
-            self.variables[new_arg] = _Variable(type='input')
-        else:
-            args = [] if narg == 0 else [str(x) for x in self.var[-narg:]]
-            func_name = self.var[-(narg+1)]
-            self.var[-(narg+1)] = "{}({})".format(func_name, ','.join(args))
+        args = [] if narg == 0 else [str(x) for x in self.var[-narg:]]
+        func_name = self.var[-(narg+1)]
+        self.var[-(narg+1)] = "{}({})".format(func_name, ','.join(args))
 
         if narg:
             del self.var[-narg:]
