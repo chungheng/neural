@@ -196,7 +196,8 @@ class CUDABackend(Backend):
                     val = val.astype(self.dtype)
                     drv.memcpy_htod(self.data[key].gpudata, val)
                 else:
-                    drv.memcpy_dtod(self.data[key].gpudata, val.gpudata)
+                    drv.memcpy_dtod(self.data[key].gpudata, val.gpudata,
+                        val.nbytes)
             elif isinstance(val, Number):
                 if key in self.model.params:
                     self.model.params[key] = val
