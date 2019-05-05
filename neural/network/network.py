@@ -54,10 +54,15 @@ class Input(object):
         self.graph_src = MINIMUM_PNG
 
     def __call__(self, data):
-        assert hasattr(data, '__iter__')
         self.data = data
         self.steps = len(data) if hasattr(data, "__len__") else 0
         self.iter = iter(self.data)
+        if hasattr(data, '__iter__'):
+            self.iter = iter(self.data)
+        elif isinstance(data, garray.GPUArray):
+            self.iter = (x for x in self.data)
+        else:
+            raise TypeError()
 
         return self
 
