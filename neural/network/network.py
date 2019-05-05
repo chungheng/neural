@@ -26,6 +26,7 @@ if PY2:
     raise Error("neural.network does not support Python 2.")
 
 import numpy as np
+import pycuda.gpuarray as garray
 from tqdm import tqdm
 
 from ..basemodel import Model
