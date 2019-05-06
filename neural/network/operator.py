@@ -93,8 +93,8 @@ class Repeat(object):
         self.output = garray.empty(int(output_size), dtype=dtype)
 
         self.block = (1024,1,1)
-        self.grid = (min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
-            (output_size-1) / self.block[0] + 1), 1)
+        self.grid = (int(min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
+            (output_size-1) / self.block[0] + 1)), 1)
 
         mod = SourceModule(
             cuda_repeat_template.render(dtype=dtype),
