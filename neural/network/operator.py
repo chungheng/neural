@@ -53,6 +53,21 @@ class Add(object):
             "out[i] = {};".format(" + ".join(["{}[i]".format(x) for x in ins])),
             "aggregate")
 
+class Sqrt(object):
+    def __init__(self, size, dtype=np.float64):
+        self.output = garray.empty(size, dtype=dtype)
+        self.dtype = 'double' if dtype == np.float64 else 'float'
+
+    def update(self, input):
+        self._update(self.output, input)
+
+    def compile(self, **kwargs):
+        self._update = ElementwiseKernel(
+            "{dtype} *out, {dtype} *in".format(dtype=self.dtype),
+            "out[i] = sqrt(in[i]);",
+            "Sqrt")
+
+
 class Sum(object):
     def __init__(self, dtype=np.float64):
         pass
