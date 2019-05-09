@@ -12,14 +12,14 @@ cuda_repeat_template = jinja2.Template("""
 __global__ void repeat(
     int num,
     int repeat,
-    dtype *input,
-    dtype *output
+    {{ dtype }} *input,
+    {{ dtype }} *output
 )
 {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
     int tot_num = num*repeat;
-    __shared__ dtype buffer[THREADS_PER_BLOCK/2];
+    __shared__ {{ dtype }} buffer[THREADS_PER_BLOCK/2];
 
     if (tid >= tot_num)
         return;
