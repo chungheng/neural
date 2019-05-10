@@ -2,13 +2,18 @@ import jinja2
 import numpy as np
 import pycuda
 import pycuda.driver as drv
+from pycuda.compiler import SourceModule
 from pycuda.elementwise import ElementwiseKernel
+import pycuda.cumath as cumath
 import pycuda.gpuarray as garray
 import skcuda
 import skcuda.misc
 import skcuda.linalg
 
 cuda_repeat_template = jinja2.Template("""
+
+#define THREADS_PER_BLOCK 1024
+
 __global__ void repeat(
     int num,
     int repeat,
