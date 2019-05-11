@@ -29,8 +29,8 @@ __global__ void repeat(
     if (tid >= tot_num)
         return;
 
-    int start = blockIdx.x * blockDim.x / repeat;
-    int end = int(ceil(float((blockIdx.x+1) * blockDim.x - 1) / repeat));
+    int start = (blockIdx.x * blockDim.x) / repeat;
+    int end = ((blockIdx.x+1) * blockDim.x - 1) / repeat;
 
     if (threadIdx.x < (end - start))
         buffer[threadIdx.x] = input[start+threadIdx.x];
