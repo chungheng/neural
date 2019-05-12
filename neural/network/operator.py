@@ -32,7 +32,7 @@ __global__ void repeat(
     int start = (blockIdx.x * blockDim.x) / repeat;
     int end = ((blockIdx.x+1) * blockDim.x - 1) / repeat;
 
-    if (threadIdx.x < (end - start))
+    if (threadIdx.x <= (end - start))
         buffer[threadIdx.x] = input[start+threadIdx.x];
     __syncthreads();
 
