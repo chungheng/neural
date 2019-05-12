@@ -145,8 +145,8 @@ class Repeat(object):
             self.size, self.rep_size, input.gpudata, self.output.gpudata
         )
 
-class Multiply(object):
-    def __init__(self, multiplier, dtype=np.float64):
+class Dot(object):
+    def __init__(self, size, multiplier=None, dtype=np.float64):
         if isinstance(multiplier, np.ndarray):
             multiplier = multiplier.astype(dtype)
             self.multiplier = garray.to_gpu(multiplier)
