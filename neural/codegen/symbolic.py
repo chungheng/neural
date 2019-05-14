@@ -83,7 +83,6 @@ class VariableAnalyzer(CodeGenerator):
 
     def handle_call_function(self, ins):
         narg = int(ins.arg)
-
         args = [] if narg == 0 else [str(x) for x in self.var[-narg:]]
         func_name = self.var[-(narg+1)]
         self.var[-(narg+1)] = "{}({})".format(func_name, ','.join(args))
@@ -169,7 +168,7 @@ class VariableAnalyzer(CodeGenerator):
             if key in val:
                 val.remove(key)
 
-        check_is_local = lambda x: self.variables[x].type != 'local'
+        check_is_local = lambda x: x in self.variables and self.variables[x].type != 'local'
         for i in range(len(self.variables)):
             flag = True
             for key, val in locals.items():
@@ -241,12 +240,11 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
                 setattr(self, key[1:], getattr(self, key))
         #
         self.generate()
-        # print self.ode_src.getvalue()
         self.get_symbols()
         self.sympy_dct = {}
         self.latex_src = None
-        #
         self.compile_sympy()
+
         self.to_latex()
 
 
@@ -259,9 +257,8 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             self.symbol_src.write("N = Function('N')%c" % self.newline)
         self.symbol_src.write("t = Symbol('t')%c" % self.newline)
         for key, val in self.variables.items():
-            if val.type != 'local':
-                src = "{0} = Symbol('{0}'){1}".format(key, self.newline)
-                self.symbol_src.write(src)
+            src = "{0} = Symbol('{0}'){1}".format(key, self.newline)
+            self.symbol_src.write(src)
         for key in self.signature:
             src = "{0} = Symbol('{0}'){1}".format(key, self.newline)
             self.symbol_src.write(src)
