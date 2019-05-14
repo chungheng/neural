@@ -359,8 +359,29 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         else:
             self.var[-1] = "{} = {}".format(key, self.var[-1])
 
+    def handle_pop_jump_if_true(self, ins):
+        self.jump_targets.append(ins.arg)
+        self.enter_indent = True
+        self.var[-1] = "if not UnevaluatedExpr({0}):".format(self.var[-1])
 
+    def handle_pop_jump_if_false(self, ins):
+        self.jump_targets.append(ins.arg)
+        self.enter_indent = True
+        self.var[-1] = "if UnevaluatedExpr({0}):".format(self.var[-1])
 
+    def handle_jump_forward(self, ins):
+        self.leave_indent = True
+        self.output_statement()
+
+        target, old_target = ins.argval, self.jump_targets.pop()
+
+        if target != old_target:
+            self.var.append("")
+            self.enter_indent = True
+            self.jump_targets.append(target)
+        else:
+            self.var.append('')
+            self.output_statement()
 
     def _handle_return_value(self, ins):
         self.var[-1] = ""
