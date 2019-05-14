@@ -344,14 +344,23 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
     def _handle_store_fast(self, ins):
         key = ins.argval
 
-        prefix = ''
+        prefix, indent = '', ''
+
         if ins.argval == self.var[-1]:
             del self.var[-1]
             return
         elif self.variables[key].type == 'local':
-            prefix = "with evaluate(False):" + self.newline + " "*self.indent
 
-        self.var[-1] = "%s%s = %s" % (prefix, key, self.var[-1])
+            eqn = "Eq(%s, %s)" % (key, self.var[-1])
+            self.equations.append('eqn_%d' % len(self.equations))
+            indent =  " "*(self.space+self.indent)
+            prefix = "with evaluate(False):" + self.newline
+            self.var[-1] ="{}{}{} = {}".format(prefix, indent, self.equations[-1], eqn)
+        else:
+            self.var[-1] = "{} = {}".format(key, self.var[-1])
+
+
+
 
     def _handle_return_value(self, ins):
         self.var[-1] = ""
