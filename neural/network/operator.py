@@ -146,7 +146,7 @@ class Repeat(object):
         )
 
 class Dot(object):
-    def __init__(self, size, multiplier=None, dtype=np.float64):
+    def __init__(self, size, multiplier=None, dtype=np.float64, batch_size=1):
         if isinstance(multiplier, np.ndarray):
             multiplier = multiplier.astype(dtype)
             self.multiplier = garray.to_gpu(multiplier)
@@ -155,9 +155,10 @@ class Dot(object):
         else:
             raise TypeError("Unexpected type of multiplier.")
 
-        self.output = garray.empty(multiplier.shape[0], dtype=dtype)
-        self._output = self.output.reshape(-1, 1)
+        self.batch_size = batch_size
+        self.output = garray.empty(multiplier.shape[0]*batch_size, dtype=dtype)
+        self._output = self.output.reshape(-1, batch_size)
 
     def update(self, input):
-        _input = input.reshape(-1, 1)
-        skcuda.linalg.dot(self.multiplier, input, out=self._output)
+        _input = input.reshape(-1, self.batch_size)
+        skcuda.linalg.dot(self.multiplier, _input, out=self._output)
