@@ -22,21 +22,27 @@ __global__ void repeat(
 )
 {
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    int total_threads = gridDim.x * blockDim.x;
+    int start, end;
 
     int tot_num = num*repeat;
     __shared__ {{ dtype }} buffer[THREADS_PER_BLOCK/2];
 
-    if (tid >= tot_num)
-        return;
+    for(int i = tid; i < tot_num; i += total_threads)
+    {
+        // if (tid >= tot_num)
+        // return;
 
-    int start = (blockIdx.x * blockDim.x) / repeat;
-    int end = ((blockIdx.x+1) * blockDim.x - 1) / repeat;
+        start = (i - threadIdx.x) / repeat;
+        end = (i - threadIdx.x + blockDim.x - 1) / repeat;
 
-    if (threadIdx.x <= (end - start))
-        buffer[threadIdx.x] = input[start+threadIdx.x];
-    __syncthreads();
+        if (threadIdx.x <= (end - start))
+            buffer[threadIdx.x] = input[start+threadIdx.x];
+        __syncthreads();
 
-    output[tid] = buffer[tid/repeat - start];
+        output[i] = buffer[i/repeat - start];
+        __syncthreads();
+    }
     return;
 }
 """)
@@ -128,9 +134,8 @@ class Repeat(object):
         self.output = garray.empty(int(output_size), dtype=dtype)
 
         self.block = (1024,1,1)
-        self.grid = (int(min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
-            (output_size-1) / self.block[0] + 1)), 1)
-
+        grid_x = 30 * drv.Context.get_device().MULTIPROCESSOR_COUNT
+        self.grid = (int(min(grid_x, (output_size-1) / self.block[0] + 1)), 1)
         mod = SourceModule(
             cuda_repeat_template.render(dtype=dtype),
             options = ["--ptxas-options=-v"]
