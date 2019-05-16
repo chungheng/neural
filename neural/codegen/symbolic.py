@@ -409,6 +409,10 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
     def _np_exp(self, args):
         return self._generate_sympy_func('exp', args)
 
+    @_py2sympy(np.log)
+    def _np_log(self, args):
+        return self._generate_sympy_func('log', args)
+
     @_py2sympy(np.power)
     def _np_power(self, args):
         return self._generate_sympy_func('pow', args)

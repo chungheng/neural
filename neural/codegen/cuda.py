@@ -435,6 +435,10 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
     def _np_abs(self, args):
         return self._generate_cuda_func('abs', args)
 
+    @_py2cuda(np.log)
+    def _np_log(self, args):
+        return self._generate_cuda_func('log' + self.float_char, args)
+
     @_py2cuda(np.exp)
     def _np_exp(self, args):
         return self._generate_cuda_func('exp' + self.float_char, args)
