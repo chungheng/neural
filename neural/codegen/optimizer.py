@@ -24,7 +24,7 @@ class FuncGenerator(CodeGenerator):
                 self.var[-1] += ".gstates['%s']" % key
                 return
 
-            for attr in ['states', 'inters', 'params']:
+            for attr in ['states', 'params']:
                 dct = getattr(self.model, attr)
                 if key in dct:
                     self.var[-1] += ".%s['%s']" % (attr, key)
