@@ -19,6 +19,11 @@ except ImportError:
     FuncGenerator = None
 
 try:
+    from .codegen.optimizer import NumpyKernelGenerator
+except ImportError:
+    NumpyKernelGenerator = None
+
+try:
     import pycuda
     import pycuda.driver as drv
     import pycuda.gpuarray as garray
@@ -60,6 +65,10 @@ class Backend(object):
                 assert FuncGenerator is not None, \
                     "PyCodegen is not installed."
                 return super(Backend, cls).__new__(ScalarBackend)
+            elif backend == 'numpy':
+                assert NumpyKernelGenerator is not None, \
+                    "PyCodegen is not installed."
+                return super(Backend, cls).__new__(NumpyBackend)
             elif backend == 'cuda':
                 assert CudaKernelGenerator is not None, \
                     "Either PyCUDA or PyCodegen is not installed."
@@ -141,9 +150,70 @@ class ScalarBackend(Backend):
         for key, val in self.func_globals.items():
             setattr(self.module, key, val)
 
+
+class NumpyBackend(ScalarBackend):
+    def __init__(self, model, **kwargs):
+        self.num = kwargs.pop('num', None)
+
+        ostream = StringIO()
+        code_gen = NumpyKernelGenerator(model, model.ode, offset=4,
+            ostream=ostream)
+        code_gen.generate()
+
+        post = model.__class__.post
+        for cls in model.__class__.__bases__:
+            if cls.__name__ == 'Model' and post != cls.post:
+                code_gen = NumpyKernelGenerator(model, post, offset=4,
+                    ostream=ostream)
+                code_gen.generate()
+                break
+
+        self.source = ostream.getvalue()
+        self.func_globals = get_function_globals(model.ode)
+        self.name = "Numpy{}".format(model.__class__.__name__)
+        self.compile()
+
+        self.ode = MethodType(self.module.ode, model)
+        if 'post' in self.module.__dict__:
+            self.post = MethodType(self.module.post, model)
+
+    def reset(self, **kwargs):
+        """
+        reset the numpy data.
+
+        Reset the Numpy data to default values.
+
+        Arguments:
+            kwargs (dict): keyward arguments.
+        """
+        params = []
+        items = chain( self.model.params.items())
+        for key, val in self.model.params.items():
+            val = kwargs.pop(key, val)
+            if hasattr(val, '__len__'): # params with __len__
+                assert self.num == len(val), \
+                    "Instance has {} units, but '{}' has {} entires".format(
+                        self.num, key, len(val)
+                    )
+                if not isinstance(val, np.ndarray):
+                    self.model.params[key] = np.asarray(val)
+
+        for key, val in self.model.states.items():
+            val = kwargs.pop(key, val)
+
+            if hasattr(val, '__len__'): # params with __len__
+                assert self.num == len(val), \
+                    "Instance has {} units, but '{}' has {} entires".format(
+                        self.num, key, len(val)
+                    )
+                self.model.states[key] = np.asarray(val, dtype=self.dtype)
+            elif isinstance(val, Number):
+                self.model.states[key] = np.ones(self.num, dtype=self.dtype)*val
+            else:
+                raise TypeError("Invalid {0} variable: {1}".format(attr, key))
+
 class CUDABackend(Backend):
     def __init__(self, model, **kwargs):
-        backend = kwargs.pop('backend', None)
         self.num = kwargs.pop('num', None)
         self.data = dict()
         self.model = model
@@ -312,7 +382,9 @@ class CUDABackend(Backend):
 
         try:
             mod = SourceModule(code_generator.cuda_src,
-                options = ["--ptxas-options=-v"],
+                options = [
+                    "--ptxas-options=-v",
+                    "--expt-relaxed-constexpr"],
                 no_extern_c = code_generator.has_random)
             func = mod.get_function(self.model.__class__.__name__)
         except:
