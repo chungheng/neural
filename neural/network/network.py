@@ -249,9 +249,6 @@ class Network(object):
                 if isinstance(c.obj, Model):
                     c.obj.update(dt, **args)
                 else:
-                    print(c.obj)
-                    print(args)
-                    import pdb; pdb.set_trace()
                     c.obj.update(**args)
             for recorder in recorders:
                 recorder.update(i)
