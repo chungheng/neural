@@ -124,13 +124,13 @@ class Container(object):
             if arg not in self._rec:
                 self._rec.append(arg)
 
-    def set_recorder(self, steps):
+    def set_recorder(self, steps, rate=1):
         if not self._rec:
             self.recorder = None
         elif (self.recorder is None) or \
             (self.recorder.total_steps != steps) or \
             (set(self.recorder.dct.keys()) != set(self._rec)):
-            self.recorder = Recorder(self.obj, self._rec, steps, gpu_buffer=500)
+            self.recorder = Recorder(self.obj, self._rec, steps, gpu_buffer=500, rate=rate)
         return self.recorder
 
     def _get_latex(self):
@@ -207,7 +207,7 @@ class Network(object):
         self._iscompiled = False
         return container
 
-    def run(self, dt, steps=0, verbose=False):
+    def run(self, dt, steps=0, rate=1, verbose=False):
         if not self._iscompiled:
             raise Error("Please compile before running the network.")
 
@@ -217,7 +217,7 @@ class Network(object):
         # reset recorders
         recorders = []
         for c in self.containers.values():
-            recorder = c.set_recorder(steps)
+            recorder = c.set_recorder(steps, rate)
             if recorder is not None:
                 recorders.append(recorder)
 
