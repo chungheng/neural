@@ -258,7 +258,18 @@ class ReLU(Model):
     def ode(self, stimulus=0.):
 
         self.x = stimulus * (stimulus >= self.th)
-        
+
+class SoftReLU(Model):
+    """
+    Rectified Linear Unit Model
+    """
+    Default_States = dict(x=0.)
+    Default_Params = dict(th=0., rate=100.)
+    def ode(self, stimulus=0.):
+        soft_hard_threshold = lambda x,thres,rate: x/(1.+np.exp(rate*(-(x-thres))))
+        _exp = self.rate*(stimulus -self.th)
+        self.x = stimulus/(1. + np.exp(-_exp))
+
 class NoisyConnorStevens(Model):
     """
     Connor-Stevens Model

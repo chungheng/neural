@@ -79,10 +79,13 @@ class ModelMetaClass(type):
         for key in states.keys():
             setattr(obj, key, 0.)
             setattr(obj, 'd_' + key, None)
+        # call ode method, pass obj into argument as `self`
         dct['ode'](obj)
+        # record gradients
         d = {key: getattr(obj, 'd_' + key) for key in states}
+        # store gradients, filter out `None`
         dct['Derivates'] = [key for key, val in d.items() if val is not None]
-
+        # store variables
         dct['Variables'] = variables
 
         if 'Time_Scale' not in dct:
@@ -227,7 +230,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
             num (int): The number of units for CUDA kernel excution.
             dtype (type): The default type of floating point for CUDA.
         """
-
         self.backend = Backend(model=self, **kwargs)
 
         for attr in ('ode', 'post'):

@@ -15,7 +15,6 @@ class IAF(Model):
     Default_Params = dict(vt=0.025, c=5., bias=0.01)
 
     def ode(self, stimulus=0.):
-
         self.spike = 0.
         self.d_v = 1./self.c*(stimulus+self.bias)
 

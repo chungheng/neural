@@ -138,7 +138,8 @@ kc(stimulus=kc_den.x)
 kc2apl(input=kc.x)
 apl2kc(input=kc2apl.output)
 
-nn.compile(dtype=dtype, backend=BACKEND)
+
+nn.compile(dtype=dtype)
 
 # specify attributes/fields to record
 # sti_mix.record('output')

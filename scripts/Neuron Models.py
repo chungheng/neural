@@ -39,7 +39,7 @@ model_list = [IAF, LeakyIAF, HodgkinHuxley, Wilson, Rinzel, ConnorStevens]
 record = {key:np.zeros(len(waveform)) for key in model_list}
 
 for M in model_list:
-    model = M(solver='scipy_ivp:RK23')
+    model = M(solver='euler')
     for i, wav in tqdm(enumerate(waveform)):
         model.update(dt, stimulus=wav)
         record[M][i] = model.v
