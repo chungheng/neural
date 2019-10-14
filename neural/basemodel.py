@@ -9,6 +9,8 @@ import sys
 
 from six import StringIO, with_metaclass
 import numpy as np
+from scipy.integrate import solve_ivp
+from pycuda.gpuarray import GPUArray
 
 PY2 = sys.version_info[0] == 3
 PY3 = sys.version_info[0] == 3
@@ -199,7 +201,13 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.gstates = {key:0. for key in self.Derivates}
 
         # set numerical solver
-        solver = self.solver_alias[solver]
+        if 'scipy_ivp' in solver: # scipy_ivp can take form `scipy_ivp:method`
+            all_scipy_solvers = ('RK45', 'RK23', 'Radau', 'BDF', 'LSODA')
+            _scipy_solver = solver.split('scipy_ivp:')[-1]
+            self._scipy_solver = _scipy_solver if _scipy_solver in all_scipy_solvers else 'RK45'
+            solver = self.solver_alias['scipy_ivp']
+        else:
+            solver = self.solver_alias[solver]
         self.solver = getattr(self, solver)
 
         self._update = self._scalar_update
@@ -432,7 +440,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self._forward_euler(0.5*d_t, self.states, _states, **kwargs)
         self._forward_euler(d_t, _states, self.states, **kwargs)
 
-    @register_solver
+    @register_solver('heun')
     def heun(self, d_t, **kwargs):
         """
         Heun's method.
@@ -476,6 +484,28 @@ class Model(with_metaclass(ModelMetaClass, object)):
             incr = (k1[key] + 2.*k2[key] + 2.*k3[key] + k4[key]) / 6.
             self.states[key] += incr
         self.clip()
+
+    @register_solver('scipy_ivp')
+    def scipy_ivp(self, d_t, t=None, **kwargs):
+        """
+        Wrapper for scipy.integrate.solve_ivp
+
+        Arguments:
+            d_t (float): time steps.
+        """
+        solver = kwargs.pop('solver', self._scipy_solver)
+        # ensure that the dictionary keys are matched
+        keys = list(self.gstates.keys())
+        vectorized_states = [self.states[k] for k in keys]
+        def f(states, t): # note that the arguments are dummies,
+                          # not used anywhere in the body of the function
+            res = self._ode_wrapper(**kwargs)
+            return [res[k] for k in keys]
+        res = solve_ivp(f, [0, d_t], vectorized_states, method=solver, t_eval=[d_t], events=None)
+        if res is not None:
+            self.states.update({k:res.y[:, -1][n] for n,k in enumerate(keys)}) # indexing res.y[:, -1] incase multiple steps are returned
+        self.clip()
+        # TODO: `events` can be used for spike detection
 
     def _scalar_update(self, d_t, **kwargs):
         """
