@@ -523,6 +523,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
             to the model, ex. `input` or `spike`. If mulitple stimuli are
             required, the developer could specify them as `input1` and `input2`.
         """
+        for key, val in kwargs.items():
+            if isinstance(val, GPUArray):
+                kwargs[key] = val.get()
         self.solver(d_t, **kwargs)
         self.post()
 
