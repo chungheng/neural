@@ -145,7 +145,7 @@ class ScalarBackend(Backend):
 
             spec = importlib.util.spec_from_file_location(self.name, cache_path)
             self.module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            spec.loader.exec_module(self.module)
 
         for key, val in self.func_globals.items():
             setattr(self.module, key, val)
@@ -382,9 +382,13 @@ class CUDABackend(Backend):
 
         try:
             mod = SourceModule(code_generator.cuda_src,
+<<<<<<< HEAD
                 options = [
                     "--ptxas-options=-v",
                     "--expt-relaxed-constexpr"],
+=======
+                options = ["--ptxas-options=-v", "--expt-relaxed-constexpr"],
+>>>>>>> 764500be5a66d8fad483ab2105c6baec47c78398
                 no_extern_c = code_generator.has_random)
             func = mod.get_function(self.model.__class__.__name__)
         except:

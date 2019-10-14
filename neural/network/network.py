@@ -13,17 +13,11 @@ Examples:
 >>>
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
+import sys
 from collections import OrderedDict
 from functools import reduce
 from numbers import Number
 from inspect import isclass
-import sys
-
-PY2 = sys.version_info[0] == 2
-PY3 = sys.version_info[0] == 3
-
-if PY2:
-    raise Error("neural.network does not support Python 2.")
 
 import numpy as np
 import pycuda.gpuarray as garray
@@ -34,6 +28,12 @@ from ..future import SimpleNamespace
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
+
+PY2 = sys.version_info[0] == 2
+PY3 = sys.version_info[0] == 3
+
+if PY2:
+    raise Exception("neural.network does not support Python 2.")
 
 class Symbol(object):
     def __init__(self, container, key):
@@ -115,7 +115,7 @@ class Container(object):
             _ = getattr(self.obj, key)
             self.vars[key] = Symbol(self, key)
             return self.vars[key]
-        except:
+        except Exception as e:
             return super(Container, self).__getattribute__(key)
 
     def record(self, *args):
@@ -124,13 +124,13 @@ class Container(object):
             if arg not in self._rec:
                 self._rec.append(arg)
 
-    def set_recorder(self, steps):
+    def set_recorder(self, steps, rate=1):
         if not self._rec:
             self.recorder = None
         elif (self.recorder is None) or \
             (self.recorder.total_steps != steps) or \
             (set(self.recorder.dct.keys()) != set(self._rec)):
-            self.recorder = Recorder(self.obj, self._rec, steps, gpu_buffer=500)
+            self.recorder = Recorder(self.obj, self._rec, steps, gpu_buffer=500, rate=rate)
         return self.recorder
 
     def _get_latex(self):
@@ -155,8 +155,7 @@ class Container(object):
     def _get_graph(self):
         if isinstance(self.obj, Model):
             return self.obj.to_graph()
-        else:
-            return MINIMUM_PNG
+        return MINIMUM_PNG
 
 
     @classmethod
@@ -166,10 +165,11 @@ class Container(object):
 class Network(object):
     """
     """
-    def __init__(self):
+    def __init__(self, solver='euler', backend='cuda'):
         self.containers = OrderedDict()
         self.inputs = OrderedDict()
-
+        self.solver = solver
+        self.backend = backend
         self._iscompiled = False
 
     def input(self, num=None, name=None):
@@ -180,16 +180,19 @@ class Network(object):
         return input
 
     def add(self, module, num=None, name=None, record=None, **kwargs):
+        backend = kwargs.pop('backend', self.backend)
+        solver = kwargs.pop('solver', self.solver)
         num = num
         name = name or "obj{}".format(len(self.containers))
         record = record or []
         if isinstance(module, Model):
             obj = module
         elif issubclass(module, Model):
-            obj = module(**kwargs)
+            obj = module(solver=solver, **kwargs)
         elif isclass(module):
             assert Container.isacceptable(module)
-            obj = module(num, **kwargs)
+            kwargs['size'] = num
+            obj = module(**kwargs, backend=backend)
         else:
             msg = "{} is not a submodule nor an instance of {}"
             raise ValueError(msg.format(module, Model))
@@ -205,9 +208,10 @@ class Network(object):
         self._iscompiled = False
         return container
 
-    def run(self, dt, steps=0, verbose=False):
+    def run(self, dt, steps=0, rate=1, verbose=False, **kwargs):
+        solver = kwargs.pop('solver', self.solver)
         if not self._iscompiled:
-            raise Error("Please compile before running the network.")
+            raise Exception("Please compile before running the network.")
 
         # calculate number of steps
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
@@ -215,7 +219,7 @@ class Network(object):
         # reset recorders
         recorders = []
         for c in self.containers.values():
-            recorder = c.set_recorder(steps)
+            recorder = c.set_recorder(steps, rate)
             if recorder is not None:
                 recorders.append(recorder)
 
@@ -243,7 +247,7 @@ class Network(object):
                     elif isinstance(val, Number):
                         args[key] = val
                     else:
-                        raise
+                        raise Exception()
                 if isinstance(c.obj, Model):
                     c.obj.update(dt, **args)
                 else:
@@ -251,7 +255,7 @@ class Network(object):
             for recorder in recorders:
                 recorder.update(i)
 
-    def compile(self, dtype=None, debug=False):
+    def compile(self, dtype=None, debug=False, backend='cuda'):
         dtype = dtype or np.float64
         for c in self.containers.values():
             dct = {}
@@ -267,7 +271,7 @@ class Network(object):
                 elif isinstance(val, Input):
                     if val.num is not None:
                         if c.num is not None and val.num != c.num:
-                            raise Error("Size mismatches: {} {}".format(
+                            raise Exception("Size mismatches: {} {}".format(
                                 c.name, val.name))
                         dct[key] = np.zeros(val.num)
                     else:
@@ -275,18 +279,17 @@ class Network(object):
                 elif isinstance(val, Number):
                     dct[key] = dtype(val)
                 else:
-                    raise
+                    raise Exception()
 
             if hasattr(c.obj, 'compile'):
                 if isinstance(c.obj, Model):
-                    c.obj.compile(backend='cuda', dtype=dtype, num=c.num, **dct)
+                    c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
                 else:
                     c.obj.compile(**dct)
                 if debug:
                     s = ''.join([", {}={}".format(*k) for k in dct.items()])
                     print("{}.cuda_compile(dtype=dtype, num={}{})".format(
                     c.name, c.num, s))
-
         self._iscompiled = True
 
     def record(self, *args):
@@ -317,7 +320,7 @@ class Network(object):
                     source = val.name
                     label = ''
                 else:
-                    raise
+                    raise Exception()
                 u = nodes[source]
                 graph.add_edge(pydot.Edge(u, v, label=label))
                 edges.append((source, target, label))
