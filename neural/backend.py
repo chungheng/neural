@@ -136,7 +136,7 @@ class ScalarBackend(Backend):
 
             spec = importlib.util.spec_from_file_location(self.name, cache_path)
             self.module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+            spec.loader.exec_module(self.module)
 
         for key, val in self.func_globals.items():
             setattr(self.module, key, val)
