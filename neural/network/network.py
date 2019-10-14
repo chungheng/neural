@@ -166,10 +166,10 @@ class Container(object):
 class Network(object):
     """
     """
-    def __init__(self):
+    def __init__(self, solver='euler'):
         self.containers = OrderedDict()
         self.inputs = OrderedDict()
-
+        self.solver = solver
         self._iscompiled = False
 
     def input(self, num=None, name=None):
@@ -180,16 +180,18 @@ class Network(object):
         return input
 
     def add(self, module, num=None, name=None, record=None, **kwargs):
+        backend = kwargs.pop('backend', 'cuda')
         num = num
         name = name or "obj{}".format(len(self.containers))
         record = record or []
         if isinstance(module, Model):
             obj = module
         elif issubclass(module, Model):
-            obj = module(**kwargs)
+            obj = module(solver=self.solver, **kwargs)
         elif isclass(module):
             assert Container.isacceptable(module)
-            obj = module(num, **kwargs)
+            kwargs['size'] = num
+            obj = module(**kwargs, backend=backend)
         else:
             msg = "{} is not a submodule nor an instance of {}"
             raise ValueError(msg.format(module, Model))
@@ -247,11 +249,15 @@ class Network(object):
                 if isinstance(c.obj, Model):
                     c.obj.update(dt, **args)
                 else:
+                    print(c.obj)
+                    print(args)
+                    import pdb; pdb.set_trace()
                     c.obj.update(**args)
             for recorder in recorders:
                 recorder.update(i)
 
-    def compile(self, dtype=None, debug=False):
+    def compile(self, dtype=None, debug=False, backend='cuda'):
+        print('[NEURAL] Compiling with {}...'.format(backend), flush=True)
         dtype = dtype or np.float64
         for c in self.containers.values():
             dct = {}
@@ -279,14 +285,13 @@ class Network(object):
 
             if hasattr(c.obj, 'compile'):
                 if isinstance(c.obj, Model):
-                    c.obj.compile(backend='cuda', dtype=dtype, num=c.num, **dct)
+                    c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
                 else:
                     c.obj.compile(**dct)
                 if debug:
                     s = ''.join([", {}={}".format(*k) for k in dct.items()])
                     print("{}.cuda_compile(dtype=dtype, num={}{})".format(
                     c.name, c.num, s))
-
         self._iscompiled = True
 
     def record(self, *args):
