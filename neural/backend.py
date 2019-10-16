@@ -214,6 +214,7 @@ class NumpyBackend(ScalarBackend):
 
 class CUDABackend(Backend):
     def __init__(self, model, **kwargs):
+        self.backend = kwargs.pop('backend', None)
         self.num = kwargs.pop('num', None)
         self.data = dict()
         self.model = model
@@ -382,13 +383,9 @@ class CUDABackend(Backend):
 
         try:
             mod = SourceModule(code_generator.cuda_src,
-<<<<<<< HEAD
                 options = [
                     "--ptxas-options=-v",
                     "--expt-relaxed-constexpr"],
-=======
-                options = ["--ptxas-options=-v", "--expt-relaxed-constexpr"],
->>>>>>> 764500be5a66d8fad483ab2105c6baec47c78398
                 no_extern_c = code_generator.has_random)
             func = mod.get_function(self.model.__class__.__name__)
         except:
