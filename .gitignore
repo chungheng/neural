@@ -1,0 +1,4 @@
+*.pyc
+neural.egg-info/
+.ipynb_checkpoints/
+.vscode/
