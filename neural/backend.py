@@ -329,16 +329,19 @@ class CUDABackend(Backend):
                 continue
 
             val = self.data.get(key, None)
-            if val is None:
-                val = kwargs[key]
-            if hasattr(val, '__len__'):
-                assert dtype == 'P', \
-                    "Expect GPU array but get a scalar input: %s" % key
-                assert val.dtype == self.dtype, \
-                    "GPU array float type mismatches: %s" % key
-            else:
-                assert dtype != 'P', \
-                    "Expect GPU array but get a scalar input: %s" % key
+            try:
+                if val is None:
+                    val = kwargs[key]
+                if hasattr(val, '__len__'):
+                    assert dtype == 'P', \
+                        "[{}] Expect GPU array but get a scalar input: {}".format(self.model, key)
+                    assert val.dtype == self.dtype, \
+                        "[{}] GPU array float type mismatches: {}".format(self.model, key)
+                else:
+                    assert dtype != 'P', \
+                        "[{}] Expect GPU array but get a scalar input: {}".format(self.model, key)
+            except Exception as e:
+                raise Exception('[{}] {}'.format(self.model, e))
 
             args.append(val.gpudata if dtype == 'P' else val)
 
