@@ -29,6 +29,7 @@ from ..future import SimpleNamespace
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
+from ..logger import logger, NeuralError
 
 # pylint:enable=relative-beyond-top-level
 
@@ -58,6 +59,7 @@ class Input(object):
         self.iter = None
         self.latex_src = "External stimulus"
         self.graph_src = MINIMUM_PNG
+        self.value = None
 
     def __call__(self, data):
         self.data = data
@@ -71,6 +73,9 @@ class Input(object):
             raise TypeError()
 
         return self
+
+    def step(self):
+        self.value = next(self)
 
     def __next__(self):
         return next(self.iter)
@@ -253,13 +258,16 @@ class Network(object):
             iterator = tqdm(iterator)
 
         for i in iterator:
+            for c in self.inputs.values():
+                c.step()
+
             for c in self.containers.values():
                 args = {}
                 for key, val in c.inputs.items():
                     if isinstance(val, Symbol):
                         args[key] = getattr(val.container.obj, val.key)
                     elif isinstance(val, Input):
-                        args[key] = next(val)
+                        args[key] = val.value # next(val)
                     elif isinstance(val, Number):
                         args[key] = val
                     else:
