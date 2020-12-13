@@ -73,6 +73,12 @@ class Recorder(object):
         self.steps = int(steps/self.rate)
 
         self.dct = {key:None for key in attrs}
+
+        # handle spike
+        self._spike_recorder = dict()
+        for atr in attrs:
+            if 'spike' in atr.lower():
+                self._spike_recorder[atr] = 0
         self.init_dct()
 
         callback = kwargs.pop('callback', False)
@@ -184,7 +190,16 @@ class CUDARecorder(Recorder):
             self.dct[key] = np.zeros(shape, order='F', dtype=src.dtype)
 
     def update(self, index):
+        # update spike counter if has spike attributes
+        if self._spike_recorder:
+            for key in self._spike_recorder.keys():
+                self._spike_recorder[key] += getattr(self.obj, key).get()
+                
+        if (index % self.rate) != 0:
+            return
         self._update(index)
+        for key in self._spike_recorder.keys():
+            self._spike_recorder[key] = 0
 
     def _get_buffer_length(self, gpu_buffer):
         if gpu_buffer == 'full' or gpu_buffer == 'whole' or gpu_buffer is True:
@@ -198,20 +213,28 @@ class CUDARecorder(Recorder):
         # buffer index
         b_index = d_index % self.buffer_length
         for key in self.dct.keys():
+            if key in self._spike_recorder:
+                self.dct[key][:, d_index] = self._spike_recorder[key]
+                continue
             src = getattr(self.obj, key)
             dst = int(self.gpu_dct[key].gpudata) + b_index * src.nbytes
-
             cuda.memcpy_dtod(dst, src.gpudata, src.nbytes)
 
         if (d_index == self.steps-1) or (b_index == self.buffer_length-1):
             for key in self.dct.keys():
-                buffer = self.get_buffer(key, d_index)
-                cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
+                if key in self._spike_recorder:
+                    continue
+                else:
+                    buffer = self.get_buffer(key, d_index)
+                    cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
 
     def _copy_memory_dtoh(self, index):
         d_index = int(index/self.rate) # downsample index
         for key in self.dct.keys():
-            self.dct[key][:,d_index] = getattr(self.obj, key).get()
+            if key in self._spike_recorder:
+                self.dct[key][:,d_index] = self._spike_recorder[key]
+            else:
+                self.dct[key][:,d_index] = getattr(self.obj, key).get()
 
     def _py2_get_buffer(self, key, index):
         beg = int(index / self.buffer_length) * self.buffer_length
