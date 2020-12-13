@@ -28,6 +28,7 @@ from ..future import SimpleNamespace
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
+from ..logger import logger, NeuralError
 
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
@@ -53,6 +54,7 @@ class Input(object):
         self.iter = None
         self.latex_src = "External stimulus"
         self.graph_src = MINIMUM_PNG
+        self.value = None
 
     def __call__(self, data):
         self.data = data
@@ -66,6 +68,9 @@ class Input(object):
             raise TypeError()
 
         return self
+
+    def step(self):
+        self.value = next(self)
 
     def __next__(self):
         return next(self.iter)
@@ -237,21 +242,32 @@ class Network(object):
             iterator = tqdm(iterator)
 
         for i in iterator:
+            for c in self.inputs.values():
+                c.step()
+
             for c in self.containers.values():
                 args = {}
                 for key, val in c.inputs.items():
                     if isinstance(val, Symbol):
                         args[key] = getattr(val.container.obj, val.key)
                     elif isinstance(val, Input):
-                        args[key] = next(val)
+                        args[key] = val.value # next(val)
                     elif isinstance(val, Number):
                         args[key] = val
                     else:
                         raise Exception()
                 if isinstance(c.obj, Model):
-                    c.obj.update(dt, **args)
+                    try:
+                        c.obj.update(dt, **args)
+                    except Exception as e:
+                        logger.error('[{}] Error - {}'.format(c.obj, e))
+                        raise NeuralError(e)
                 else:
-                    c.obj.update(**args)
+                    try:
+                        c.obj.update(**args)
+                    except Exception as e:
+                        logger.error('[{}] Error - {}'.format(c.obj, e))
+                        raise NeuralError(e)
             for recorder in recorders:
                 recorder.update(i)
 
