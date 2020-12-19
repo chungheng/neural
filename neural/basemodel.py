@@ -17,17 +17,21 @@ PY3 = sys.version_info[0] == 3
 
 if PY2:
     from inspect import getargspec as _getfullargspec
-    varkw = 'keywords'
+
+    varkw = "keywords"
 if PY3:
     from inspect import getfullargspec as _getfullargspec
-    varkw = 'varkw'
+
+    varkw = "varkw"
 
 from .backend import Backend
+
 
 def _dict_iadd_(dct_a, dct_b):
     for key in dct_a.keys():
         dct_a[key] += dct_b[key]
     return dct_a
+
 
 def _dict_add_(dct_a, dct_b, out=None):
     if out is None:
@@ -38,6 +42,7 @@ def _dict_add_(dct_a, dct_b, out=None):
     _dict_iadd_(out, dct_b)
     return out
 
+
 def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
     if out is None:
         out = dct_a.copy()
@@ -45,8 +50,9 @@ def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
         for key, val in dct_a.items():
             out[key] = val
     for key in dct_a.keys():
-        out[key] += sal*dct_b[key]
+        out[key] += sal * dct_b[key]
     return out
+
 
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
@@ -54,68 +60,74 @@ class ModelMetaClass(type):
         bounds = dict()
         states = dict()
         variables = dict()
-        if 'Default_States' in dct:
-            for key, val in dct['Default_States'].items():
-                if hasattr(val, '__len__'):
-                    assert len(val) == 3, "Variable {} ".format(key) + \
-                        "should be a scalar of a iterable of 3 elements " + \
-                        "(initial value, upper bound, lower bound), " + \
-                        "but {} is given.".format(val)
+        if "Default_States" in dct:
+            for key, val in dct["Default_States"].items():
+                if hasattr(val, "__len__"):
+                    assert len(val) == 3, (
+                        "Variable {} ".format(key)
+                        + "should be a scalar of a iterable of 3 elements "
+                        + "(initial value, upper bound, lower bound), "
+                        + "but {} is given.".format(val)
+                    )
                     bounds[key] = val[1:]
                     states[key] = val[0]
                 else:
                     states[key] = val
-                variables[key] = 'states'
-        dct['Default_Bounds'] = bounds
-        dct['Default_States'] = states
+                variables[key] = "states"
+        dct["Default_Bounds"] = bounds
+        dct["Default_States"] = states
 
-
-        if 'Default_Params' not in dct:
-            dct['Default_Params'] = dict()
-        variables.update({key: 'params' for key in dct['Default_Params']})
+        if "Default_Params" not in dct:
+            dct["Default_Params"] = dict()
+        variables.update({key: "params" for key in dct["Default_Params"]})
 
         # run ode once to get a list of state variables with derivative
-        obj = type(clsname, (object,), dct['Default_Params'])()
+        obj = type(clsname, (object,), dct["Default_Params"])()
         for key in states.keys():
-            setattr(obj, key, 0.)
-            setattr(obj, 'd_' + key, None)
+            setattr(obj, key, 0.0)
+            setattr(obj, "d_" + key, None)
         # call ode method, pass obj into argument as `self`
-        dct['ode'](obj)
+        dct["ode"](obj)
         # record gradients
-        d = {key: getattr(obj, 'd_' + key) for key in states}
+        d = {key: getattr(obj, "d_" + key) for key in states}
         # store gradients, filter out `None`
-        dct['Derivates'] = [key for key, val in d.items() if val is not None]
+        dct["Derivates"] = [key for key, val in d.items() if val is not None]
         # store variables
-        dct['Variables'] = variables
+        dct["Variables"] = variables
 
-        if 'Time_Scale' not in dct:
-            dct['Time_Scale'] = 1.
+        if "Time_Scale" not in dct:
+            dct["Time_Scale"] = 1.0
 
-        if clsname == 'Model':
+        if clsname == "Model":
             solvers = dict()
             for key, val in dct.items():
-                if callable(val) and hasattr(val, '_solver_names'):
+                if callable(val) and hasattr(val, "_solver_names"):
                     for name in val._solver_names:
                         solvers[name] = val.__name__
-            dct['solver_alias'] = solvers
+            dct["solver_alias"] = solvers
 
         inputs = dict()
-        func_list = [x for x in ['ode', 'post'] if x in dct]
+        func_list = [x for x in ["ode", "post"] if x in dct]
         for key in func_list:
             argspec = _getfullargspec(dct[key])
             if argspec.defaults is None:
                 continue
             if argspec.varargs is not None:
-                raise TypeError("Variable positional argument is not allowed" \
-                                " in {}.{}".format(clsname, key))
+                raise TypeError(
+                    "Variable positional argument is not allowed"
+                    " in {}.{}".format(clsname, key)
+                )
             if getattr(argspec, varkw, None) is not None:
-                raise TypeError("Variable keyword argument is not allowed in" \
-                                " {}.{}".format(clsname, key))
+                raise TypeError(
+                    "Variable keyword argument is not allowed in"
+                    " {}.{}".format(clsname, key)
+                )
             for val, key in zip(argspec.defaults[::-1], argspec.args[::-1]):
                 inputs[key] = val
-        dct['Inputs'] = inputs
+        dct["Inputs"] = inputs
 
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
+
 
 def register_solver(*args):
     # when there is no args
@@ -123,10 +135,13 @@ def register_solver(*args):
         args[0]._solver_names = [args[0].__name__]
         return args[0]
     else:
+
         def wrapper(func):
             func._solver_names = [func.__name__] + list(args)
             return func
+
         return wrapper
+
 
 class Model(with_metaclass(ModelMetaClass, object)):
     """
@@ -173,6 +188,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         gstates (dict): the gradient of the state variables.
         bounds (dict): lower and upper bounds of the state variables.
     """
+
     def __init__(self, **kwargs):
         """
         Initialize the model.
@@ -181,10 +197,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
             optimize (bool): optimize the `ode` function.
             float (type): The data type of float point.
         """
-        optimize = kwargs.pop('optimize', False) and (Backend is not None)
-        solver = kwargs.pop('solver', 'forward_euler')
-        float = kwargs.pop('float', np.float32)
-        callback = kwargs.pop('callback', [])
+        optimize = kwargs.pop("optimize", False) and (Backend is not None)
+        solver = kwargs.pop("solver", "forward_euler")
+        float = kwargs.pop("float", np.float32)
+        callback = kwargs.pop("callback", [])
 
         # set state variables and parameters
         self.params = self.Default_Params.copy()
@@ -201,14 +217,16 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 raise AttributeError("Unexpected variable '{}'".format(key))
 
         self.initial_states = self.states.copy()
-        self.gstates = {key:0. for key in self.Derivates}
+        self.gstates = {key: 0.0 for key in self.Derivates}
 
         # set numerical solver
-        if 'scipy_ivp' in solver: # scipy_ivp can take form `scipy_ivp:method`
-            all_scipy_solvers = ('RK45', 'RK23', 'Radau', 'BDF', 'LSODA')
-            _scipy_solver = solver.split('scipy_ivp:')[-1]
-            self._scipy_solver = _scipy_solver if _scipy_solver in all_scipy_solvers else 'RK45'
-            solver = self.solver_alias['scipy_ivp']
+        if "scipy_ivp" in solver:  # scipy_ivp can take form `scipy_ivp:method`
+            all_scipy_solvers = ("RK45", "RK23", "Radau", "BDF", "LSODA")
+            _scipy_solver = solver.split("scipy_ivp:")[-1]
+            self._scipy_solver = (
+                _scipy_solver if _scipy_solver in all_scipy_solvers else "RK45"
+            )
+            solver = self.solver_alias["scipy_ivp"]
         else:
             solver = self.solver_alias[solver]
         self.solver = getattr(self, solver)
@@ -220,7 +238,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         # optimize the ode function
         if optimize:
-            self.compile(backend='scalar')
+            self.compile(backend="scalar")
 
     def compile(self, **kwargs):
         """
@@ -232,17 +250,19 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
         self.backend = Backend(model=self, **kwargs)
 
-        for attr in ('ode', 'post'):
+        for attr in ("ode", "post"):
             if hasattr(self.backend, attr):
                 setattr(self, attr, getattr(self.backend, attr))
 
-        for attr in ('data', 'reset', 'update'):
+        for attr in ("data", "reset", "update"):
             if hasattr(self.backend, attr):
-                setattr(self, '_'+attr, getattr(self.backend, attr))
+                setattr(self, "_" + attr, getattr(self.backend, attr))
 
     def add_callback(self, callbacks):
-        if not hasattr(callbacks, '__len__'):
-            callbacks = [callbacks,]
+        if not hasattr(callbacks, "__len__"):
+            callbacks = [
+                callbacks,
+            ]
         for func in callbacks:
             assert callable(func)
             self.callbacks.append(func)
@@ -278,7 +298,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             This function is a wrapper to the underlying `_update`.
         """
         # '_update' depends on the 'backend'
-        self._update(d_t*self.Time_Scale, **kwargs)
+        self._update(d_t * self.Time_Scale, **kwargs)
         for func in self.callbacks:
             func()
 
@@ -290,7 +310,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
         TODO: enable using different state varaibles than self.states
         """
         pass
-
 
     def _ode_wrapper(self, states=None, gstates=None, **kwargs):
         """
@@ -389,7 +408,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         gstates = self._ode_wrapper(states, **kwargs)
 
         for key in gstates:
-            out_states[key] = d_t*gstates[key]
+            out_states[key] = d_t * gstates[key]
 
         return out_states
 
@@ -415,7 +434,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         return out_states
 
-    @register_solver('euler', 'forward')
+    @register_solver("euler", "forward")
     def forward_euler(self, d_t, **kwargs):
         """
         Forward Euler method.
@@ -426,10 +445,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.ode(**kwargs)
 
         for key in self.gstates:
-            self.states[key] += d_t*self.gstates[key]
+            self.states[key] += d_t * self.gstates[key]
         self.clip()
 
-    @register_solver('mid')
+    @register_solver("mid")
     def midpoint(self, d_t, **kwargs):
         """
         Implicit Midpoint method.
@@ -439,10 +458,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
         _states = self.states.copy()
 
-        self._forward_euler(0.5*d_t, self.states, _states, **kwargs)
+        self._forward_euler(0.5 * d_t, self.states, _states, **kwargs)
         self._forward_euler(d_t, _states, self.states, **kwargs)
 
-    @register_solver('heun')
+    @register_solver("heun")
     def heun(self, d_t, **kwargs):
         """
         Heun's method.
@@ -455,10 +474,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
         incr2 = self._increment(d_t, tmp, **kwargs)
 
         for key in self.states.keys():
-            self.states[key] += 0.5*incr1[key] + 0.5*incr2[key]
+            self.states[key] += 0.5 * incr1[key] + 0.5 * incr2[key]
         self.clip()
 
-    @register_solver('rk4')
+    @register_solver("rk4")
     def runge_kutta_4(self, d_t, **kwargs):
         """
         Runge Kutta method.
@@ -483,11 +502,11 @@ class Model(with_metaclass(ModelMetaClass, object)):
         k4 = self._increment(d_t, tmp, **kwargs)
 
         for key in self.states.keys():
-            incr = (k1[key] + 2.*k2[key] + 2.*k3[key] + k4[key]) / 6.
+            incr = (k1[key] + 2.0 * k2[key] + 2.0 * k3[key] + k4[key]) / 6.0
             self.states[key] += incr
         self.clip()
 
-    @register_solver('scipy_ivp')
+    @register_solver("scipy_ivp")
     def scipy_ivp(self, d_t, t=None, **kwargs):
         """
         Wrapper for scipy.integrate.solve_ivp
@@ -495,17 +514,23 @@ class Model(with_metaclass(ModelMetaClass, object)):
         Arguments:
             d_t (float): time steps.
         """
-        solver = kwargs.pop('solver', self._scipy_solver)
+        solver = kwargs.pop("solver", self._scipy_solver)
         # ensure that the dictionary keys are matched
         keys = list(self.gstates.keys())
         vectorized_states = [self.states[k] for k in keys]
-        def f(states, t): # note that the arguments are dummies,
-                          # not used anywhere in the body of the function
+
+        def f(states, t):  # note that the arguments are dummies,
+            # not used anywhere in the body of the function
             res = self._ode_wrapper(**kwargs)
             return [res[k] for k in keys]
-        res = solve_ivp(f, [0, d_t], vectorized_states, method=solver, t_eval=[d_t], events=None)
+
+        res = solve_ivp(
+            f, [0, d_t], vectorized_states, method=solver, t_eval=[d_t], events=None
+        )
         if res is not None:
-            self.states.update({k:res.y[:, -1][n] for n,k in enumerate(keys)}) # indexing res.y[:, -1] incase multiple steps are returned
+            self.states.update(
+                {k: res.y[:, -1][n] for n, k in enumerate(keys)}
+            )  # indexing res.y[:, -1] incase multiple steps are returned
         self.clip()
         # TODO: `events` can be used for spike detection
 
@@ -535,14 +560,14 @@ class Model(with_metaclass(ModelMetaClass, object)):
         for key, val in kwargs.items():
             assert key in self.Varaibles
             attr = self.Varaibles[key]
-            if attr == 'states':
-                key = 'initial_' + key
+            if attr == "states":
+                key = "initial_" + key
             dct = getattr(self, attr)
             dct[key] = val
         for key, val in self.initial_states.items():
             self.states[key] = val
         for key in self.gstates.keys():
-            self.gstates[key] = 0.
+            self.gstates[key] = 0.0
 
     def __setattr__(self, key, value):
         if key[:2] == "d_":
@@ -550,7 +575,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             self.gstates[key[2:]] = value
             return
 
-        if key in ['states', 'params', 'bounds']:
+        if key in ["states", "params", "bounds"]:
             return super(Model, self).__setattr__(key, value)
 
         for attr in (self.states, self.params):
@@ -561,12 +586,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
         super(Model, self).__setattr__(key, value)
 
     def __getattr__(self, key):
-        if '_data' in self.__dict__ and key in self._data:
+        if "_data" in self.__dict__ and key in self._data:
             return self._data[key]
         if key[:2] == "d_":
             return self.gstates[key[2:]]
 
-        if key in ['states', 'params', 'bounds']:
+        if key in ["states", "params", "bounds"]:
             return getattr(self, key)
 
         for attr in (self.states, self.params):
