@@ -93,8 +93,8 @@ class Container(object):
         self.vars = {}
         self.inputs = dict()
         self.recorder = None
-        self.latex_src = self._get_latex()
-        self.graph_src = self._get_graph()
+        # self.latex_src = self._get_latex()
+        # self.graph_src = self._get_graph()
         self._rec = []
 
     def __call__(self, **kwargs):
@@ -251,7 +251,7 @@ class Network(object):
                     if isinstance(val, Symbol):
                         args[key] = getattr(val.container.obj, val.key)
                     elif isinstance(val, Input):
-                        args[key] = val.value # next(val)
+                        args[key] = val.value
                     elif isinstance(val, Number):
                         args[key] = val
                     else:
@@ -287,8 +287,10 @@ class Network(object):
                 elif isinstance(val, Input):
                     if val.num is not None:
                         if c.num is not None and val.num != c.num:
-                            raise Exception("Size mismatches: {} {}".format(
-                                c.name, val.name))
+                            # raise Exception("Size mismatches: [{}: {}] vs. [{}: {}]".format(
+                            #     c.name, c.num, val.name, val.num))
+                            logger.warn("Size mismatches: [{}: {}] vs. [{}: {}]".format(
+                                c.name, c.num, val.name, val.num))
                         dct[key] = np.zeros(val.num)
                     else:
                         dct[key] = dtype(0.)
