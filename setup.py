@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import os
-import sys 
+import sys
 from glob import glob
 
 # Install setuptools if it isn't available:

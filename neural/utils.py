@@ -9,8 +9,12 @@ Methods:
     compute_psth: compute PSTH from a set of spike sequences.
 """
 
-import struct, zlib
+import struct
+import zlib
 from binascii import unhexlify
+
+import typing as tp
+from .logger import logger, NeuralUtilityError, SignalTypeNotFoundError
 
 import numpy as np
 
@@ -32,7 +36,16 @@ MINIMUM_PNG = (
 )
 
 
-def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
+def generate_stimulus(
+    mode: str,
+    d_t: float,
+    duration: float,
+    support: tp.Iterable[float],
+    amplitude: tp.Union[float, tp.Iterable[float]],
+    sigma: float = None,
+    dtype: np.dtype = np.float64,
+    **kwargs,
+) -> np.ndarray:
     """
     Stimuli generator
 
@@ -40,7 +53,8 @@ def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
         mode (str): shape of the waveform.
         d_t (float): the sampling interval for the stimuli.
         duration (float): the duration of the stimuli.
-        support (list): two time points at which the stimulus starts and ends.
+        support (iterable): two time points at which the stimulus [start, end).
+           It's not inclusive of the end.
         amplitude (float or list): the amplitudes of the stimuli.
 
     Keyword Arguments:
@@ -48,19 +62,31 @@ def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
         ratio (float): a
     """
 
-    def _generate_step(waveforms, d_t, support, amplitude, **kwargs):
+    def _generate_step(
+        waveforms: np.ndarray,
+        d_t: float,
+        support: tp.Iterable[float],
+        amplitude: float,
+        **kwargs,
+    ) -> None:
         """
         Generate a set of step stimuli.
 
         No extra keyword argument is needed.
         """
-        start = int(support[0] // d_t)
-        stop = int(support[1] // d_t)
+        start = int((support[0] + d_t / 2) // d_t)
+        stop = int((support[1] + d_t / 2) // d_t)
 
         for wav, amp in zip(waveforms, amplitude):
             wav[start:stop] = amp
 
-    def _generate_ramp(waveforms, d_t, support, amplitude, **kwargs):
+    def _generate_ramp(
+        waveforms: np.ndarray,
+        d_t: float,
+        support: tp.Iterable[float],
+        amplitude: float,
+        **kwargs,
+    ) -> None:
         """
         Generate a set of ramp stimuli.
 
@@ -70,15 +96,21 @@ def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
         """
         ratio = kwargs.pop("ratio", 0.9)
 
-        start = int(support[0] // d_t)
-        stop = int(support[1] // d_t)
+        start = int((support[0] + d_t / 2) // d_t)
+        stop = int((support[1] + d_t / 2) // d_t)
         peak = int((1.0 - ratio) * start + ratio * stop)
 
         for wav, amp in zip(waveforms, amplitude):
             wav[start:peak] = np.linspace(0.0, amp, peak - start)
             wav[peak:stop] = np.linspace(amp, 0.0, stop - peak)
 
-    def _generate_parabola(waveforms, d_t, support, amplitude, **kwargs):
+    def _generate_parabola(
+        waveforms: np.ndarray,
+        d_t: float,
+        support: tp.Iterable[float],
+        amplitude: float,
+        **kwargs,
+    ) -> None:
         """
         Generate a set of parabolic stimuli.
 
@@ -88,25 +120,48 @@ def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
         """
         ratio = kwargs.pop("ratio", 0.95)
 
-        start = int(support[0] // d_t)
-        stop = int(support[1] // d_t)
+        start = int((support[0] + d_t / 2) // d_t)
+        stop = int((support[1] + d_t / 2) // d_t)
         peak = int((1.0 - ratio) * start + ratio * stop)
 
         for wav, amp in zip(waveforms, amplitude):
             wav[start:peak] = amp * np.linspace(0.0, 1, peak - start) ** 2
             wav[peak:stop] = amp * np.linspace(1, 0.0, stop - peak) ** 2
 
-    sigma = kwargs.pop("sigma", None)
-    dtype = kwargs.pop("dtype", np.float64)
+    def _generate_spikes(
+        waveforms: np.ndarray,
+        d_t: float,
+        support: tp.Iterable[float],
+        amplitude: float,
+        **kwargs,
+    ) -> None:
+        """
+        Generate a set of poisson spikes.
 
-    num = int(duration // d_t)
+        keyword arguments:
+            rate (float): spike rate generated
+        """
+        rates = kwargs.pop("rate", 100.0)
 
-    shape = (len(amplitude), num) if hasattr(amplitude, "__len__") else num
+        start = int((support[0] + d_t / 2) // d_t)
+        stop = int((support[1] + d_t / 2) // d_t)
+
+        for wav, amp in zip(waveforms, amplitude):
+            wav[start:peak] = amp * np.linspace(0.0, 1, peak - start) ** 2
+            wav[peak:stop] = amp * np.linspace(1, 0.0, stop - peak) ** 2
+
+    amplitude = np.atleast_1d(amplitude)
+    num = int((duration + d_t / 2) // d_t)
+
+    shape = (len(amplitude), num)
     waveforms = np.zeros(shape, dtype=dtype)
 
     if isinstance(mode, str):
         tmp = "_generate_%s" % mode
-        assert tmp in locals(), "Stimulus type %s is not supported..." % mode
+        if tmp not in locals():
+            msg = f"Stimulus type {mode} is not supported."
+            logger.error(msg)
+            raise SignalTypeNotFoundError(msg)
         generator = locals()[tmp]
 
     # ad-hoc way to deal with amplitude being a scalar or a list
@@ -120,7 +175,9 @@ def generate_stimulus(mode, d_t, duration, support, amplitude, **kwargs):
     return waveforms
 
 
-def generate_spike_from_psth(d_t, psth, **kwargs):
+def generate_spike_from_psth(
+    d_t: float, psth: np.ndarray, num: int = 1, **kwargs
+) -> np.ndarray:
     """
     Generate spike sequeces from a PSTH.
 
@@ -132,8 +189,6 @@ def generate_spike_from_psth(d_t, psth, **kwargs):
         num (int):
 
     """
-    num = kwargs.pop("num", 1)
-
     shape = (len(psth), num) if num > 1 else len(psth)
     spikes = np.zeros(shape, dtype=int, order="C")
 
@@ -143,7 +198,9 @@ def generate_spike_from_psth(d_t, psth, **kwargs):
     return spikes.T
 
 
-def compute_psth(spikes, d_t, window, interval):
+def compute_psth(
+    spikes: np.ndarray, d_t: float, window: float, interval: float
+) -> np.ndarray:
     """
     Compute the peri-stimulus time histogram.
 
@@ -168,7 +225,6 @@ def compute_psth(spikes, d_t, window, interval):
     stop = np.arange(window, d_t * len(spikes) - d_t, interval) // d_t
     start = start.astype(int, copy=False)
     stop = stop.astype(int, copy=False)
-
     start = start[: len(stop)]
 
     rates = (cum_spikes[stop] - cum_spikes[start]) / window
@@ -178,7 +234,9 @@ def compute_psth(spikes, d_t, window, interval):
 
 
 class PSTH(object):
-    def __init__(self, spikes, dt, window=20e-3, shift=10e-3):
+    def __init__(
+        self, spikes: np.ndarray, dt: float, window: float = 20e-3, shift: float = 10e-3
+    ):
         self.window = window
         self.shift = shift
         self.dt = dt
@@ -186,7 +244,7 @@ class PSTH(object):
 
         self.psth, self.t = self.compute()
 
-    def compute(self):
+    def compute(self) -> tp.Tuple[np.ndarray, np.ndarray]:
         spikes = self.spikes
         if len(spikes.shape) > 1:
             axis = int(spikes.shape[0] > spikes.shape[1])
@@ -207,7 +265,7 @@ class PSTH(object):
 
         return rates, stamps
 
-    def merge(self, others):
+    def merge(self, others: tp.Union[np.ndarray, tp.Iterable[np.ndarray]]) -> None:
         if not hasattr(others, "__len__"):
             others = [others]
         for other in others:

@@ -2,10 +2,11 @@
 Base model class for neurons and synapses.
 """
 from __future__ import print_function
+import sys
 from abc import abstractmethod
 from collections import OrderedDict
-from numbers import Number
-import sys
+from collections.abc import Iterable
+import typing as tp
 
 from six import StringIO, with_metaclass
 import numpy as np
@@ -23,17 +24,18 @@ if PY3:
     from inspect import getfullargspec as _getfullargspec
 
     varkw = "varkw"
-
 from .backend import Backend
 
 
-def _dict_iadd_(dct_a, dct_b):
+def _dict_iadd_(dct_a: dict, dct_b: dict) -> dict:
+    """Add dictionaries inplace"""
     for key in dct_a.keys():
         dct_a[key] += dct_b[key]
     return dct_a
 
 
-def _dict_add_(dct_a, dct_b, out=None):
+def _dict_add_(dct_a: dict, dct_b: dict, out: dict = None) -> dict:
+    """Add dictionaries"""
     if out is None:
         out = dct_a.copy()
     else:
@@ -43,7 +45,8 @@ def _dict_add_(dct_a, dct_b, out=None):
     return out
 
 
-def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
+def _dict_add_scalar_(dct_a: dict, dct_b: dict, sal: float, out: dict = None) -> dict:
+    """Add dictionaries with scaling"""
     if out is None:
         out = dct_a.copy()
     else:
@@ -56,7 +59,6 @@ def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
 
 class ModelMetaClass(type):
     def __new__(cls, clsname, bases, dct):
-
         bounds = dict()
         states = dict()
         variables = dict()
@@ -129,7 +131,8 @@ class ModelMetaClass(type):
         return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
 
 
-def register_solver(*args):
+def register_solver(*args) -> tp.Callable:
+    """Decorator for registering solver"""
     # when there is no args
     if len(args) == 1 and callable(args[0]):
         args[0]._solver_names = [args[0].__name__]
@@ -199,7 +202,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
         optimize = kwargs.pop("optimize", False) and (Backend is not None)
         solver = kwargs.pop("solver", "forward_euler")
-        float = kwargs.pop("float", np.float32)
+        floatType = kwargs.pop("float", np.float32)
         callback = kwargs.pop("callback", [])
 
         # set state variables and parameters
@@ -240,7 +243,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         if optimize:
             self.compile(backend="scalar")
 
-    def compile(self, **kwargs):
+    def compile(self, **kwargs) -> None:
         """
         compile the cuda kernel.
 
@@ -258,7 +261,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             if hasattr(self.backend, attr):
                 setattr(self, "_" + attr, getattr(self.backend, attr))
 
-    def add_callback(self, callbacks):
+    def add_callback(self, callbacks) -> None:
         if not hasattr(callbacks, "__len__"):
             callbacks = [
                 callbacks,
@@ -267,7 +270,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             assert callable(func)
             self.callbacks.append(func)
 
-    def reset(self, **kwargs):
+    def reset(self, **kwargs) -> None:
         """
         reset state and intermediate variables to their initial condition.
 
@@ -277,7 +280,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         # '_reset' depends on the 'backend'
         self._reset(**kwargs)
 
-    def update(self, d_t, **kwargs):
+    def update(self, d_t: float, **kwargs) -> None:
         """
         Wrapper function for each iteration of update.
 
@@ -303,7 +306,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             func()
 
     @abstractmethod
-    def ode(self, **kwargs):
+    def ode(self, **kwargs) -> None:
         """
         The set of ODEs defining the dynamics of the model.
 
@@ -311,7 +314,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
         pass
 
-    def _ode_wrapper(self, states=None, gstates=None, **kwargs):
+    def _ode_wrapper(self, states: dict = None, gstates: dict = None, **kwargs):
         """
         A wrapper for calling `ode` with arbitrary varaible than `self.states`
 
@@ -344,9 +347,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         Another usage of this function could be the spike detection for
         conductance-based models.
         """
-        pass
 
-    def clip(self, states=None):
+    def clip(self, states: dict = None) -> None:
         """
         Clip the state variables after calling the numerical solver.
 
@@ -363,7 +365,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             states[key] = np.clip(states[key], val[0], val[1])
 
     @classmethod
-    def to_graph(cls, local=False):
+    def to_graph(cls, local: bool = False):
         """
         Generate block diagram of the model
 
@@ -373,7 +375,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         try:
             from .codegen.symbolic import VariableAnalyzer
         except ImportError as e:
-            raise e("'to_graph' requires 'pycodegen'")
+            raise ImportError("'to_graph' requires 'pycodegen'", e)
 
         g = VariableAnalyzer(cls)
         return g.to_graph(local=local)
@@ -387,12 +389,14 @@ class Model(with_metaclass(ModelMetaClass, object)):
         try:
             from .codegen.symbolic import SympyGenerator
         except ImportError as e:
-            raise e("'to_latex' requires 'pycodegen'")
+            raise ImportError("'to_latex' requires 'pycodegen'")
 
         g = SympyGenerator(cls)
         return g.latex_src
 
-    def _increment(self, d_t, states, out_states=None, **kwargs):
+    def _increment(
+        self, d_t: float, states: dict, out_states: dict = None, **kwargs
+    ) -> dict:
         """
         Compute the increment of state variables.
 
@@ -412,7 +416,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         return out_states
 
-    def _forward_euler(self, d_t, states, out_states=None, **kwargs):
+    def _forward_euler(
+        self, d_t: float, states: dict, out_states: dict = None, **kwargs
+    ) -> dict:
         """
         Forward Euler method with arbitrary varaible than `self.states`.
 
@@ -435,7 +441,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         return out_states
 
     @register_solver("euler", "forward")
-    def forward_euler(self, d_t, **kwargs):
+    def forward_euler(self, d_t: float, **kwargs) -> None:
         """
         Forward Euler method.
 
@@ -449,7 +455,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.clip()
 
     @register_solver("mid")
-    def midpoint(self, d_t, **kwargs):
+    def midpoint(self, d_t: float, **kwargs) -> None:
         """
         Implicit Midpoint method.
 
@@ -462,7 +468,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self._forward_euler(d_t, _states, self.states, **kwargs)
 
     @register_solver("heun")
-    def heun(self, d_t, **kwargs):
+    def heun(self, d_t: float, **kwargs) -> None:
         """
         Heun's method.
 
@@ -478,7 +484,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.clip()
 
     @register_solver("rk4")
-    def runge_kutta_4(self, d_t, **kwargs):
+    def runge_kutta_4(self, d_t: float, **kwargs) -> None:
         """
         Runge Kutta method.
 
@@ -507,7 +513,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.clip()
 
     @register_solver("scipy_ivp")
-    def scipy_ivp(self, d_t, t=None, **kwargs):
+    def scipy_ivp(self, d_t: float, t=None, **kwargs) -> None:
         """
         Wrapper for scipy.integrate.solve_ivp
 
@@ -534,7 +540,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.clip()
         # TODO: `events` can be used for spike detection
 
-    def _scalar_update(self, d_t, **kwargs):
+    def _scalar_update(self, d_t: float, **kwargs) -> None:
         """
         Wrapper function for running solver on CPU.
 
@@ -556,7 +562,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.solver(d_t, **kwargs)
         self.post()
 
-    def _scalar_reset(self, **kwargs):
+    def _scalar_reset(self, **kwargs) -> None:
         for key, val in kwargs.items():
             assert key in self.Varaibles
             attr = self.Varaibles[key]
