@@ -22,19 +22,26 @@ from inspect import isclass
 import numpy as np
 import pycuda.gpuarray as garray
 from tqdm import tqdm
+from warnings import warn
 
 from ..basemodel import Model
 from ..future import SimpleNamespace
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
-from ..logger import logger, NeuralError
+from ..logger import (
+    NeuralNetworkError,
+    NeuralNetworkWarning,
+    NeuralNetworkCompileError,
+    NeuralNetworkUpdateError,
+    NeuralNetworkInputError
+)
 
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
 
 if PY2:
-    raise Exception("neural.network does not support Python 2.")
+    raise NeuralNetworkError("neural.network does not support Python 2.")
 
 
 class Symbol(object):
@@ -48,7 +55,9 @@ class Symbol(object):
 
 
 class Input(object):
-    def __init__(self, num=None, name=None):
+    """Input Object for Neural Network
+    """
+    def __init__(self, num: int = None, name: str = None):
         self.num = num
         self.name = name
         self.data = None
@@ -59,16 +68,19 @@ class Input(object):
         self.value = None
 
     def __call__(self, data):
+        if (self.num is None and data.ndim > 1) or (
+            data.ndim == 2 and data.shape[1] != self.num
+        ):
+            raise NeuralNetworkInputError(
+                f"Input {self.name} is specified with num {self.num} but was given data of shape {data.shape}"
+            )
+        if data.ndim > 2:
+            raise NeuralNetworkInputError(
+                f"Input {self.name} is given data of shape {data.shape}, only up-to 2D data is supported currently."
+            )
         self.data = data
         self.steps = len(data) if hasattr(data, "__len__") else 0
-        self.iter = iter(self.data)
-        if hasattr(data, "__iter__"):
-            self.iter = iter(self.data)
-        elif isinstance(data, garray.GPUArray):
-            self.iter = (x for x in self.data)
-        else:
-            raise TypeError()
-
+        self.reset()  # create iter object
         return self
 
     def step(self):
@@ -78,7 +90,18 @@ class Input(object):
         return next(self.iter)
 
     def reset(self):
-        self.iter = iter(self.data)
+        if hasattr(self.data, "__iter__"):
+            self.iter = iter(self.data)
+        elif isinstance(self.data, garray.GPUArray):
+            if not self.data.flags.c_contiguous:
+                raise NeuralNetworkInputError(
+                    f"Input {self.name} has non-contiguous pyCuda GPUArray as data, need to be C-contiguous"
+                )
+            self.iter = (x for x in self.data)
+        else:
+            raise NeuralNetworkInputError(
+                f"type of data {self.data} for input {self.name} not understood, need to be iterable or PyCuda.GPUArray"
+            )
 
 
 class Container(object):
@@ -87,7 +110,7 @@ class Container(object):
 
     Examples:
     >>> hhn = Container(HodgkinHuxley)
-    >>> hhn.v # reference to hhn.states['v']
+    >>> hhn.v  # reference to hhn.states['v']
     """
 
     def __init__(self, obj, num, name=None):
@@ -177,8 +200,7 @@ class Container(object):
 
 
 class Network(object):
-    """"""
-
+    """Neural Network Object"""
     def __init__(self, solver="euler", backend="cuda"):
         self.containers = OrderedDict()
         self.inputs = OrderedDict()
@@ -186,30 +208,30 @@ class Network(object):
         self.backend = backend
         self._iscompiled = False
 
-    def input(self, num=None, name=None):
-        name = name or "input{}".format(len(self.inputs))
+    def input(self, num: int = None, name: str = None) -> Input:
+        """Create input object"""
+        name = name or f"input{len(self.inputs)}"
         input = Input(num=num, name=name)
         self.inputs[name] = input
         self._iscompiled = False
         return input
 
-    def add(self, module, num=None, name=None, record=None, **kwargs):
-        backend = kwargs.pop("backend", self.backend)
-        solver = kwargs.pop("solver", self.solver)
-        num = num
-        name = name or "obj{}".format(len(self.containers))
+    def add(self, module, num: int = None, name: str = None, record=None, backend=None, solver=None, **kwargs):
+        backend = backend or self.backend
+        solver = solver or self.solver
+        name = name or f"obj{len(self.containers)}"
         record = record or []
         if isinstance(module, Model):
             obj = module
         elif issubclass(module, Model):
             obj = module(solver=solver, **kwargs)
         elif isclass(module):
-            assert Container.isacceptable(module)
+            if not Container.isacceptable(module):
+                raise NeuralNetworkError(f"{module} is not an acceptable Container type")
             kwargs["size"] = num
             obj = module(**kwargs, backend=backend)
         else:
-            msg = "{} is not a submodule nor an instance of {}"
-            raise ValueError(msg.format(module, Model))
+            raise NeuralNetworkError(f"{module} is not a submodule nor an instance of {Model}")
 
         container = Container(obj, num, name)
         if record is not None:
@@ -222,10 +244,10 @@ class Network(object):
         self._iscompiled = False
         return container
 
-    def run(self, dt, steps=0, rate=1, verbose=False, **kwargs):
-        solver = kwargs.pop("solver", self.solver)
+    def run(self, dt: float, steps: int = 0, rate: int = 1, verbose: bool = False, solver: str = None, **kwargs):
+        solver = solver or self.solver
         if not self._iscompiled:
-            raise Exception("Please compile before running the network.")
+            raise NeuralNetworkCompileError("Please compile before running the network.")
 
         # calculate number of steps
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
@@ -264,19 +286,22 @@ class Network(object):
                     elif isinstance(val, Number):
                         args[key] = val
                     else:
-                        raise Exception()
+                        msg = f"Container wrapping [{c.obj}] input {key} value {val} not understood"
+                        raise NeuralNetworkCompileError(msg)
                 if isinstance(c.obj, Model):
                     try:
                         c.obj.update(dt, **args)
                     except Exception as e:
-                        logger.error("[{}] Error - {}".format(c.obj, e))
-                        raise NeuralError(e)
+                        raise NeuralNetworkUpdateError(
+                            f"Container wrapping [{c.obj}] Error - {e}"
+                        )
                 else:
                     try:
                         c.obj.update(**args)
                     except Exception as e:
-                        logger.error("[{}] Error - {}".format(c.obj, e))
-                        raise NeuralError(e)
+                        raise NeuralNetworkUpdateError(
+                            f"Container wrapping [{c.obj}] Error - {e}"
+                        )
             for recorder in recorders:
                 recorder.update(i)
 
@@ -298,18 +323,19 @@ class Network(object):
                         if c.num is not None and val.num != c.num:
                             # raise Exception("Size mismatches: [{}: {}] vs. [{}: {}]".format(
                             #     c.name, c.num, val.name, val.num))
-                            logger.warn(
-                                "Size mismatches: [{}: {}] vs. [{}: {}]".format(
-                                    c.name, c.num, val.name, val.num
-                                )
+                            err = NeuralNetworkWarning(
+                                f"Size mismatches: [{c.name}: {c.num}] vs. [{val.name}: {val.num}]"
                             )
+                            warn(err)
                         dct[key] = np.zeros(val.num)
                     else:
                         dct[key] = dtype(0.0)
                 elif isinstance(val, Number):
                     dct[key] = dtype(val)
                 else:
-                    raise Exception()
+                    raise NeuralNetworkCompileError(
+                        f"Container wrapping [{c.obj}] input {key} value {val} not understood"
+                    )
 
             if hasattr(c.obj, "compile"):
                 if isinstance(c.obj, Model):
@@ -318,20 +344,41 @@ class Network(object):
                     c.obj.compile(**dct)
                 if debug:
                     s = "".join([", {}={}".format(*k) for k in dct.items()])
-                    print(
-                        "{}.cuda_compile(dtype=dtype, num={}{})".format(
-                            c.name, c.num, s
-                        )
-                    )
+                    print(f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})")
         self._iscompiled = True
 
     def record(self, *args):
         for arg in args:
-            assert isinstance(arg, Symbol)
+            if not isinstance(arg, Symbol):
+                raise NeuralNetworkError(f"{arg} needs to be an instance of Symbol.")
             arg.container.record(arg.key)
 
-    def to_graph(self, png=False, svg=False):
-        import pydot
+    def get_obj(self, name):
+        if name in self.containers:
+            return self.containers[name]
+        elif name in self.inputs:
+            return self.inputs[name]
+        else:
+            raise NeuralNetworkError(f"Unexpected name: '{name}'")
+
+    def to_graph(self, png: bool = False, svg: bool = False, prog="dot"):
+        '''Visualize Network instance as Graph
+
+        Arguments:
+            network: network to visualize
+        
+        Keyword Arguments:
+            png : whether to return png image as output
+            svg : whether to return svg image as output
+                - png takes precedence over svg
+            prog: program used to optimize graph layout
+        '''
+        try:
+            import pydot
+        except ImportError as e:
+            raise NeuralNetworkError(
+                f"pydot needs to be installed to create graph from network, {e}"
+            )
 
         graph = pydot.Dot(
             graph_type="digraph", rankdir="LR", splines="ortho", decorate=True
@@ -355,27 +402,32 @@ class Network(object):
                     source = val.name
                     label = ""
                 else:
-                    raise Exception()
+                    raise NeuralNetworkError(
+                        f"Container wrapping [{c.obj}] input {key} value {val} not understood"
+                    )
                 u = nodes[source]
                 graph.add_edge(pydot.Edge(u, v, label=label))
                 edges.append((source, target, label))
-        if png:
+
+        if png:  # return PNG Directly
             png_str = graph.create_png(prog="dot")
-
             return png_str
-
+        elif svg:
+            svg_str = graph.create_svg(prog="dot")
+            return svg_str
         else:
             D_bytes = graph.create_dot(prog="dot")
 
             D = str(D_bytes, encoding="utf-8")
 
             if D == "":  # no data returned
-                print("Graphviz layout with %s failed" % (prog))
-                print()
-                print("To debug what happened try:")
-                print("P = nx.nx_pydot.to_pydot(G)")
-                print('P.write_dot("file.dot")')
-                print("And then run %s on file.dot" % (prog))
+                print(
+                    f"""Graphviz layout with {prog} failed
+                    To debug what happened try:
+                    >>> P = nx.nx_pydot.to_pydot(G)
+                    >>> P.write_dot("file.dot")
+                    And then run {prog} on file.dot"""
+                )
 
             # List of "pydot.Dot" instances deserialized from this string.
             Q_list = pydot.graph_from_dot_data(D)
@@ -480,7 +532,7 @@ class Network(object):
                         y.append(__y)
                     _x = __x
                     _y = __y
-                path = ["{} {}".format(_x, _y) for _x, _y in zip(x, y)]
+                path = [f"{_x} {_y}" for _x, _y in zip(x, y)]
                 p = "M" + " L".join(path)
                 attrs = {"d": p, "stroke-width": 1.5, "fill": "none", "stroke": "black"}
                 lp = e.get_lp()
@@ -491,11 +543,3 @@ class Network(object):
                 elements.append({"label": label, "shape": "path", "attrs": attrs})
             output = {"elements": elements, "viewbox": viewbox}
             return output
-
-    def get_obj(self, name):
-        if name in self.containers:
-            return self.containers[name]
-        elif name in self.inputs:
-            return self.inputs[name]
-        else:
-            raise TypeError("Unexpected name: '{}'".format(name))
