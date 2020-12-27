@@ -1,13 +1,13 @@
 """
 Plotting functions.
 """
-from matplotlib import ticker
+import typing as tp
+from warnings import warn
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import typing as tp
+from matplotlib import ticker
 import numpy as np
 from .logger import NeuralUtilityError, NeuralUtilityWarning
-from warnings import warn
 
 
 def plot_multiple(
@@ -154,10 +154,10 @@ def plot_spikes(
         ax.plot(t[t_idx], neu_idx, "|", c=color, markersize=markersize)
     except ValueError as e:
         raise NeuralUtilityError(
-            f"Raster plot failed, likely an issue with color or markersize setting, {e}"
-        )
+            "Raster plot failed, likely an issue with color or markersize setting"
+        ) from e
     except Exception as e:
-        raise NeuralUtilityError(f"Raster plot failed due to unknown error, {e}")
+        raise NeuralUtilityError("Raster plot failed due to unknown error") from e
     ax.set_xlim([t.min(), t.max()])
     return ax
 

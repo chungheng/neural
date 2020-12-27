@@ -31,9 +31,9 @@ def init(backend: str = "numpy") -> None:
         try:
             import pycuda.autoinit
         except pycuda.driver.RuntimeError as e:
-            raise NeuralBackendError(f"PyCUDA AutoInit Failed, {e}")
+            raise NeuralBackendError("PyCUDA AutoInit Failed") from e
         except Exception as e:
-            raise NeuralBackendError(f"PyCUDA AutoInit Failed with unknown error, {e}")
+            raise NeuralBackendError("PyCUDA AutoInit Failed with unknown error") from e
         CUDA = True
         INITIALIZED = True
         return
@@ -41,10 +41,12 @@ def init(backend: str = "numpy") -> None:
     if backend == "cupy":
         try:
             import cupy as cp
-        except ImportError:
-            raise NeuralBackendError("CuPy specified as backend but not installed")
+        except ImportError as e:
+            raise NeuralBackendError(
+                "CuPy specified as backend but not installed"
+            ) from e
         except Exception as e:
-            raise NeuralBackendError(f"CuPy Import Failed, {e}")
+            raise NeuralBackendError("CuPy Import Failed") from e
 
         try:
             cp.cuda.runtime.getDeviceCount()
@@ -57,7 +59,7 @@ def init(backend: str = "numpy") -> None:
             CUDA = False
             INITIALIZED = True
         except Exception as e:
-            raise NeuralBackendError(f"CuPy Runtime Check failed, {e}")
+            raise NeuralBackendError("CuPy Runtime Check failed") from e
         else:
             CUDA = True
             INITIALIZED = True

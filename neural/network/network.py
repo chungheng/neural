@@ -18,14 +18,13 @@ from collections import OrderedDict
 from functools import reduce
 from numbers import Number
 from inspect import isclass
-
+from warnings import warn
 import numpy as np
 import pycuda.gpuarray as garray
 from tqdm import tqdm
-from warnings import warn
+import typing as tp
 
 from ..basemodel import Model
-from ..future import SimpleNamespace
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
@@ -45,17 +44,25 @@ if PY2:
 
 
 class Symbol(object):
-    def __init__(self, container, key):
+    def __init__(self, container: Container, key: str):
         self.container = container
         self.key = key
 
-    def __getitem__(self, given):
+    def __getitem__(self, given: str) -> tp.Any:
         attr = getattr(self.container.recorder, self.key)
         return attr.__getitem__(given)
 
 
 class Input(object):
-    """Input Object for Neural Network"""
+    """Input Object for Neural Network
+
+    Note:
+        An Input object `inp` can be updated using either of the 2 methods:
+            1. `value = next(inp)`
+            2. `inp.step(); value = inp.value`
+        The latter method is useful if an input object's value is to be read by
+        multiple containers.
+    """
 
     def __init__(self, num: int = None, name: str = None):
         self.num = num
@@ -83,13 +90,13 @@ class Input(object):
         self.reset()  # create iter object
         return self
 
-    def step(self):
+    def step(self) -> None:
         self.value = next(self)
 
     def __next__(self):
         return next(self.iter)
 
-    def reset(self):
+    def reset(self) -> None:
         if hasattr(self.data, "__iter__"):
             self.iter = iter(self.data)
         elif isinstance(self.data, garray.GPUArray):
@@ -120,8 +127,6 @@ class Container(object):
         self.vars = {}
         self.inputs = dict()
         self.recorder = None
-        # self.latex_src = self._get_latex()
-        # self.graph_src = self._get_graph()
         self._rec = []
 
     def __call__(self, **kwargs):
@@ -140,7 +145,7 @@ class Container(object):
 
         return self
 
-    def __getattr__(self, key):
+    def __getattr__(self, key: str) -> Symbol:
         if key in self.vars:
             return self.vars[key]
         try:
@@ -150,13 +155,21 @@ class Container(object):
         except Exception as e:
             return super(Container, self).__getattribute__(key)
 
-    def record(self, *args):
+    @property
+    def latex_src(self):
+        return self._get_latex()
+
+    @property
+    def graph_src(self):
+        return self._get_graph()
+
+    def record(self, *args) -> None:
         for arg in args:
             _ = getattr(self.obj, arg)
             if arg not in self._rec:
                 self._rec.append(arg)
 
-    def set_recorder(self, steps, rate=1):
+    def set_recorder(self, steps: int, rate: int = 1) -> Recorder:
         if not self._rec:
             self.recorder = None
         elif (
@@ -169,22 +182,19 @@ class Container(object):
             )
         return self.recorder
 
-    def _get_latex(self):
-
-        latex_src = "{}:<br><br>".format(self.obj.__class__.__name__)
+    def _get_latex(self) -> str:
+        latex_src = f"{self.obj.__class__.__name__}:<br><br>"
         if isinstance(self.obj, Model):
             sg = SympyGenerator(self.obj)
-
             latex_src += sg.latex_src
-            vars = ["\({}\)".format(x) for x in sg.signature]
+            vars = [f"\({x}\)" for x in sg.signature]
             latex_src += "<br>Input: " + ", ".join(vars)
             vars = []
             for _k, _v in sg.variables.items():
                 if (_v.type == "state" or _v.type == "intermediate") and (
                     _v.integral == None
                 ):
-                    vars.append("\({}\)".format(_k))
-
+                    vars.append(f"\({_k}\)")
             latex_src += "<br>Variables: " + ", ".join(vars)
 
         return latex_src
@@ -195,14 +205,15 @@ class Container(object):
         return MINIMUM_PNG
 
     @classmethod
-    def isacceptable(cls, obj):
+    def isacceptable(cls, obj) -> bool:
+        """Check if a custom module is acceptable as Container"""
         return hasattr(obj, "update") and callable(obj.update)
 
 
 class Network(object):
     """Neural Network Object"""
 
-    def __init__(self, solver="euler", backend="cuda"):
+    def __init__(self, solver: str = "euler", backend: str = "cuda"):
         self.containers = OrderedDict()
         self.inputs = OrderedDict()
         self.solver = solver
@@ -223,11 +234,11 @@ class Network(object):
         num: int = None,
         name: str = None,
         record=None,
-        backend=None,
+        # backend=None,
         solver=None,
         **kwargs,
     ):
-        backend = backend or self.backend
+        # backend = backend or self.backend
         solver = solver or self.solver
         name = name or f"obj{len(self.containers)}"
         record = record or []
@@ -265,13 +276,24 @@ class Network(object):
         rate: int = 1,
         verbose: bool = False,
         solver: str = None,
+        session_name: str = "Network",
         **kwargs,
-    ):
-        solver = solver or self.solver
+    ) -> None:
+        """Run Network
+
+        Keyword Arguments:
+            dt: step size in second
+            steps: number of steps to run, inferred from input if not specified
+            rate: frequency of recording output
+            verbose: whether to show progress
+            solver: specify solver to use
+            session_name: name of the running session name, reflected in progress bar
+        """
         if not self._iscompiled:
             raise NeuralNetworkCompileError(
                 "Please compile before running the network."
             )
+        solver = solver or self.solver
 
         # calculate number of steps
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
@@ -294,13 +316,13 @@ class Network(object):
 
         iterator = range(steps)
         if verbose:
-            iterator = tqdm(iterator)
+            iterator = tqdm(iterator, total=steps, desc=session_name)
 
         for i in iterator:
-            for c in self.inputs.values():
+            for c in self.inputs.values():  # 1. update input
                 c.step()
 
-            for c in self.containers.values():
+            for c in self.containers.values():  # 2. update containers
                 args = {}
                 for key, val in c.inputs.items():
                     if isinstance(val, Symbol):
@@ -310,26 +332,30 @@ class Network(object):
                     elif isinstance(val, Number):
                         args[key] = val
                     else:
-                        msg = f"Container wrapping [{c.obj}] input {key} value {val} not understood"
-                        raise NeuralNetworkCompileError(msg)
+                        raise NeuralNetworkCompileError(
+                            f"Container wrapping [{c.obj}] input {key} value {val} not understood"
+                        )
                 if isinstance(c.obj, Model):
                     try:
                         c.obj.update(dt, **args)
                     except Exception as e:
                         raise NeuralNetworkUpdateError(
-                            f"Container wrapping [{c.obj}] Error - {e}"
-                        )
+                            f"Container wrapping [{c.obj}] Error"
+                        ) from e
                 else:
                     try:
                         c.obj.update(**args)
                     except Exception as e:
                         raise NeuralNetworkUpdateError(
-                            f"Container wrapping [{c.obj}] Error - {e}"
-                        )
-            for recorder in recorders:
+                            f"Container wrapping [{c.obj}] Error"
+                        ) from e
+            for recorder in recorders:  # 3. update recorder
                 recorder.update(i)
 
-    def compile(self, dtype=None, debug=False, backend="cuda"):
+    def compile(
+        self, dtype: tp.Any = None, debug: bool = False, backend: str = None
+    ) -> None:
+        backend = backend or self.backend
         dtype = dtype or np.float64
         for c in self.containers.values():
             dct = {}
@@ -348,7 +374,10 @@ class Network(object):
                             # raise Exception("Size mismatches: [{}: {}] vs. [{}: {}]".format(
                             #     c.name, c.num, val.name, val.num))
                             err = NeuralNetworkWarning(
-                                f"Size mismatches: [{c.name}: {c.num}] vs. [{val.name}: {val.num}]"
+                                f"""Size mismatches: [{c.name}: {c.num}] vs. [{val.name}: {val.num}].
+                                Unless you are connecting Input object directly to a Project container,
+                                this is likely a bug.
+                                """
                             )
                             warn(err)
                         dct[key] = np.zeros(val.num)
@@ -371,13 +400,13 @@ class Network(object):
                     print(f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})")
         self._iscompiled = True
 
-    def record(self, *args):
+    def record(self, *args: tp.Iterable[Symbol]):
         for arg in args:
             if not isinstance(arg, Symbol):
                 raise NeuralNetworkError(f"{arg} needs to be an instance of Symbol.")
             arg.container.record(arg.key)
 
-    def get_obj(self, name):
+    def get_obj(self, name: str) -> tp.Union[Container, Input]:
         if name in self.containers:
             return self.containers[name]
         elif name in self.inputs:
@@ -401,8 +430,8 @@ class Network(object):
             import pydot
         except ImportError as e:
             raise NeuralNetworkError(
-                f"pydot needs to be installed to create graph from network, {e}"
-            )
+                "pydot needs to be installed to create graph from network"
+            ) from e
 
         graph = pydot.Dot(
             graph_type="digraph", rankdir="LR", splines="ortho", decorate=True
