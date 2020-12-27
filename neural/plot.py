@@ -1,7 +1,6 @@
 """
 Plotting functions.
 """
-from cycler import cycler
 from matplotlib import ticker
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -121,7 +120,7 @@ def plot_spikes(
     t: np.ndarray = None,
     ax: plt.Axes = None,
     markersize: int = None,
-    color_func: tp.Callable = lambda n: "k",
+    color: tp.Union[str, tp.Any] = 'k'
 ) -> plt.Axes:
     """
     Plot Spikes in raster format
@@ -132,9 +131,8 @@ def plot_spikes(
         t: time axes for the spikes, use arange if not provided
         ax: which axis to plot into, create one if not provided
         markersize: size of raster
-        color_func: function that maps a index (1:N_trials) to a color.
-            The returned color value can be anything accepted by the `color=` keyword argument
-            in the `matplotlib.pyplot.plot` function call.
+        color: color for the raster. Any acceptable type of `matplotlib.pyplot.plot`'s 
+            color argument is accepted.
 
     Returns:
         ax: the axis that the raster is plotted into
@@ -148,23 +146,19 @@ def plot_spikes(
     if t is None:
         t = np.arange(spikes.shape[1])
 
-    try:
-        color_cycler = cycler(color=[color_func(n) for n in range(spikes.shape[0])])
-    except Exception as e:
-        err = NeuralUtilityWarning(
-            f"plot_spike keyword argument color_func error, default to all black, {e}"
-        )
-        warn(err)
-        color_cycler = cycler(color=["k"])
-
     if ax is None:
         fig = plt.gcf()
         ax = fig.add_subplot()
-        ax.set_prop_cycle(custom_cycler)
-        # plt.plot(t[t_idx], neu_idx, "|", c="k", markersize=markersize)
-        # ax = plt.gca()
-    else:
-        ax.plot(t[t_idx], neu_idx, "|", c="k", markersize=markersize)
+
+
+    try:
+        ax.plot(t[t_idx], neu_idx, "|", c=color, markersize=markersize)
+    except ValueError as e:
+        raise NeuralUtilityError(
+            f"Raster plot failed, likely an issue with color or markersize setting, {e}"
+        )
+    except Exception as e:
+        raise NeuralUtilityError(f"Raster plot failed due to unknown error, {e}")
     ax.set_xlim([t.min(), t.max()])
     return ax
 
@@ -198,6 +192,14 @@ def plot_mat(
         ax: the axis that the raster is plotted into
         cbar: colorbar object
             - only returned if cax is `True` or a `plt.Axes` instance
+
+    Example:
+        >>> dt, dur, start, stop = 1e-4, 2, 0.5, 1.0
+        >>> t = np.arange(0, dur, dt)
+        >>> amps = np.arange(0, 100, 10)
+        >>> wav = utils.generate_stimulus('step', dt, dur, (start, stop), amps)
+        >>> ax,cbar = plot_mat(wav, t=t, cax=True, vmin=10, vmax=100, cbar_kw={'label':'test'}, cmap=plt.cm.gnuplot)
+        >>> ax, = plot_mat(wav, t=t, cax=False, vmin=10, vmax=100, cbar_kw={'label':'test'}, cmap=plt.cm.gnuplot)
     """
     mat = np.atleast_2d(mat)
     if mat.ndim != 2:
@@ -213,30 +215,21 @@ def plot_mat(
         return "{:.1f}".format(dt * x)
 
     if ax is None:
-        cim = plt.imshow(
-            mat,
-            aspect="auto",
-            interpolation="none",
-            origin="lower",
-            vmin=vmin,
-            vmax=vmax,
-            cmap=cmap,
-        )
-        ax = plt.gca()
-        ax.xaxis.set_major_formatter(major_formatter)
-    else:
-        cim = ax.imshow(
-            mat,
-            aspect="auto",
-            interpolation="none",
-            origin="lower",
-            vmin=vmin,
-            vmax=vmax,
-            cmap=cmap,
-        )
-        ax.xaxis.set_major_formatter(major_formatter)
+        fig = plt.gcf()
+        ax = fig.add_subplot()
 
-    if cax is not None:
+    cim = ax.imshow(
+        mat,
+        aspect="auto",
+        interpolation="none",
+        origin="lower",
+        vmin=vmin,
+        vmax=vmax,
+        cmap=cmap,
+    )
+    ax.xaxis.set_major_formatter(major_formatter)
+
+    if cax:
         if cbar_kw is None:
             cbar_kw = {}
         if not isinstance(cax, plt.Axes):
@@ -245,4 +238,4 @@ def plot_mat(
             cbar = plt.colorbar(cim, cax, **cbar_kw)
         return ax, cbar
     else:
-        return ax
+        return ax,
