@@ -11,13 +11,15 @@ Methods:
 
 import struct
 import zlib
+import numpy as np
 from binascii import unhexlify
 
 import typing as tp
-from .logger import logger, NeuralUtilityError, SignalTypeNotFoundError
-
-import numpy as np
-
+from .logger import (
+    NeuralUtilityError, 
+    SignalTypeNotFoundError,
+    NeuralNetworkError
+)
 
 def chunk(type, data):
     return (
@@ -128,7 +130,7 @@ def generate_stimulus(
             wav[start:peak] = amp * np.linspace(0.0, 1, peak - start) ** 2
             wav[peak:stop] = amp * np.linspace(1, 0.0, stop - peak) ** 2
 
-    def _generate_spikes(
+    def _generate_spike(
         waveforms: np.ndarray,
         d_t: float,
         support: tp.Iterable[float],
@@ -138,17 +140,15 @@ def generate_stimulus(
         """
         Generate a set of poisson spikes.
 
-        keyword arguments:
-            rate (float): spike rate generated
+        Note:
+            The amplitude argument is used as rate in a Poisson Process
+            from which the spikes are generated
         """
-        rates = kwargs.pop("rate", 100.0)
-
         start = int((support[0] + d_t / 2) // d_t)
         stop = int((support[1] + d_t / 2) // d_t)
-
-        for wav, amp in zip(waveforms, amplitude):
-            wav[start:peak] = amp * np.linspace(0.0, 1, peak - start) ** 2
-            wav[peak:stop] = amp * np.linspace(1, 0.0, stop - peak) ** 2
+        waveforms[:] = np.random.rand(*waveforms.shape) < amplitude[:, None] * d_t
+        waveforms[:, :start] = 0
+        waveforms[:, stop:] = 0
 
     amplitude = np.atleast_1d(amplitude)
     num = int((duration + d_t / 2) // d_t)
@@ -160,18 +160,16 @@ def generate_stimulus(
         tmp = "_generate_%s" % mode
         if tmp not in locals():
             msg = f"Stimulus type {mode} is not supported."
-            logger.error(msg)
             raise SignalTypeNotFoundError(msg)
         generator = locals()[tmp]
 
-    # ad-hoc way to deal with amplitude being a scalar or a list
-    if hasattr(amplitude, "__len__"):
-        generator(waveforms, d_t, support, amplitude, **kwargs)
-    else:
-        generator([waveforms], d_t, support, [amplitude], **kwargs)
+    generator(waveforms, d_t, support, amplitude, **kwargs)
 
     if sigma is not None:
-        waveforms += sigma * np.random.rand(shape)
+        waveforms += sigma * np.random.rand(*shape)
+
+    if len(amplitude) == 1:  # for consistency with previous API
+        waveforms = waveforms[0]
     return waveforms
 
 
