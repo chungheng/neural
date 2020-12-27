@@ -1,30 +1,29 @@
 from warnings import warn
-from .logger import (
-    NeuralBackendError,
-    NeuralBackendWarning
-)
+from .logger import NeuralBackendError, NeuralBackendWarning
+
 CUDA = False
 INITIALIZED = False
 
-def init(backend: str = 'numpy') -> None:
-    '''
+
+def init(backend: str = "numpy") -> None:
+    """
     Initialize Neural and Backend
-    
+
     Keyword Arguments:
         backend: a str that configures the backend of the entire neural runtime context
             - numpy: no GPU is used
             - pycuda: use pycuda for GPU support
             - cupy: use cupy for GPU support
-    '''
+    """
     global CUDA
     global INITIALIZED
-    if backend == 'numpy':
+    if backend == "numpy":
         CUDA = False
         INITIALIZED = True
         return
 
-    if backend == 'pycuda':
-        try: 
+    if backend == "pycuda":
+        try:
             import pycuda
         except ImportError:
             raise NeuralBackendError("PyCUDA specified as backend but not installed")
@@ -39,7 +38,7 @@ def init(backend: str = 'numpy') -> None:
         INITIALIZED = True
         return
 
-    if backend == 'cupy':
+    if backend == "cupy":
         try:
             import cupy as cp
         except ImportError:
@@ -50,7 +49,11 @@ def init(backend: str = 'numpy') -> None:
         try:
             cp.cuda.runtime.getDeviceCount()
         except cp.cuda.runtime.CUDARuntimeError as e:
-            warn(NeuralBackendWarning(f"CuPy initialization failed, forcing CPU mode. {e}"))
+            warn(
+                NeuralBackendWarning(
+                    f"CuPy initialization failed, forcing CPU mode. {e}"
+                )
+            )
             CUDA = False
             INITIALIZED = True
         except Exception as e:
@@ -60,10 +63,15 @@ def init(backend: str = 'numpy') -> None:
             INITIALIZED = True
         return
 
+
 def neural_initialized(func):
-    '''Decorator to enforce neural initialization'''
+    """Decorator to enforce neural initialization"""
+
     def function(*args, **kwargs):
         if not INITIALIZED:
-            raise NeuralBackendError("Neural Not Initialized, call neural.init(backend='') first.")
+            raise NeuralBackendError(
+                "Neural Not Initialized, call neural.init(backend='') first."
+            )
         return func(*args, **kwargs)
+
     return function

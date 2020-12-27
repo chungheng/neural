@@ -15,11 +15,8 @@ import numpy as np
 from binascii import unhexlify
 
 import typing as tp
-from .logger import (
-    NeuralUtilityError, 
-    SignalTypeNotFoundError,
-    NeuralNetworkError
-)
+from .logger import NeuralUtilityError, SignalTypeNotFoundError, NeuralNetworkError
+
 
 def chunk(type, data):
     return (

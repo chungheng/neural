@@ -34,7 +34,7 @@ from ..logger import (
     NeuralNetworkWarning,
     NeuralNetworkCompileError,
     NeuralNetworkUpdateError,
-    NeuralNetworkInputError
+    NeuralNetworkInputError,
 )
 
 PY2 = sys.version_info[0] == 2
@@ -55,8 +55,8 @@ class Symbol(object):
 
 
 class Input(object):
-    """Input Object for Neural Network
-    """
+    """Input Object for Neural Network"""
+
     def __init__(self, num: int = None, name: str = None):
         self.num = num
         self.name = name
@@ -201,6 +201,7 @@ class Container(object):
 
 class Network(object):
     """Neural Network Object"""
+
     def __init__(self, solver="euler", backend="cuda"):
         self.containers = OrderedDict()
         self.inputs = OrderedDict()
@@ -216,7 +217,16 @@ class Network(object):
         self._iscompiled = False
         return input
 
-    def add(self, module, num: int = None, name: str = None, record=None, backend=None, solver=None, **kwargs):
+    def add(
+        self,
+        module,
+        num: int = None,
+        name: str = None,
+        record=None,
+        backend=None,
+        solver=None,
+        **kwargs,
+    ):
         backend = backend or self.backend
         solver = solver or self.solver
         name = name or f"obj{len(self.containers)}"
@@ -227,11 +237,15 @@ class Network(object):
             obj = module(solver=solver, **kwargs)
         elif isclass(module):
             if not Container.isacceptable(module):
-                raise NeuralNetworkError(f"{module} is not an acceptable Container type")
+                raise NeuralNetworkError(
+                    f"{module} is not an acceptable Container type"
+                )
             kwargs["size"] = num
             obj = module(**kwargs, backend=backend)
         else:
-            raise NeuralNetworkError(f"{module} is not a submodule nor an instance of {Model}")
+            raise NeuralNetworkError(
+                f"{module} is not a submodule nor an instance of {Model}"
+            )
 
         container = Container(obj, num, name)
         if record is not None:
@@ -244,10 +258,20 @@ class Network(object):
         self._iscompiled = False
         return container
 
-    def run(self, dt: float, steps: int = 0, rate: int = 1, verbose: bool = False, solver: str = None, **kwargs):
+    def run(
+        self,
+        dt: float,
+        steps: int = 0,
+        rate: int = 1,
+        verbose: bool = False,
+        solver: str = None,
+        **kwargs,
+    ):
         solver = solver or self.solver
         if not self._iscompiled:
-            raise NeuralNetworkCompileError("Please compile before running the network.")
+            raise NeuralNetworkCompileError(
+                "Please compile before running the network."
+            )
 
         # calculate number of steps
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
@@ -362,17 +386,17 @@ class Network(object):
             raise NeuralNetworkError(f"Unexpected name: '{name}'")
 
     def to_graph(self, png: bool = False, svg: bool = False, prog="dot"):
-        '''Visualize Network instance as Graph
+        """Visualize Network instance as Graph
 
         Arguments:
             network: network to visualize
-        
+
         Keyword Arguments:
             png : whether to return png image as output
             svg : whether to return svg image as output
                 - png takes precedence over svg
             prog: program used to optimize graph layout
-        '''
+        """
         try:
             import pydot
         except ImportError as e:

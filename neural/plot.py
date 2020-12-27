@@ -120,7 +120,7 @@ def plot_spikes(
     t: np.ndarray = None,
     ax: plt.Axes = None,
     markersize: int = None,
-    color: tp.Union[str, tp.Any] = 'k'
+    color: tp.Union[str, tp.Any] = "k",
 ) -> plt.Axes:
     """
     Plot Spikes in raster format
@@ -131,7 +131,7 @@ def plot_spikes(
         t: time axes for the spikes, use arange if not provided
         ax: which axis to plot into, create one if not provided
         markersize: size of raster
-        color: color for the raster. Any acceptable type of `matplotlib.pyplot.plot`'s 
+        color: color for the raster. Any acceptable type of `matplotlib.pyplot.plot`'s
             color argument is accepted.
 
     Returns:
@@ -149,7 +149,6 @@ def plot_spikes(
     if ax is None:
         fig = plt.gcf()
         ax = fig.add_subplot()
-
 
     try:
         ax.plot(t[t_idx], neu_idx, "|", c=color, markersize=markersize)
@@ -238,4 +237,4 @@ def plot_mat(
             cbar = plt.colorbar(cim, cax, **cbar_kw)
         return ax, cbar
     else:
-        return ax,
+        return (ax,)

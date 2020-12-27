@@ -5,11 +5,14 @@ class NeuralWarning(Warning):
 class NeuralError(Exception):
     """Base Neural Exception Class"""
 
+
 class NeuralBackendError(NeuralError):
     """Backend Exception"""
 
+
 class NeuralBackendWarning(NeuralWarning):
     """Backend Warning"""
+
 
 class NeuralNetworkError(NeuralError):
     """Neural Error for Network Module"""

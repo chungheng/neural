@@ -7,16 +7,18 @@ from numbers import Number
 import sys
 import time
 import numpy as np
+
 import pycuda
 import pycuda.gpuarray as garray
 import pycuda.driver as cuda
+from pycuda.compiler import SourceModule
+from pycuda.tools import dtype_to_ctype
 
+from neural import INITIALIZED, CUDA, neural_initialized
 
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
 
-from pycuda.compiler import SourceModule
-from pycuda.tools import dtype_to_ctype
 
 src_cuda = """
 __global__ void copy(
@@ -40,11 +42,12 @@ __global__ void copy(
 
 _copy = {"float": None, "double": None}
 
-for key, val in _copy.items():
-    mod = SourceModule(src_cuda % {"type": key}, options=["--ptxas-options=-v"])
-    func = mod.get_function("copy")
-    func.prepare("iiiPP")
-    _copy[key] = func
+if INITIALIZED and CUDA:
+    for key, val in _copy.items():
+        mod = SourceModule(src_cuda % {"type": key}, options=["--ptxas-options=-v"])
+        func = mod.get_function("copy")
+        func.prepare("iiiPP")
+        _copy[key] = func
 
 
 class Recorder(object):
