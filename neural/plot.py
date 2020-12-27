@@ -1,12 +1,19 @@
 """
 Plotting functions.
 """
-
+from cycler import cycler
+from matplotlib import ticker
+import matplotlib as mpl
 import matplotlib.pyplot as plt
+import typing as tp
 import numpy as np
+from .logger import NeuralUtilityError, NeuralUtilityWarning
+from warnings import warn
 
 
-def plot_multiple(data_x, *args, **kwargs):
+def plot_multiple(
+    data_x: np.ndarray, *args, **kwargs
+) -> tp.Tuple[plt.Figure, np.ndarray]:
     """
     Plot multiple data curves against a same x-axis on mulitple subplots.
 
@@ -79,9 +86,7 @@ def plot_multiple(data_x, *args, **kwargs):
     num = len(args)
 
     fig, axes = plt.subplots(num, 1, figsize=(figw, num * figh))
-
-    if not hasattr(axes, "__len__"):
-        axes = [axes]
+    axes = np.atleast_1d(axes)
 
     for i, (dataset, axe) in enumerate(zip(args, axes)):
         axe.grid()
@@ -109,3 +114,135 @@ def plot_multiple(data_x, *args, **kwargs):
     plt.tight_layout()
 
     return fig, axes
+
+
+def plot_spikes(
+    spikes: np.ndarray,
+    t: np.ndarray = None,
+    ax: plt.Axes = None,
+    markersize: int = None,
+    color_func: tp.Callable = lambda n: "k",
+) -> plt.Axes:
+    """
+    Plot Spikes in raster format
+
+    Arguments:
+        spikes: the spike states in binary format, where 1 stands for a spike.
+            The shape of the spikes should either be (N_times, ) or (N_trials, N_times)
+        t: time axes for the spikes, use arange if not provided
+        ax: which axis to plot into, create one if not provided
+        markersize: size of raster
+        color_func: function that maps a index (1:N_trials) to a color.
+            The returned color value can be anything accepted by the `color=` keyword argument
+            in the `matplotlib.pyplot.plot` function call.
+
+    Returns:
+        ax: the axis that the raster is plotted into
+    """
+    spikes = np.atleast_2d(spikes)
+    if spikes.ndim != 2:
+        raise NeuralUtilityError(
+            f"matrix need to be of ndim 2, (channels x time), got ndim={spikes.ndim}"
+        )
+    neu_idx, t_idx = np.nonzero(spikes)
+    if t is None:
+        t = np.arange(spikes.shape[1])
+
+    try:
+        color_cycler = cycler(color=[color_func(n) for n in range(spikes.shape[0])])
+    except Exception as e:
+        err = NeuralUtilityWarning(
+            f"plot_spike keyword argument color_func error, default to all black, {e}"
+        )
+        warn(err)
+        color_cycler = cycler(color=["k"])
+
+    if ax is None:
+        fig = plt.gcf()
+        ax = fig.add_subplot()
+        ax.set_prop_cycle(custom_cycler)
+        # plt.plot(t[t_idx], neu_idx, "|", c="k", markersize=markersize)
+        # ax = plt.gca()
+    else:
+        ax.plot(t[t_idx], neu_idx, "|", c="k", markersize=markersize)
+    ax.set_xlim([t.min(), t.max()])
+    return ax
+
+
+def plot_mat(
+    mat: np.ndarray,
+    t: np.ndarray = None,
+    ax: plt.Axes = None,
+    cax=None,
+    vmin: float = None,
+    vmax: float = None,
+    cbar_kw: dict = None,
+    cmap: tp.Any = None,
+) -> tp.Union[tp.Tuple[plt.Axes, tp.Any], plt.Axes]:
+    """
+    Plot Matrix with formatted time axes
+
+    Arguments:
+        mat: the matrix to be plotted, it should of shape (N, Time)
+        t: time axes for the spikes, use arange if not provided
+        ax: which axis to plot into, create one if not provided
+        cax: which axis to plot colorbar into
+            - if instance of axis, plot into that axis
+            - if is True, steal axis from `ax`
+        vmin: minimum value for the imshow
+        vmax: maximum value for the imshow
+        cbar_kw: keyword arguments to be passed into the colorbar creation
+        cmap: colormap to use
+
+    Returns:
+        ax: the axis that the raster is plotted into
+        cbar: colorbar object
+            - only returned if cax is `True` or a `plt.Axes` instance
+    """
+    mat = np.atleast_2d(mat)
+    if mat.ndim != 2:
+        raise NeuralUtilityError(
+            f"matrix need to be of ndim 1 (N_time),or ndim 2 (N_trials x N_times), got ndim={mat.ndim}"
+        )
+    if t is None:
+        t = np.arange(mat.shape[1])
+    dt = t[1] - t[0]
+
+    @ticker.FuncFormatter
+    def major_formatter(x, pos):
+        return "{:.1f}".format(dt * x)
+
+    if ax is None:
+        cim = plt.imshow(
+            mat,
+            aspect="auto",
+            interpolation="none",
+            origin="lower",
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+        )
+        ax = plt.gca()
+        ax.xaxis.set_major_formatter(major_formatter)
+    else:
+        cim = ax.imshow(
+            mat,
+            aspect="auto",
+            interpolation="none",
+            origin="lower",
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+        )
+        ax.xaxis.set_major_formatter(major_formatter)
+
+    if cax is not None:
+        if cbar_kw is None:
+            cbar_kw = {}
+        if not isinstance(cax, plt.Axes):
+            cbar = plt.colorbar(cim, ax=ax, **cbar_kw)
+        else:
+            cbar = plt.colorbar(cim, cax, **cbar_kw)
+        return ax, cbar
+    else:
+        return ax
