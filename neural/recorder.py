@@ -5,49 +5,13 @@ from abc import abstractmethod
 from numbers import Number
 
 import sys
-import time
 import numpy as np
 
-import pycuda
 import pycuda.gpuarray as garray
 import pycuda.driver as cuda
-from pycuda.compiler import SourceModule
-from pycuda.tools import dtype_to_ctype
-
-from neural import INITIALIZED, CUDA, neural_initialized
 
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
-
-
-src_cuda = """
-__global__ void copy(
-    int num,
-    int idx,
-    int len,
-    %(type)s *dst,
-    %(type)s *src
-)
-{
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    int total_threads = gridDim.x * blockDim.x;
-
-    for (int i = tid; i < num; i += total_threads) {
-        idx += len * i;
-        dst[idx] = src[i];
-    }
-    return;
-}
-"""
-
-_copy = {"float": None, "double": None}
-
-if INITIALIZED and CUDA:
-    for key, val in _copy.items():
-        mod = SourceModule(src_cuda % {"type": key}, options=["--ptxas-options=-v"])
-        func = mod.get_function("copy")
-        func.prepare("iiiPP")
-        _copy[key] = func
 
 
 class Recorder(object):
@@ -101,14 +65,12 @@ class Recorder(object):
         """
         initialize the dict that contains the numpy arrays
         """
-        pass
 
     @abstractmethod
     def update(self, index):
         """
         update the record
         """
-        pass
 
     def __iter__(self):
         for i in range(self.total_steps):
