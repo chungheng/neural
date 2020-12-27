@@ -156,6 +156,10 @@ def plot_spikes(
         raise NeuralUtilityError(
             "Raster plot failed, likely an issue with color or markersize setting"
         ) from e
+    except IndexError as e:
+        raise NeuralUtilityError(
+            "Raster plot failed, likely an issue with spikes and time vector mismatch"
+        ) from e
     except Exception as e:
         raise NeuralUtilityError("Raster plot failed due to unknown error") from e
     ax.set_xlim([t.min(), t.max()])

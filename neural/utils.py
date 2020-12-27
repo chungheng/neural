@@ -171,26 +171,68 @@ def generate_stimulus(
 
 
 def generate_spike_from_psth(
-    d_t: float, psth: np.ndarray, num: int = 1, **kwargs
-) -> np.ndarray:
+    d_t: float, psth: np.ndarray, psth_t: np.ndarray = None, num: int = 1
+) -> tp.Tuple[np.ndarray, np.ndarray]:
     """
     Generate spike sequeces from a PSTH.
 
     Arguments:
-        d_t (float): the sampling interval of the input waveform.
-        psth (darray): the spike rate waveform.
+        d_t: the sampling interval of the input waveform.
+        psth: the spike rate waveform.
 
     Keyword Arguments:
-        num (int):
+        psth_t: time-stamps of the psth, optional. See Notes for behavior
+        num: number of trials to generate
 
+    Returns:
+        A tuple of (time, spikes).
+        Spikes is a binary numpy array of either shape
+            1. (Nt, num) if num > 1
+            2. (Nt,) if num == 1
+        See Notes for definition of `Nt`
+
+    Notes:
+        1. If `psth_t` is specified:
+            - it needs to have the same dimensionality as `psth`.
+            - In this case, `d_t` is the desired time-step instead of the time-step of the `psth` array.
+            - `Nt` is given as `np.arange(psth_t.min(), psth_t.max(), dt)`
+        2. If `psth_t` is not specified:
+            - `d_t` is the time-step of the `psth` array
+            - `Nt` given as `len(psth)`
+
+    Examples:
+        >>> from neural import utils, plot
+        >>> dt, dur, start, stop, amp = 1e-5, 2, 0.5, 1.0, 100.0
+        >>> spikes = utils.generate_stimulus("spike", dt, dur, (start, stop), np.full((100,), amp))
+        >>> psth, psth_t = utils.PSTH(spikes, d_t=dt, window=20e-3, shift=10e-3).compute()
+        >>> tt, spikes = utils.generate_spike_from_psth(dt, psth, psth_t)
+        >>> plot.plot_spikes(spikes, t=tt)
     """
-    shape = (len(psth), num) if num > 1 else len(psth)
-    spikes = np.zeros(shape, dtype=int, order="C")
+    if psth.ndim > 1:
+        psth = np.squeeze(psth)
+        if psth.ndim >1:
+            raise NeuralUtilityError(
+                f"Only 1D psth array is accepted, got shape ({psth.shape}) after squeezing"
+            )
 
-    for i, rate in enumerate(psth):
-        spikes[i] = np.random.rand(num) < d_t * rate
+    if psth_t is not None:
+        if psth_t.shape != psth.shape:
+            raise NeuralUtilityError(
+                f"psth_t shape ({psth_t.shape}) needs to be the same as psth shape ({psth.shape})"
+            )
+        t = np.arange(psth_t.min(), psth_t.max(), d_t)
+        rate = np.interp(t, psth_t, psth)
+    else:
+        t = np.arange(len(psth)) * d_t
+        rate = psth
+    
+    if num > 1:
+        rate = np.repeat(psth[:,None], num, axis=-1)
+        spikes = np.random.rand(len(t), num) < d_t * rate
+    else:
+        spikes = np.random.rand(len(t), ) < d_t * rate
 
-    return spikes.T
+    return t, np.ascontiguousarray(spikes.T)
 
 
 def compute_psth(
@@ -230,13 +272,12 @@ def compute_psth(
 
 class PSTH(object):
     def __init__(
-        self, spikes: np.ndarray, dt: float, window: float = 20e-3, shift: float = 10e-3
+        self, spikes: np.ndarray, d_t: float, window: float = 20e-3, shift: float = 10e-3
     ):
         self.window = window
         self.shift = shift
-        self.dt = dt
+        self.d_t = d_t
         self.spikes = spikes
-
         self.psth, self.t = self.compute()
 
     def compute(self) -> tp.Tuple[np.ndarray, np.ndarray]:
@@ -247,16 +288,16 @@ class PSTH(object):
 
         cum_spikes = np.cumsum(spikes)
 
-        duration = self.dt * len(cum_spikes)
-        start = np.arange(0.0, duration - self.window, self.shift) // self.dt
-        stop = np.arange(self.window, duration - self.dt, self.shift) // self.dt
+        duration = self.d_t * len(cum_spikes)
+        start = np.arange(0.0, duration - self.window, self.shift) // self.d_t
+        stop = np.arange(self.window, duration - self.d_t, self.shift) // self.d_t
         start = start.astype(int, copy=False)
         stop = stop.astype(int, copy=False)
 
         start = start[: len(stop)]
 
         rates = (cum_spikes[stop] - cum_spikes[start]) / self.window
-        stamps = np.arange(0, len(rates) * self.shift - self.dt, self.shift)
+        stamps = np.arange(0, len(rates) * self.shift - self.d_t, self.shift)
 
         return rates, stamps
 
