@@ -34,6 +34,7 @@ from ..logger import (
     NeuralNetworkCompileError,
     NeuralNetworkUpdateError,
     NeuralNetworkInputError,
+    NeuralContainerError
 )
 
 PY2 = sys.version_info[0] == 2
@@ -44,7 +45,7 @@ if PY2:
 
 
 class Symbol(object):
-    def __init__(self, container: Container, key: str):
+    def __init__(self, container: tp.Any, key: str): # DEBUG: container should be Container Type but it's only declared later
         self.container = container
         self.key = key
 
@@ -120,29 +121,55 @@ class Container(object):
     >>> hhn.v  # reference to hhn.states['v']
     """
 
-    def __init__(self, obj, num, name=None):
+    def __init__(self, obj: tp.Union[Model, Symbol, Number, Input], num: int, name: str = None):
         self.obj = obj
         self.num = num
         self.name = name or ""
-        self.vars = {}
+        self.vars = dict()
         self.inputs = dict()
         self.recorder = None
         self._rec = []
+    
+    def __repr__(self):
+        return f"""Container[{self.obj}] - num {self.num}"""
 
     def __call__(self, **kwargs):
+        """
+        Notes:
+            Calling a container has the following behaviors:
+                1. If container wraps a `Model` module, then 
+                    1. If called with a key that is part of the container variable, 
+                        the value of that variable is set to the corresponding value
+                    2. If called with a key that is part of the input, 
+                        check if the value is an acceptable type. Set the input if 
+                        acceptable, else raise an error.
+                    3. If neither, then an error is raised.
+                2. If container does not wrap a `Model` instance
+        """
         for key, val in kwargs.items():
             if isinstance(self.obj, Model):
                 if key in self.obj.Variables:
                     setattr(self.obj, key, val)
                 elif key in self.obj.Inputs:
-                    assert isinstance(val, (Symbol, Number, Input))
+                    if not isinstance(val, (Symbol, Number, Input)):
+                        raise NeuralContainerError(
+                            f"""Container {self.name} is called with value {val} that is of a type not understaood.
+                            Should be Symbol, Number of Input
+                            """
+                        )
                     self.inputs[key] = val
                 else:
-                    raise KeyError("Unexpected variable '{}'".format(key))
+                    raise NeuralContainerError(
+                        f"Attempting to set variable '{key}' of container but the variable is not understood"
+                    )
             else:
-                assert isinstance(val, (Symbol, Number, Input))
+                if not isinstance(val, (Symbol, Number, Input)):
+                    raise NeuralContainerError(
+                        f"""Container {self.name} is called with value {val} that is of a type not understaood.
+                        Should be Symbol, Number of Input
+                        """
+                    )
                 self.inputs[key] = val
-
         return self
 
     def __getattr__(self, key: str) -> Symbol:
@@ -252,7 +279,7 @@ class Network(object):
                     f"{module} is not an acceptable Container type"
                 )
             kwargs["size"] = num
-            obj = module(**kwargs, backend=backend)
+            obj = module(**kwargs)  # , backend=backend)
         else:
             raise NeuralNetworkError(
                 f"{module} is not a submodule nor an instance of {Model}"

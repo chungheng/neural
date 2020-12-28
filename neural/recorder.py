@@ -190,7 +190,7 @@ class CUDARecorder(Recorder):
                 continue
             src = getattr(self.obj, key)
             dst = int(self.gpu_dct[key].gpudata) + b_index * src.nbytes
-            cuda.memcpy_dtod(dst, src.gpudata, src.nbytes)
+            cuda.memcpy_dtod(dst, src.gpudata, src.nbytes) # pylint: disable=no-member
 
         if (d_index == self.steps - 1) or (b_index == self.buffer_length - 1):
             for key in self.dct.keys():
@@ -198,7 +198,7 @@ class CUDARecorder(Recorder):
                     continue
                 else:
                     buffer = self.get_buffer(key, d_index)
-                    cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
+                    cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata) # pylint: disable=no-member
 
     def _copy_memory_dtoh(self, index):
         d_index = int(index / self.rate)  # downsample index

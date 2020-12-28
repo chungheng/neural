@@ -1,13 +1,13 @@
-from neural.utils import (
-    generate_stimulus, PSTH, generate_spike_from_psth, compute_psth
-)
 import pytest
 import numpy as np
+from neural.utils import generate_stimulus, PSTH, generate_spike_from_psth, compute_psth
+
 
 @pytest.fixture
 def data():
     dt, dur, start, stop, amp = 1e-4, 2, 0.5, 1.0, 100.0
     return dt, dur, start, stop, amp
+
 
 def test_stimuli(data):
     dt, dur, start, stop, amp = data
@@ -27,4 +27,6 @@ def test_psth(data):
 
     np.testing.assert_equal(psth, psth2)
     np.testing.assert_equal(psth_t, psth_t2)
-    np.testing.assert_approx_equal(amp, psth[np.logical_and(psth_t>start, psth_t<stop)].mean(), significant=1)
+    np.testing.assert_approx_equal(
+        amp, psth[np.logical_and(psth_t > start, psth_t < stop)].mean(), significant=1
+    )

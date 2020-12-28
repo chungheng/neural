@@ -11,11 +11,11 @@ Methods:
 
 import struct
 import zlib
-import numpy as np
+import typing as tp
 from binascii import unhexlify
 
-import typing as tp
-from .logger import NeuralUtilityError, SignalTypeNotFoundError, NeuralNetworkError
+import numpy as np
+from .logger import NeuralUtilityError, SignalTypeNotFoundError
 
 
 def chunk(type, data):
@@ -210,7 +210,7 @@ def generate_spike_from_psth(
     """
     if psth.ndim > 1:
         psth = np.squeeze(psth)
-        if psth.ndim >1:
+        if psth.ndim > 1:
             raise NeuralUtilityError(
                 f"Only 1D psth array is accepted, got shape ({psth.shape}) after squeezing"
             )
@@ -225,12 +225,17 @@ def generate_spike_from_psth(
     else:
         t = np.arange(len(psth)) * d_t
         rate = psth
-    
+
     if num > 1:
-        rate = np.repeat(psth[:,None], num, axis=-1)
+        rate = np.repeat(psth[:, None], num, axis=-1)
         spikes = np.random.rand(len(t), num) < d_t * rate
     else:
-        spikes = np.random.rand(len(t), ) < d_t * rate
+        spikes = (
+            np.random.rand(
+                len(t),
+            )
+            < d_t * rate
+        )
 
     return t, np.ascontiguousarray(spikes.T)
 
@@ -272,7 +277,11 @@ def compute_psth(
 
 class PSTH(object):
     def __init__(
-        self, spikes: np.ndarray, d_t: float, window: float = 20e-3, shift: float = 10e-3
+        self,
+        spikes: np.ndarray,
+        d_t: float,
+        window: float = 20e-3,
+        shift: float = 10e-3,
     ):
         self.window = window
         self.shift = shift

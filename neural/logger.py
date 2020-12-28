@@ -13,10 +13,11 @@ class NeuralBackendError(NeuralError):
 class NeuralBackendWarning(NeuralWarning):
     """Backend Warning"""
 
-
 class NeuralNetworkError(NeuralError):
     """Neural Error for Network Module"""
 
+class NeuralContainerError(NeuralNetworkError):
+    """Neural Error for Container Module used in Network constructions"""
 
 class NeuralNetworkCompileError(NeuralNetworkError):
     """Neural Network Compilation Error"""

@@ -3,3 +3,4 @@ neural.egg-info/
 .ipynb_checkpoints/
 .vscode/
 .pytest_cache
+examples/
