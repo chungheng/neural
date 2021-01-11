@@ -19,10 +19,10 @@ from functools import reduce
 from numbers import Number
 from inspect import isclass
 from warnings import warn
+import typing as tp
 import numpy as np
 import pycuda.gpuarray as garray
 from tqdm import tqdm
-import typing as tp
 
 from ..basemodel import Model
 from ..recorder import Recorder
@@ -34,7 +34,8 @@ from ..logger import (
     NeuralNetworkCompileError,
     NeuralNetworkUpdateError,
     NeuralNetworkInputError,
-    NeuralContainerError
+    NeuralContainerError,
+    NeuralRecorderWarning,
 )
 
 PY2 = sys.version_info[0] == 2
@@ -45,7 +46,11 @@ if PY2:
 
 
 class Symbol(object):
-    def __init__(self, container: tp.Any, key: str): # DEBUG: container should be Container Type but it's only declared later
+    def __init__(
+        self,
+        container: tp.Any,
+        key: str,  # DEBUG: container should be Container Type but it's only declared later
+    ):
         self.container = container
         self.key = key
 
@@ -76,15 +81,19 @@ class Input(object):
         self.value = None
 
     def __call__(self, data):
-        if (self.num is None and data.ndim > 1) or (
-            data.ndim == 2 and data.shape[1] != self.num
-        ):
+        if data.ndim == 1:
+            if self.num != 1 and self.num is not None:
+                raise NeuralNetworkInputError(
+                    f"Input '{self.name}' is specified with num={self.num} but was given data of shape={data.shape}"
+                )
+        elif data.ndim == 2:
+            if self.num != data.shape[1]:
+                raise NeuralNetworkInputError(
+                    f"Input '{self.name}' is specified with num={self.num} but was given data of shape={data.shape}"
+                )
+        else:
             raise NeuralNetworkInputError(
-                f"Input {self.name} is specified with num {self.num} but was given data of shape {data.shape}"
-            )
-        if data.ndim > 2:
-            raise NeuralNetworkInputError(
-                f"Input {self.name} is given data of shape {data.shape}, only up-to 2D data is supported currently."
+                f"Input '{self.name}' is given data of shape={data.shape}, only up-to 2D data is supported currently."
             )
         self.data = data
         self.steps = len(data) if hasattr(data, "__len__") else 0
@@ -114,14 +123,16 @@ class Input(object):
 
 class Container(object):
     """
-    A wrapper holds an Model instance with symbolic reference to its varaibles.
+    A wrapper holds an Model instance with symbolic reference to its variables.
 
     Examples:
     >>> hhn = Container(HodgkinHuxley)
     >>> hhn.v  # reference to hhn.states['v']
     """
 
-    def __init__(self, obj: tp.Union[Model, Symbol, Number, Input], num: int, name: str = None):
+    def __init__(
+        self, obj: tp.Union[Model, Symbol, Number, Input], num: int, name: str = None
+    ):
         self.obj = obj
         self.num = num
         self.name = name or ""
@@ -129,7 +140,7 @@ class Container(object):
         self.inputs = dict()
         self.recorder = None
         self._rec = []
-    
+
     def __repr__(self):
         return f"""Container[{self.obj}] - num {self.num}"""
 
@@ -137,14 +148,15 @@ class Container(object):
         """
         Notes:
             Calling a container has the following behaviors:
-                1. If container wraps a `Model` module, then 
-                    1. If called with a key that is part of the container variable, 
+                1. If container wraps a `Model` module, then:
+                    1. If called with a key that is part of the container variable,
                         the value of that variable is set to the corresponding value
-                    2. If called with a key that is part of the input, 
-                        check if the value is an acceptable type. Set the input if 
+                    2. If called with a key that is part of the input,
+                        check if the value is an acceptable type. Set the input if
                         acceptable, else raise an error.
                     3. If neither, then an error is raised.
-                2. If container does not wrap a `Model` instance
+                2. If container does not wrap a `Model` instance, then assume that
+                    the value is an input
         """
         for key, val in kwargs.items():
             if isinstance(self.obj, Model):
@@ -190,13 +202,33 @@ class Container(object):
     def graph_src(self):
         return self._get_graph()
 
-    def record(self, *args) -> None:
+    def record(self, *args: tp.Iterable[str]) -> None:
+        """Cache Arguments to be Recorded
+
+        Notes:
+            This method only tests if the specified arguments are found in the object to
+            be recorded from. To actaully create the `Recorder` instance, call the `set_recorder`
+            method after the recorded variables are cached in the `self._rec` list.
+        """
         for arg in args:
-            _ = getattr(self.obj, arg)
+            try:
+                _ = getattr(self.obj, arg)
+            except AttributeError:
+                msg = NeuralRecorderWarning(
+                    f"Attribute {arg} not found in {self.obj}, skipping"
+                )
+                warn(msg)
+                continue
             if arg not in self._rec:
                 self._rec.append(arg)
 
     def set_recorder(self, steps: int, rate: int = 1) -> Recorder:
+        """Create Recorder Instace
+
+        Keyword Arguments:
+            steps: total number of steps to record
+            rate: sample rate at which the results are recorded
+        """
         if not self._rec:
             self.recorder = None
         elif (
@@ -214,15 +246,15 @@ class Container(object):
         if isinstance(self.obj, Model):
             sg = SympyGenerator(self.obj)
             latex_src += sg.latex_src
-            vars = [f"\({x}\)" for x in sg.signature]
-            latex_src += "<br>Input: " + ", ".join(vars)
-            vars = []
+            variables = [f"\({x}\)" for x in sg.signature]
+            latex_src += "<br>Input: " + ", ".join(variables)
+            variables = []
             for _k, _v in sg.variables.items():
                 if (_v.type == "state" or _v.type == "intermediate") and (
                     _v.integral == None
                 ):
-                    vars.append(f"\({_k}\)")
-            latex_src += "<br>Variables: " + ", ".join(vars)
+                    variables.append(f"\({_k}\)")
+            latex_src += "<br>Variables: " + ", ".join(variables)
 
         return latex_src
 
@@ -250,10 +282,10 @@ class Network(object):
     def input(self, num: int = None, name: str = None) -> Input:
         """Create input object"""
         name = name or f"input{len(self.inputs)}"
-        input = Input(num=num, name=name)
-        self.inputs[name] = input
+        inp = Input(num=num, name=name)
+        self.inputs[name] = inp
         self._iscompiled = False
-        return input
+        return inp
 
     def add(
         self,
@@ -332,7 +364,7 @@ class Network(object):
             if recorder is not None:
                 recorders.append(recorder)
 
-        # reset Modle variables
+        # reset Model variables
         for c in self.containers.values():
             if isinstance(c.obj, Model):
                 c.obj.reset()
@@ -341,6 +373,7 @@ class Network(object):
         for input in self.inputs.values():
             input.reset()
 
+        # create iterator for simulation loop
         iterator = range(steps)
         if verbose:
             iterator = tqdm(iterator, total=steps, desc=session_name)
@@ -490,13 +523,13 @@ class Network(object):
                 edges.append((source, target, label))
 
         if png:  # return PNG Directly
-            png_str = graph.create_png(prog="dot")
+            png_str = graph.create_png(prog="dot")  # pylint: disable=no-member
             return png_str
         elif svg:
-            svg_str = graph.create_svg(prog="dot")
+            svg_str = graph.create_svg(prog="dot")  # pylint: disable=no-member
             return svg_str
         else:
-            D_bytes = graph.create_dot(prog="dot")
+            D_bytes = graph.create_dot(prog="dot")  # pylint: disable=no-member
 
             D = str(D_bytes, encoding="utf-8")
 
