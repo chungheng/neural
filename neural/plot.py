@@ -242,3 +242,11 @@ def plot_mat(
         return ax, cbar
     else:
         return (ax,)
+
+def yyaxis(ax, c='red'):
+    """Create A second axis with colored spine/ticks/label"""
+    ax2 = ax.twinx()
+    ax2.spines['right'].set_color(c)
+    ax2.tick_params(axis='y', colors=c)
+    ax2.yaxis.label.set_color(c)
+    return ax2

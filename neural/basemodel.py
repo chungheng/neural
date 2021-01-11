@@ -4,14 +4,16 @@ Base model class for neurons and synapses.
 from __future__ import print_function
 import sys
 from abc import abstractmethod
-from collections import OrderedDict
-from collections.abc import Iterable
 import typing as tp
+from six import with_metaclass
 
-from six import StringIO, with_metaclass
 import numpy as np
 from scipy.integrate import solve_ivp
 from pycuda.gpuarray import GPUArray
+from .backend import Backend
+from .logger import (
+    NeuralModelError, NeuralModelWarning
+)
 
 PY2 = sys.version_info[0] == 3
 PY3 = sys.version_info[0] == 3
@@ -20,11 +22,11 @@ if PY2:
     from inspect import getargspec as _getfullargspec
 
     varkw = "keywords"
+
 if PY3:
     from inspect import getfullargspec as _getfullargspec
 
     varkw = "varkw"
-from .backend import Backend
 
 
 def _dict_iadd_(dct_a: dict, dct_b: dict) -> dict:
@@ -58,6 +60,16 @@ def _dict_add_scalar_(dct_a: dict, dct_b: dict, sal: float, out: dict = None) ->
 
 
 class ModelMetaClass(type):
+    """Model MetaClass
+
+    Model MetaClass provies a custom `__new__` method that:
+    1. parses the class attributes of the Model Class
+    2. runs state updates to record state variables and gradients
+    3. set `Time_Scale` to default 1 if not provided
+    4. set solver
+    5. check to makesure that only keyword arguments are allowed in `ode` and `post` methods.
+    """
+
     def __new__(cls, clsname, bases, dct):
         bounds = dict()
         states = dict()
@@ -65,12 +77,14 @@ class ModelMetaClass(type):
         if "Default_States" in dct:
             for key, val in dct["Default_States"].items():
                 if hasattr(val, "__len__"):
-                    assert len(val) == 3, (
-                        "Variable {} ".format(key)
-                        + "should be a scalar of a iterable of 3 elements "
-                        + "(initial value, upper bound, lower bound), "
-                        + "but {} is given.".format(val)
-                    )
+                    if len(val) != 3:
+                        raise NeuralModelError(
+                            f"""Variable {key}
+                                should be a scalar of a iterable of 3 elements
+                                (initial value, upper bound, lower bound)
+                                but {val} is given.
+                            """
+                        )
                     bounds[key] = val[1:]
                     states[key] = val[0]
                 else:
@@ -85,7 +99,7 @@ class ModelMetaClass(type):
 
         # run ode once to get a list of state variables with derivative
         obj = type(clsname, (object,), dct["Default_Params"])()
-        for key in states.keys():
+        for key in states:
             setattr(obj, key, 0.0)
             setattr(obj, "d_" + key, None)
         # call ode method, pass obj into argument as `self`
@@ -115,14 +129,12 @@ class ModelMetaClass(type):
             if argspec.defaults is None:
                 continue
             if argspec.varargs is not None:
-                raise TypeError(
-                    "Variable positional argument is not allowed"
-                    " in {}.{}".format(clsname, key)
+                raise NeuralModelError(
+                    f"Variable positional argument is not allowed in {clsname}.{key}"
                 )
             if getattr(argspec, varkw, None) is not None:
-                raise TypeError(
-                    "Variable keyword argument is not allowed in"
-                    " {}.{}".format(clsname, key)
+                raise NeuralModelError(
+                    f"Variable keyword argument is not allowed in {clsname}.{key}"
                 )
             for val, key in zip(argspec.defaults[::-1], argspec.args[::-1]):
                 inputs[key] = val
@@ -168,7 +180,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         forwardEuler: forward Euler method.
 
     Class Attributes:
-        Default_States (dict): The default value of the state varaibles.
+        Default_States (dict): The default value of the state variables.
             Each items represents the name (`key`) and the default value
             (`value`) of one state variables. If `value` is a tuple of three
             numbers, the first number is the default value, and the last two
@@ -192,18 +204,26 @@ class Model(with_metaclass(ModelMetaClass, object)):
         bounds (dict): lower and upper bounds of the state variables.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        solver: str = "forward_euler",
+        callback: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
+        optimize: bool = False,
+        **kwargs
+    ):
         """
         Initialize the model.
 
         Keyword arguments:
-            optimize (bool): optimize the `ode` function.
-            float (type): The data type of float point.
+            optimize: optimize the `ode` function.
+            callback: callback(s) for model
+            solver: which solver to use
+            
+        Additional Keyword Arguments are assumed to be values for states or parameters
         """
-        optimize = kwargs.pop("optimize", False) and (Backend is not None)
-        solver = kwargs.pop("solver", "forward_euler")
-        floatType = kwargs.pop("float", np.float32)
-        callback = kwargs.pop("callback", [])
+        optimize = optimize and (Backend is not None)
+        if callback is None:
+            callback = []
 
         # set state variables and parameters
         self.params = self.Default_Params.copy()
@@ -217,7 +237,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             elif key in self.params:
                 self.params[key] = val
             else:
-                raise AttributeError("Unexpected variable '{}'".format(key))
+                raise NeuralModelError(f"Unexpected state/variable '{key}'")
 
         self.initial_states = self.states.copy()
         self.gstates = {key: 0.0 for key in self.Derivates}
@@ -231,7 +251,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
             )
             solver = self.solver_alias["scipy_ivp"]
         else:
-            solver = self.solver_alias[solver]
+            if solver in self.solver_alias:
+                solver = self.solver_alias[solver]
+            else:
+                raise NeuralModelError(f"Unexpected Solver '{solver}'")
         self.solver = getattr(self, solver)
 
         self._update = self._scalar_update
@@ -262,12 +285,16 @@ class Model(with_metaclass(ModelMetaClass, object)):
                 setattr(self, "_" + attr, getattr(self.backend, attr))
 
     def add_callback(self, callbacks) -> None:
+        """Add callback to Model's `callbacks` list"""
         if not hasattr(callbacks, "__len__"):
             callbacks = [
                 callbacks,
             ]
         for func in callbacks:
-            assert callable(func)
+            if not callable(func):
+                raise NeuralModelError(
+                    f"Function {func} is not callable but should be."
+                )
             self.callbacks.append(func)
 
     def reset(self, **kwargs) -> None:
@@ -310,17 +337,17 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
         The set of ODEs defining the dynamics of the model.
 
-        TODO: enable using different state varaibles than self.states
+        TODO: enable using different state variables than self.states
         """
-        pass
+
 
     def _ode_wrapper(self, states: dict = None, gstates: dict = None, **kwargs):
         """
-        A wrapper for calling `ode` with arbitrary varaible than `self.states`
+        A wrapper for calling `ode` with arbitrary variable than `self.states`
 
         Arguments:
-            states (dict): state variables.
-            gstates (dict): gradient of state variables.
+            states: state variables.
+            gstates: gradient of state variables.
         """
         if states is not None:
             _states = self.states
@@ -350,11 +377,11 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
     def clip(self, states: dict = None) -> None:
         """
-        Clip the state variables after calling the numerical solver.
+        Clip the state variables in-place after calling the numerical solver.
 
-        The state varaibles are usually bounded, for example, binding
-        varaibles are bounded between 0 and 1. However, numerical sovlers
-        might cause the value of state varaibles exceed its bounds. A hard
+        The state variables are usually bounded, for example, binding
+        variables are bounded between 0 and 1. However, numerical sovlers
+        might cause the value of state variables exceed its bounds. A hard
         clip is forced here to ensure the state variables remain in the
         given bounds.
         """
@@ -362,7 +389,12 @@ class Model(with_metaclass(ModelMetaClass, object)):
             states = self.states
 
         for key, val in self.bounds.items():
-            states[key] = np.clip(states[key], val[0], val[1])
+            try:
+                self.backend.clip(states[key], val[0], val[1])
+            except AttributeError:
+                np.clip(states[key], val[0], val[1], out=states[key])
+            except Exception as e:
+                raise NeuralModelError(f"Model {self} clip state '{key}' unknown error") from e
 
     @classmethod
     def to_graph(cls, local: bool = False):
@@ -370,15 +402,15 @@ class Model(with_metaclass(ModelMetaClass, object)):
         Generate block diagram of the model
 
         Parameters:
-            local (boolean): Include local variable or not.
+            local: Whether to include local variables or not.
         """
         try:
             from .codegen.symbolic import VariableAnalyzer
         except ImportError as e:
-            raise ImportError("'to_graph' requires 'pycodegen'", e)
-
-        g = VariableAnalyzer(cls)
-        return g.to_graph(local=local)
+            raise NeuralModelError("'to_graph' requires 'pycodegen'") from e
+        except Exception as e:
+            raise NeuralModelError("Unknown Error to 'Model.to_graph' call") from e
+        return VariableAnalyzer(cls).to_graph(local=local)
 
     @classmethod
     def to_latex(cls):
@@ -389,10 +421,10 @@ class Model(with_metaclass(ModelMetaClass, object)):
         try:
             from .codegen.symbolic import SympyGenerator
         except ImportError as e:
-            raise ImportError("'to_latex' requires 'pycodegen'")
-
-        g = SympyGenerator(cls)
-        return g.latex_src
+            raise NeuralModelError("'to_latex' requires 'pycodegen'") from e
+        except Exception as e:
+            raise NeuralModelError("Unknown Error to 'Model.to_latex' call") from e
+        return SympyGenerator(cls).latex_src
 
     def _increment(
         self, d_t: float, states: dict, out_states: dict = None, **kwargs
@@ -420,7 +452,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self, d_t: float, states: dict, out_states: dict = None, **kwargs
     ) -> dict:
         """
-        Forward Euler method with arbitrary varaible than `self.states`.
+        Forward Euler method with arbitrary variable than `self.states`.
 
         This function is used for advanced numerical methods.
 
@@ -513,7 +545,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         self.clip()
 
     @register_solver("scipy_ivp")
-    def scipy_ivp(self, d_t: float, t=None, **kwargs) -> None:
+    def scipy_ivp(self, d_t: float, t: np.ndarray = None, **kwargs) -> None:
         """
         Wrapper for scipy.integrate.solve_ivp
 
@@ -564,8 +596,11 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
     def _scalar_reset(self, **kwargs) -> None:
         for key, val in kwargs.items():
-            assert key in self.Varaibles
-            attr = self.Varaibles[key]
+            if key not in self.Variables:
+                raise NeuralModelError(
+                    f"Attempting to reset key={key} but not in self.Va"
+                )
+            attr = self.Variables[key]
             if attr == "states":
                 key = "initial_" + key
             dct = getattr(self, attr)
@@ -575,7 +610,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         for key in self.gstates.keys():
             self.gstates[key] = 0.0
 
-    def __setattr__(self, key, value):
+    def __setattr__(self, key: str, value: tp.Any):
         if key[:2] == "d_":
             assert key[2:] in self.gstates
             self.gstates[key[2:]] = value
@@ -591,7 +626,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         super(Model, self).__setattr__(key, value)
 
-    def __getattr__(self, key):
+    def __getattr__(self, key: str):
         if "_data" in self.__dict__ and key in self._data:
             return self._data[key]
         if key[:2] == "d_":
