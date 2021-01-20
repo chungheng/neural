@@ -1,3 +1,5 @@
 *.pyc
 *.pytest_cache
 neural.egg-info/
+*.prof
+*-checkpoint.py
