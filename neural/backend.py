@@ -434,6 +434,28 @@ class CUDABackend(Backend):
         return func
 
 class NeuroDriverBackend(Backend):
+    """NeuroDriver Backend
+
+    Notes:
+        As compared to CUDA backends, NeuroDriver backend makes sure to convert
+        all parameters to array types whose values that are specified at run-time.
+
+    Attributes:
+        backend (str):
+        data (dict): `{output_var: ndArray}` states and parameters
+        output_vars (list of str): states of model that should be set as output
+        outputs (dict): `{output_var: ndArray}` output values
+        dtype (dtype):
+        num (int):
+        model (str):
+        src (str):
+        args (list):
+        arg_ctype (str):
+        kernel (pycuda._driver.Function):
+        has_random (bool):
+        block (tuple):
+        grid (tuple):
+    """
     def __init__(self, model, **kwargs):
         self.backend = kwargs.pop('backend', None)
         self.output_vars = kwargs.pop('outputs', tuple(model.states.keys()))
