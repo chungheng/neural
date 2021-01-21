@@ -12,6 +12,23 @@ from .basemodel import Model
 from .codegen.neurodriver import NeuroDriverKernelGenerator
 
 def NDComponentFactory(clsname=None, model=None, outputs=None, dtype=np.double):
+    """Factory for creating NeuroDriver NDComponent Class
+
+    Keyword Arguments:
+        clsname (str): Name of the NDComponent Class
+        model (subclass or instance of neural.basemodel.Model): Neural model to be converted to NDComponent
+        outputs (str or iterable of str): state variables of `model` to be set as NDComponent's `updates`
+        dtype (dtype): data type of the model
+    
+    Returns:
+        An instance of `NeuralNDComponent` that is a subclass of NDComponent
+        with the appropriate kernel (created by `NeuroDriverKernelGenerator`).
+    
+    Raises:
+        TypeError: raised if `model` is neither instance or subclass of `Model`
+        TypeError: raised if `model`'s states have value that is neither a number
+            nor an iterable.
+    """
     assert model is not None, "neural_model needs to be specified"
     if isinstance(outputs, str):
         outputs = [outputs]
@@ -55,6 +72,18 @@ def NDComponentFactory(clsname=None, model=None, outputs=None, dtype=np.double):
     })
 
 class NeuralNDComponent(NDComponent):
+    """Neural-Compatible NDComponent
+
+    A sublcass of NDComponent that is designed to be subclassed by `NDComponentFactory`
+
+    Attributes:
+        accesses (list): list of input variables
+        updates (list): list of output variables
+        params (list): list of parameters
+        params_default (dict): default values of the parameters
+        internals (OrderedDict): internal variables of the model and initial value
+        time_scale (float): scaling factor of the `dt`
+    """
     accesses = []    # list
     updates = []     # list
     params = []      # list
