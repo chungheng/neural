@@ -10,6 +10,7 @@ from types import MethodType
 
 from six import StringIO, get_function_globals
 import numpy as np
+from collections.abc import Iterable
 
 try:
     from .codegen.optimizer import FuncGenerator
@@ -435,22 +436,47 @@ class CUDABackend(Backend):
 class NeuroDriverBackend(Backend):
     def __init__(self, model, **kwargs):
         self.backend = kwargs.pop('backend', None)
+        self.output_vars = kwargs.pop('outputs', tuple(model.states.keys()))
         self.num = kwargs.pop('num', None)
         self.data = dict()
+        self.outputs = dict() if self.output_vars is None \
+            else {v:None for v in self.output_vars}
         self.model = model
         self.dtype = kwargs.pop('dtype', np.float64)
         self.compile(**kwargs)
 
-    def _allocate_cuda_memory(self, key):
+    def _allocate_cuda_memory(self, key, val=None):
         """
-        allocate GPU memroy for variable
+        allocate GPU memroy for states and outputs
         """
+        if val is None:
+            val = np.zeros((self.num,), dtype=self.dtype)
+        elif isinstance(val, Number):
+            val = np.full((self.num,), val, dtype=self.dtype)
+        elif isinstance(val, Iterable):
+            assert len(val) == self.num
+        else:
+            raise TypeError(
+                f"Value for variable '{key}' has type '{type(val)}', should be number or array"
+            )
+
         if key in self.data and len(self.data[key]) != self.num:
             del self.data[key]
-
         if key not in self.data:
-            array = garray.empty(self.num, dtype=self.dtype)
-            self.data[key] = array
+            self.data[key] = garray.to_gpu(val)
+        else:
+            self.data[key].set(val)
+
+        if key in self.outputs:
+            if isinstance(self.outputs[key], garray.GPUArray):
+                if len(self.outputs[key]) == self.num:
+                    self.outputs[key].set(val)
+                else:
+                    del self.outputs[key]
+                    self.outputs[key] = garray.to_gpu(val)
+            else:
+                del self.outputs[key]
+                self.outputs[key] = garray.to_gpu(val) 
 
     def reset(self, **kwargs):
         """
@@ -465,22 +491,23 @@ class NeuroDriverBackend(Backend):
         for key, val in self.model.states.items():
             val = kwargs.pop(key, val)
             # allocate GPU memory
-            self._allocate_cuda_memory(key)
+            self._allocate_cuda_memory(key, val)
+
 
         for key, val in self.model.params.items():
             val = kwargs.pop(key, val)
 
-            if hasattr(val, '__len__'): # params with __len__
-                self._allocate_cuda_memory(key)
-                params.append(key)
-
+            # force all params to be iterable
             if isinstance(val, Number):
                 val = np.full((self.num,), val, dtype=self.dtype)
+
+            if isinstance(val, Iterable):
+                self._allocate_cuda_memory(key, val)
+                params.append(key)
+            
             # set parameter value
             if isinstance(val, np.ndarray):
-                if val.dtype != self.dtype:
-                    val = val.astype(self.dtype)
-                self.data[key].set(val)
+                self.data[key].set(val.astype(self.dtype))
             elif isinstance(val, garray.GPUArray):
                 if val.dtype != self.dtype:
                     val = val.astype(self.dtype)
@@ -497,11 +524,10 @@ class NeuroDriverBackend(Backend):
         """
 
         # decide the number of threads:
-        keys = chain(self.model.states.keys(), self.model.params.keys())
-        for key in keys:
+        for key in chain(self.model.states.keys(), self.model.params.keys()):
             val = getattr(self.model, key)
             val = kwargs.get(key, val)
-            if hasattr(val, '__len__'):
+            if isinstance(val, Iterable):
                 _num = len(val)
                 self.num = self.num or _num
                 assert self.num == _num, f'Mismatch in data size for variable {key}'
@@ -514,7 +540,7 @@ class NeuroDriverBackend(Backend):
         # assume the rest of kwargs are input-related
         inputs = kwargs.copy()
         for key in inputs.keys():
-            assert key in self.model.Inputs, "Unexpected input '{}'".format(key)
+            assert key in self.model.Inputs, f"Unexpected input '{key}'"
 
         # generate cuda kernel, a.k.a self.cuda.kernel
         self.get_cuda_kernel(inputs_gdata=inputs, params_gdata=params)
@@ -529,7 +555,7 @@ class NeuroDriverBackend(Backend):
                 self.seed)
 
     def update(self, d_t, **kwargs):
-        """
+        """Update Cuda Kernel
 
         """
         st = kwargs.pop('st', None)
@@ -538,10 +564,13 @@ class NeuroDriverBackend(Backend):
             if key == 'seed':
                 args.append(self.seed)
                 continue
-
+            if key[:8] == '_output_':
+                val = self.outputs[key.lstrip('_output_')] 
+                args.append(val.gpudata if dtype == 'P' else val)
+                continue
             val = self.data.get(key, None)
             if val is None:
-                val = kwargs[key]
+                val = kwargs[key] # input
             if hasattr(val, '__len__'):
                 assert dtype == 'P', \
                     "Expect GPU array but get a scalar input: %s" % key
@@ -563,7 +592,7 @@ class NeuroDriverBackend(Backend):
 
     def get_cuda_kernel(self, **kwargs):
         code_generator = NeuroDriverKernelGenerator(self.model,
-            dtype=self.dtype, **kwargs)
+            dtype=self.dtype, outputs=self.output_vars, **kwargs)
         code_generator.generate()
 
         try:
@@ -572,7 +601,7 @@ class NeuroDriverBackend(Backend):
                     "--ptxas-options=-v",
                     "--expt-relaxed-constexpr"],
                 no_extern_c = code_generator.has_random)
-            func = mod.get_function(self.model.__class__.__name__)
+            func = mod.get_function('run_step')
         except:
             lines = code_generator.cuda_src.split('\n')
             num_digits = 1 + int(np.floor(np.log10(len(lines))))

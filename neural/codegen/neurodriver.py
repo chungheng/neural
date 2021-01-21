@@ -126,7 +126,7 @@ __device__ int post(
 }
 {%- endif %}
 
-__global__ void {{ model_name }} (
+__global__ void run_step (
     int num_thread,
     {{ float_type }} dt
     {%- for key in states -%}
@@ -273,10 +273,10 @@ class MetaClass(type):
 
 class NeuroDriverGenerator(with_metaclass(MetaClass, CodeGenerator)):
     def __init__(self, model, func, dtype, **kwargs):
-        """
+        """Code Generator for NeuroDriver-compatible models
 
         Keyword Arguments:
-            params_gdata:
+            params_gdata: parameters
             inputs:
             outputs: output variables
                 Output variables are expected to either 1 of 3 forms
@@ -343,16 +343,16 @@ class NeuroDriverGenerator(with_metaclass(MetaClass, CodeGenerator)):
                 isArray = True
                 dtype = self.dtype
             else:
-                raise ValueError(
-                    f"signature '{key}' of input function {self.model} has value {val}, NeuorDriver backend currently only support (key=None) in argument."
-                )
-                # val['used'] = True
-                # isArray = True
-                # isArray = hasattr(val['value'], '__len__')
-                # if isArray:
-                #     dtype = dtype_to_ctype(val['value'].dtype)
-                # else:
-                #     dtype = self.dtype
+                # raise ValueError(
+                #     f"signature '{key}' of input function {self.model} has value {val}, NeuorDriver backend currently only support (key=None) in argument."
+                # )
+                val['used'] = True
+                isArray = True
+                isArray = hasattr(val['value'], '__len__')
+                if isArray:
+                    dtype = dtype_to_ctype(val['value'].dtype)
+                else:
+                    dtype = self.dtype
             new_signature.append((key, dtype, isArray))
         return new_signature
 
@@ -368,7 +368,9 @@ class NeuroDriverGenerator(with_metaclass(MetaClass, CodeGenerator)):
                 kwargs = key[2:]
                 continue
             elif key[1] == '*':
-                raise
+                raise ValueError(
+                    "NeuroDriver CodeGen does not support positional argument."
+                )
             else:
                 new_signature.append(key.split('=')[0])
         return old_signature, new_signature, kwargs
@@ -534,9 +536,18 @@ class NeuroDriverGenerator(with_metaclass(MetaClass, CodeGenerator)):
         return func
 
 class NeuroDriverKernelGenerator(object):
+    """Generate NeuroDriver Kernel
+    """
     tpl = Template(cuda_src_template)
 
     def __init__(self, model, **kwargs):
+        """
+        Keyword Arguments:
+            dtype: data type of the model parameters
+            model: Neural Model to wrap
+            solver: solver used by in the ode update loop
+            float_char: float character to use 
+        """
         self.dtype = dtype_to_ctype(kwargs.pop('dtype', np.float32))
         self.model = model
         self.solver = model.solver.__name__
@@ -603,7 +614,7 @@ class NeuroDriverKernelGenerator(object):
             bounds=self.model.bounds,
             derivatives=self.model.Derivates,
             params_gdata=self.params_gdata,
-            has_random= self.has_random,
+            has_random=self.has_random,
             ode_src=ode.src,
             ode_signature=ode.args,
             ode_has_random=ode.has_random,
@@ -614,6 +625,7 @@ class NeuroDriverKernelGenerator(object):
             outputs=self.outputs,
         )
 
+        # args: states & params
         self.args = list(self.model.states.keys()) + self.params_gdata
 
         self.arg_type = 'i' + self.dtype[0] + 'P' * len(self.args)
@@ -622,10 +634,12 @@ class NeuroDriverKernelGenerator(object):
             self.args.append(key)
             self.arg_type += 'P' if flag else dtype[0]
 
+        # add outputs to args
         for key in self.outputs:
-            self.args.append(key)
+            self.args.append(f'_output_{key}')
             self.arg_type += 'P'
 
+        # add random seed to args
         if self.has_random:
             self.arg_type += 'P'
             self.args.append('seed')
