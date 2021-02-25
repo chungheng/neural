@@ -174,7 +174,10 @@ class NeuralNDComponent(NDComponent):
         func = mod.get_function('run_step')
         type_dict = {k: dtype_to_ctype(dtypes[k]) for k in dtypes}
 
-        func.prepare("i" + np.dtype(self.dtype).char + "P" * (len(type_dict) - 1))
+        arg_type = "i" + np.dtype(self.dtype).char + "P" * (len(type_dict) - 1)
+        if self._has_rand:
+            arg_type += "P"
+        func.prepare(arg_type)
         func.block = (256, 1, 1)
         func.grid = (
             min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
