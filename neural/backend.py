@@ -4,10 +4,11 @@ Backend Classes For Model
 
 Backend Classes can define a variety of behaviors for the Models,
 including (but not limited to):
-    1. Compilation
-    2. Resetting
-    3. Updating
-    4. Profiling
+
+1. Compilation
+2. Resetting
+3. Updating
+4. Profiling
 """
 from __future__ import print_function
 from itertools import chain
@@ -295,7 +296,7 @@ class CUDABackend(Backend):
                     val = val.astype(self.dtype)
                 drv.memcpy_htod(
                     self.data[key].gpudata, val
-                ) 
+                )
             elif isinstance(val, garray.GPUArray):
                 if key in self.model.params:
                     if val.dtype != self.dtype:
@@ -463,7 +464,7 @@ class CUDABackend(Backend):
         )
 
         return func
-       
+
 
     def clip(self, value, a_min, a_max):
         if isinstance(value, garray.GPUArray):

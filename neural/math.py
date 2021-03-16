@@ -24,7 +24,8 @@ def __getattr__(attr: str):
     try:
         return getattr(config._math_engine, attr)
     except AttributeError as e:
-        raise NeuralBackendError(f"Method '{attr}' not found in {config._math_engine}") from e
+        pass
+        # raise NeuralBackendError(f"Method '{attr}' not found in {config._math_engine}") from e
 
 def __dir__():
     return config._math_engine.__dir__()

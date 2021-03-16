@@ -1,12 +1,12 @@
+# pylint:disable=no-member
+"""CUDA Utilities
+"""
 import numpy as np
-
 import pycuda
 import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 import pycuda.curandom
-
 from pycuda.compiler import SourceModule
-
 from skcuda.fft import fft, Plan, ifft
 
 src_random_cuda = """

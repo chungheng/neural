@@ -4,3 +4,4 @@ neural.egg-info/
 .vscode/
 .pytest_cache
 examples/
+docs/_build

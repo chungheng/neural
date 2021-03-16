@@ -1,17 +1,15 @@
 """
 Network module for constructing an abitrary circuit of neurons and synapses.
 
-Examples:
+Examples::
 
->>> nn = Network()
->>> iaf = nn.add(IAF, bias=0., c=10., record=['v'])
->>> syn = nn.add(AlphaSynapse, ar=1e-1, stimulus=iaf.spike)
->>> hhn = nn.add(HodgkinHuxley, stimulus=syn.I)
->>> nn.input(s=iaf.stimulus)
->>>
->>> nn.compile(dtype=dtype)
->>>
->>> nn.run(dt, s=numpy.random.rand(10000))
+    >>> nn = Network()
+    >>> iaf = nn.add(IAF, bias=0., c=10., record=['v'])
+    >>> syn = nn.add(AlphaSynapse, ar=1e-1, stimulus=iaf.spike)
+    >>> hhn = nn.add(HodgkinHuxley, stimulus=syn.I)
+    >>> nn.input(s=iaf.stimulus)
+    >>> nn.compile(dtype=dtype)
+    >>> nn.run(dt, s=numpy.random.rand(10000))
 """
 import sys
 from collections import OrderedDict
@@ -63,9 +61,11 @@ class Input(object):
     """Input Object for Neural Network
 
     Note:
-        An Input object `inp` can be updated using either of the 2 methods:
-            1. `value = next(inp)`
-            2. `inp.step(); value = inp.value`
+        An Input object :code:`inp` can be updated using either of the 2 methods:
+
+        1. :code:`value = next(inp)`
+        2. :code:`inp.step(); value = inp.value`
+
         The latter method is useful if an input object's value is to be read by
         multiple containers.
     """
@@ -125,9 +125,10 @@ class Container(object):
     """
     A wrapper holds an Model instance with symbolic reference to its variables.
 
-    Examples:
-    >>> hhn = Container(HodgkinHuxley)
-    >>> hhn.v  # reference to hhn.states['v']
+    Examples::
+
+        >>> hhn = Container(HodgkinHuxley)
+        >>> hhn.v  # reference to hhn.states['v']
     """
 
     def __init__(

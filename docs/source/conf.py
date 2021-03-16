@@ -20,8 +20,8 @@ sys.path.insert(0, os.path.abspath("../"))
 
 # -- Project information -----------------------------------------------------
 
-project = "pyneural"
-copyright = "2019, Chung-Heng Yeh"
+project = "neural"
+copyright = "2021, Chung-Heng Yeh"
 author = "Chung-Heng Yeh"
 
 # The short X.Y version

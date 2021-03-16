@@ -49,16 +49,16 @@ def generate_stimulus(
     Stimuli generator
 
     Arguments:
-        mode (str): shape of the waveform.
-        d_t (float): the sampling interval for the stimuli.
-        duration (float): the duration of the stimuli.
-        support (iterable): two time points at which the stimulus [start, end).
+        mode: shape of the waveform.
+        d_t: the sampling interval for the stimuli.
+        duration: the duration of the stimuli.
+        support: two time points at which the stimulus [start, end).
            It's not inclusive of the end.
-        amplitude (float or list): the amplitudes of the stimuli.
+        amplitude: the amplitudes of the stimuli.
+        sigma: variance of zero-mean Gaussian noise added to the waveform.
 
     Keyword Arguments:
-        sigma (float): variance of zero-mean Gaussian noise added to the waveform.
-        ratio (float): a
+        ratio: a
     """
 
     def _generate_step(

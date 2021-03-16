@@ -1,12 +1,17 @@
 .. -*- rst -*-
 
 
-PyNeural
+Neural
 ========
 
-PyNeural is a Python library consisting of implementation of neuron and synapse models with support of various numerical solvers. Without using a specialized specification language for neuron or synapse models, PyNeural defines a computational model as a set of ordinary differential equations in plain Python syntax. For example, a model for computing parabola trajectory can be expressed as
+Neural is a Python library consisting of implementation of neuron and synapse models with
+support of various numerical solvers. Without using a specialized specification language
+for neuron or synapse models, PyNeural defines a computational model as a set of ordinary
+differential equations in plain Python syntax. For example, a model for computing parabola
+trajectory can be expressed as
 
 .. code-block:: python
+
     >>> class Parabola(Model):
     >>>     ...
     >>>    def ode(self):
@@ -18,9 +23,19 @@ PyNeural is a Python library consisting of implementation of neuron and synapse 
    :maxdepth: 2
    :caption: Contents:
 
+   readme
+   installation
+   usage
+   modules
+   contributing
+   authors
+   history
+
 
 
 Index
 ==================
 
 * :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`

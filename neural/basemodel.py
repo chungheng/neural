@@ -6,7 +6,6 @@ import sys
 from abc import abstractmethod
 import typing as tp
 from six import with_metaclass
-
 import numpy as np
 from scipy.integrate import solve_ivp
 from pycuda.gpuarray import GPUArray
@@ -62,12 +61,14 @@ def _dict_add_scalar_(dct_a: dict, dct_b: dict, sal: float, out: dict = None) ->
 class ModelMetaClass(type):
     """Model MetaClass
 
-    Model MetaClass provies a custom `__new__` method that:
+    Model MetaClass provies a custom :code:`__new__` method that:
+
     1. parses the class attributes of the Model Class
     2. runs state updates to record state variables and gradients
-    3. set `Time_Scale` to default 1 if not provided
+    3. set :code:`Time_Scale` to default 1 if not provided
     4. set solver
-    5. check to makesure that only keyword arguments are allowed in `ode` and `post` methods.
+    5. check to makesure that only keyword arguments are allowed in :code:`ode` and
+       :code:`post` methods.
     """
 
     def __new__(cls, clsname, bases, dct):
@@ -159,18 +160,15 @@ def register_solver(*args) -> tp.Callable:
 
 
 class Model(with_metaclass(ModelMetaClass, object)):
-    """
-    The base model class.
+    """Base Model Class
 
-    This class overrides `__getattr__` and `__setattr__`, and hence allows
-    direct access to the subattributes contained in `states` and `params`,
+    This class overrides :code:`__getattr__` and :code:`__setattr__`, and hence allows
+    direct access to the subattributes contained in :code:`states` and :code:`params`,
     for example::
 
-    # self.params = {'a': 1., 'b':1.}
-    # self.states = {'s':0., 'x':0.}
-    self.ds = self.a*(1-self.s) -self.b*self.s
-
-    The child class of `Model` class must define the
+        # self.params = {'a': 1., 'b':1.}
+        # self.states = {'s':0., 'x':0.}
+        self.ds = self.a*(1-self.s) -self.b*self.s
 
     Methods:
         ode: a set of ODEs defining the dynamics of the system.
@@ -189,8 +187,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
             represents the name (`key`) and the default value (`value`) of one
             parameters.
         Default_Inters (dict): Optional. The default value of the intermediate
-            variables. Each items represents the name (`key`) and the default value of one intermediate variable.
-            (`value`) of one state variables.
+            variables. Each items represents the name (`key`) and the default value of
+            one intermediate variable. (`value`) of one state variables.
         Default_Bounds (dict): The lower and the upper bound of the state
             variables. It is created through the `ModelMetaClass`.
         Variables (dict):
@@ -218,7 +216,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             optimize: optimize the `ode` function.
             callback: callback(s) for model
             solver: which solver to use
-            
+
         Additional Keyword Arguments are assumed to be values for states or parameters
         """
         optimize = optimize and (Backend is not None)
@@ -367,7 +365,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
             return self.gstates
 
     def post(self):
-        """
+        """Post Processing
+
         Post-computation after each iteration of numerical update.
 
         For example, the hard reset for the IAF neuron must be implemented here.
@@ -376,7 +375,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         """
 
     def clip(self, states: dict = None) -> None:
-        """
+        """Clip the State Variables
+
         Clip the state variables in-place after calling the numerical solver.
 
         The state variables are usually bounded, for example, binding
@@ -398,7 +398,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
     @classmethod
     def to_graph(cls, local: bool = False):
-        """
+        """Convert Circuit to Graph
+
         Generate block diagram of the model
 
         Parameters:
@@ -414,9 +415,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
     @classmethod
     def to_latex(cls):
-        """
-        Generate latex source code for the  model
+        """Convert Circuit Equation to Latex
 
+        Generate latex source code for the  model
         """
         try:
             from .codegen.symbolic import SympyGenerator

@@ -3,25 +3,28 @@
 # pylint: disable=global-statement
 """Neural Global Configuration
 
-The top-level configuration module of Neural defines variables that 
+The top-level configuration module of Neural defines variables that
 configures the package:
-    1. CUDA (bool): Indicates if a CUDA compatible GPU is being used
-    2. INITIALIZED (bool): Indicates if the backend has been initialized
-    3. BACKEND (str): numpy/pycuda/cupy that is set when `init` is called
 
-2 Functions are provided at global scope:
-    1. `init(backend="numpy") -> None`: Initialize Neural's backend as specified. 
-        Calling this function will also set the 3 global variables
-    2. `cuda_available() -> bool`: Returns a boolean flag of whether a cuda compatible 
-        gpu is found. The check relies on either PyCuda or CuPy being installed
+1. CUDA (bool): Indicates if a CUDA compatible GPU is being used
+2. INITIALIZED (bool): Indicates if the backend has been initialized
+3. BACKEND (str): numpy/pycuda/cupy that is set when `init` is called
 
-1 Decorator is provided:
-    1. `neural_initialzed`: use this decorator to enforce `INITIALIZED=True` when a 
-        function is being called. Note that not all functions would require the 
-        backend be initialized.
-    2. `with_backend(backend)`: use this decorator to enforce a specific backend
-        when a function is called. Will raise `NeuralBackendError`if the backend
-        specified globally is not the same as the one in the decorator argument.
+Two Functions are provided at global scope:
+
+1. :code:`init(backend="numpy") -> None`: Initialize Neural's backend as specified.
+    Calling this function will also set the 3 global variables
+2. :code:`cuda_available() -> bool`: Returns a boolean flag of whether a cuda compatible
+    gpu is found. The check relies on either PyCuda or CuPy being installed
+
+Two Decorator is provided:
+
+1. :code:`neural_initialzed`: use this decorator to enforce :code:`INITIALIZED=True`
+    when a function is being called. Note that not all functions would require the
+    backend be initialized.
+2. :code:`with_backend(backend)`: use this decorator to enforce a specific backend
+    when a function is called. Will raise :code:`NeuralBackendError` if the backend
+    specified globally is not the same as the one in the decorator argument.
 """
 from warnings import warn
 import importlib
@@ -45,7 +48,7 @@ def init(backend: str = "numpy") -> None:
             - numpy: no GPU is used
             - pycuda: use pycuda for GPU support
             - cupy: use cupy for GPU support
-    
+
     Re-run with different backend str to re-configure backend
     """
     global CUDA
@@ -95,7 +98,7 @@ def init(backend: str = "numpy") -> None:
             raise NeuralBackendError("PyCUDA AutoInit Failed") from e
         except Exception as e:
             raise NeuralBackendError("PyCUDA AutoInit Failed with unknown error") from e
-        
+
         # use a hack to go through both pycuda.cumath and skcuda.misc
         print("initialization pycuda skcuda backend", flush=True)
         if _pycuda_skcuda_merge is None:
