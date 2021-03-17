@@ -1,7 +1,9 @@
 """
 Network module for constructing an abitrary circuit of neurons and synapses.
 
-Examples::
+Examples:
+
+.. code-block:: python
 
     >>> nn = Network()
     >>> iaf = nn.add(IAF, bias=0., c=10., record=['v'])
@@ -125,7 +127,9 @@ class Container(object):
     """
     A wrapper holds an Model instance with symbolic reference to its variables.
 
-    Examples::
+    Examples:
+
+    .. code-block:: python
 
         >>> hhn = Container(HodgkinHuxley)
         >>> hhn.v  # reference to hhn.states['v']

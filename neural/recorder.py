@@ -12,6 +12,7 @@ import pycuda.gpuarray as garray
 import pycuda.driver as cuda
 from .logger import NeuralRecorderError
 from . import config
+from . import types as tpe
 
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
@@ -36,8 +37,8 @@ class Recorder(object):
             if config.BACKEND == 'cupy':
                 return super(Recorder, cls).__new__(CuPyRecorder)
             raise NeuralRecorderError(
-                f"""{attr} of type: {type(attr)} not understood. 
-                Only Number, Numpy NDArray and PyCuda GpuArrays are accepted"""
+                f"{attr} of type: {type(attr)} not understood. "
+                "Only Number, Numpy NDArray and PyCuda GpuArrays are accepted"
             )
         return super(Recorder, cls).__new__(cls)
 
@@ -113,7 +114,8 @@ class ScalarRecorder(Recorder):
             src = getattr(self.obj, key)
             if not isinstance(src, Number):
                 raise NeuralRecorderError(
-                    f"ScalarRecorder got src={src} for key={key} of obj={self.obj}, needs to be a Number."
+                    f"ScalarRecorder got src={src} for key={key} of obj={self.obj}, "
+                    "needs to be a Number."
                 )
             self.dct[key] = np.zeros(self.steps, dtype=type(src))
 
@@ -135,7 +137,8 @@ class NumpyRecorder(Recorder):
             src = getattr(self.obj, key)
             if not isinstance(src, np.ndarray):
                 raise NeuralRecorderError(
-                    f"NumpyRecorder got src={src} for key={key} of obj={self.obj}, needs to be a Numpy NDArray."
+                    f"NumpyRecorder got src={src} for key={key} of obj={self.obj}, "
+                    "needs to be a Numpy NDArray."
                 )
             shape = (src.size, self.steps)
             self.dct[key] = np.zeros(shape, order="F", dtype=src.dtype)
@@ -192,7 +195,8 @@ class CUDARecorder(Recorder):
             src = getattr(self.obj, key)
             if not isinstance(src, garray.GPUArray):
                 raise NeuralRecorderError(
-                    f"CUDARecorder got src={src} for key={key} of obj={self.obj}, needs to be a PyCuda GPUArray."
+                    f"CUDARecorder got src={src} for key={key} of obj={self.obj}, "
+                    "needs to be a PyCuda GPUArray."
                 )
             shape = (src.size, self.steps)
             self.dct[key] = cuda.pagelocked_zeros(shape, order="C", dtype=src.dtype)
@@ -206,9 +210,14 @@ class CUDARecorder(Recorder):
 
         if (index % self.rate) != 0:
             return
-        
+
         # if should record, go ahead
         self._update(index)
+
+        if self._spike_recorder:
+            for key in self._spike_recorder:
+                self._spike_recorder[key].fill(0.)
+
 
     def _get_buffer_length(self, gpu_buffer):
         if gpu_buffer == "full" or gpu_buffer == "whole" or gpu_buffer is True:
@@ -232,14 +241,11 @@ class CUDARecorder(Recorder):
         # move to host if recording complete or buffer full
         if (d_index == self.steps - 1) or (b_index == self.buffer_length - 1):
             for key in self.dct.keys():
-                # if key in self._spike_recorder:
-                #     self._spike_recorder[key].get(ary=self.dct[key][:, d_index])
-                # else:
-                buffer = self.get_buffer(key, d_index)
-                try:
-                    cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata) 
-                except Exception as e:
-                    import pdb; pdb.set_trace()
+                if key in self._spike_recorder:
+                    self._spike_recorder[key].get(ary=self.dct[key][:, d_index])
+                else:
+                    buffer = self.get_buffer(key, d_index)
+                    cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
 
     def _copy_memory_dtoh(self, index):
         # downsample index
@@ -286,7 +292,7 @@ class CuPyRecorder(Recorder):
         if self._spike_recorder:
             for key, val in self._spike_recorder.items():
                 src = getattr(self.obj, key)
-                self._spike_recorder[key] = garray.zeros_like(src)
+                self._spike_recorder[key] = cp.zeros_like(src)
 
         if gpu_buffer:
             self.buffer_length = self._get_buffer_length(gpu_buffer)
@@ -312,7 +318,8 @@ class CuPyRecorder(Recorder):
             src = getattr(self.obj, key)
             if not isinstance(src, garray.GPUArray):
                 raise NeuralRecorderError(
-                    f"CUDARecorder got src={src} for key={key} of obj={self.obj}, needs to be a PyCuda GPUArray."
+                    f"CUDARecorder got src={src} for key={key} of obj={self.obj}, "
+                    "needs to be a PyCuda GPUArray."
                 )
             shape = (src.size, self.steps)
             self.dct[key] = cuda.pagelocked_zeros(shape, order="F", dtype=src.dtype)
