@@ -12,13 +12,15 @@ import types
 from pycodegen.codegen import CodeGenerator
 from pycodegen.utils import get_func_signature
 
+
 class _Variable(object):
     default = {
-        'type': None,
-        'integral': None,
-        'derivative': None,
-        'dependencies': set()
+        "type": None,
+        "integral": None,
+        "derivative": None,
+        "dependencies": set(),
     }
+
     def __init__(self, **kwargs):
         for key, val in self.default.items():
             if key in kwargs:
@@ -26,20 +28,22 @@ class _Variable(object):
             else:
                 self.__dict__[key] = copy.copy(val)
         if len(kwargs):
-            raise AttributeError('Invalid attribute: %s' % kwargs.keys()[0])
+            raise AttributeError("Invalid attribute: %s" % kwargs.keys()[0])
+
     def __setattribute__(self, key, val):
         if key not in self.__dict__:
-            raise KeyError('Unrecognized key: %s' % key)
+            raise KeyError("Unrecognized key: %s" % key)
         self.__dict__[key] = val
+
 
 class MetaClass(type):
     def __new__(cls, clsname, bases, dct):
         py2sympy = dict()
         for key, val in dct.items():
-            if callable(val) and hasattr(val, '_source_funcs'):
+            if callable(val) and hasattr(val, "_source_funcs"):
                 for func in val._source_funcs:
                     py2sympy[func] = val
-        dct['pyfunc_to_sympyfunc'] = py2sympy
+        dct["pyfunc_to_sympyfunc"] = py2sympy
         return super(MetaClass, cls).__new__(cls, clsname, bases, dct)
 
 
@@ -53,7 +57,7 @@ class VariableAnalyzer(CodeGenerator):
         self._dependencies = set()
 
         _, self.signature, self.kwargs = self._extract_signature(self.model.ode)
-        with open(os.devnull, 'w') as f:
+        with open(os.devnull, "w") as f:
             code = get_function_code(model.ode)
             CodeGenerator.__init__(self, code, ostream=f)
             self.variables = {}
@@ -70,22 +74,22 @@ class VariableAnalyzer(CodeGenerator):
 
         kwargs = None
         for key in old_signature:
-            if key == 'self':
+            if key == "self":
                 continue
-            elif key[:2] == '**':
+            elif key[:2] == "**":
                 kwargs = key[2:]
                 continue
-            elif key[1] == '*':
+            elif key[1] == "*":
                 raise
             else:
-                new_signature.append(key.split('=')[0])
+                new_signature.append(key.split("=")[0])
         return old_signature, new_signature, kwargs
 
     def handle_call_function(self, ins):
         narg = int(ins.arg)
         args = [] if narg == 0 else [str(x) for x in self.var[-narg:]]
-        func_name = self.var[-(narg+1)]
-        self.var[-(narg+1)] = "{}({})".format(func_name, ','.join(args))
+        func_name = self.var[-(narg + 1)]
+        self.var[-(narg + 1)] = "{}({})".format(func_name, ",".join(args))
 
         if narg:
             del self.var[-narg:]
@@ -96,8 +100,8 @@ class VariableAnalyzer(CodeGenerator):
         """
         key = ins.argval
         if key not in self.variables:
-            self.variables[key] = _Variable(type='local')
-        self.var[-1] = '{} = {}'.format(key, self.var[-1])
+            self.variables[key] = _Variable(type="local")
+        self.var[-1] = "{} = {}".format(key, self.var[-1])
         self.variables[key].dependencies.update(self._dependencies)
         self._dependencies = set()
 
@@ -106,13 +110,13 @@ class VariableAnalyzer(CodeGenerator):
         ... symbol1.symbol2 ...
         """
         key = ins.argval
-        if self.var[-1] == 'self':
-            if key[:2] == 'd_':
-                key = key.split('d_')[-1]
-                self._set_variable(key, type='state')
+        if self.var[-1] == "self":
+            if key[:2] == "d_":
+                key = key.split("d_")[-1]
+                self._set_variable(key, type="state")
             elif key not in self.variables:
-                self._set_variable(key, type='parameter')
-            if self.variables[key].type != 'parameter':
+                self._set_variable(key, type="parameter")
+            if self.variables[key].type != "parameter":
                 self._dependencies.add(key)
 
             self.var[-1] = key
@@ -129,15 +133,15 @@ class VariableAnalyzer(CodeGenerator):
         symbol1.symbol2 = rvalue
         """
         key = ins.argval
-        if self.var[-1] == 'self':
-            if key[:2] == 'd_':
-                key = key.split('d_')[-1]
-                self._set_variable(key, type='state')
+        if self.var[-1] == "self":
+            if key[:2] == "d_":
+                key = key.split("d_")[-1]
+                self._set_variable(key, type="state")
                 if self.var[-2] in self.variables:
                     self.variables[key].derivative = self.var[-2]
                     self.variables[self.var[-2]].integral = key
-            elif key not in self.variables or self.variables[key] != 'state':
-                self._set_variable(key, type='intermediate')
+            elif key not in self.variables or self.variables[key] != "state":
+                self._set_variable(key, type="intermediate")
             self.var[-1] = key
             self.variables[key].dependencies.update(self._dependencies)
             self._dependencies = set()
@@ -161,14 +165,16 @@ class VariableAnalyzer(CodeGenerator):
         """
 
         # sort out dependencies for local variables
-        locals = [k for k, v in self.variables.items() if v.type == 'local']
+        locals = [k for k, v in self.variables.items() if v.type == "local"]
         flags = dict.fromkeys(locals, False)
         locals = {k: copy.copy(self.variables[k].dependencies) for k in locals}
         for key, val in locals.items():
             if key in val:
                 val.remove(key)
 
-        check_is_local = lambda x: x in self.variables and self.variables[x].type != 'local'
+        check_is_local = (
+            lambda x: x in self.variables and self.variables[x].type != "local"
+        )
         for i in range(len(self.variables)):
             flag = True
             for key, val in locals.items():
@@ -186,21 +192,22 @@ class VariableAnalyzer(CodeGenerator):
                 locals[key] = _set
 
         import pydot
-        graph = pydot.Dot(graph_type='digraph', rankdir='LR')
 
-        node_attrs = dict(shape='rect', style='rounded', fontname='sans-serif')
+        graph = pydot.Dot(graph_type="digraph", rankdir="LR")
+
+        node_attrs = dict(shape="rect", style="rounded", fontname="sans-serif")
         nodes = {}
         for key in self.signature:
-            node = pydot.Node(key, **node_attrs, color='#ff5000')
+            node = pydot.Node(key, **node_attrs, color="#ff5000")
             nodes[key] = node
             graph.add_node(node)
 
         for key, val in self.variables.items():
-            if val.type == 'parameter' or val.integral is not None:
+            if val.type == "parameter" or val.integral is not None:
                 continue
-            if local is False and val.type == 'local':
+            if local is False and val.type == "local":
                 continue
-            node = pydot.Node(key, **node_attrs, color='#ff5000')
+            node = pydot.Node(key, **node_attrs, color="#ff5000")
             nodes[key] = node
             graph.add_node(node)
 
@@ -214,14 +221,14 @@ class VariableAnalyzer(CodeGenerator):
                     _set.update(locals[v])
             for source in _set:
                 if source in nodes:
-                    graph.add_edge(pydot.Edge(source, target, color='#ffbf00'))
+                    graph.add_edge(pydot.Edge(source, target, color="#ffbf00"))
 
-        png_str = graph.create_png(prog='dot')
+        png_str = graph.create_png(prog="dot")
 
         return png_str
 
-class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
 
+class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
     def __init__(self, model, **kwargs):
 
         self.has_random = False
@@ -236,7 +243,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         self.equations = []
 
         for key in dir(self):
-            if key[:8] == '_handle_':
+            if key[:8] == "_handle_":
                 setattr(self, key[1:], getattr(self, key))
         #
         self.generate()
@@ -246,7 +253,6 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         self.compile_sympy()
 
         self.to_latex()
-
 
     @property
     def sympy_src(self):
@@ -270,52 +276,52 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             print(self.sympy_src)
 
     def to_latex(self):
-        cond = lambda v: v.type == 'state' and v.integral is None
+        cond = lambda v: v.type == "state" and v.integral is None
         states = [k for k, v in self.variables.items() if cond(v)]
         states.sort()
-        states_src = ',~'.join([latex(self.sympy_dct[x]) for x in states])
-        params = [k for k, v in self.variables.items() if v.type == 'parameter']
+        states_src = ",~".join([latex(self.sympy_dct[x]) for x in states])
+        params = [k for k, v in self.variables.items() if v.type == "parameter"]
         params.sort()
-        params_src = ',~'.join([latex(self.sympy_dct[x]) for x in params])
-        template_src = r'\mbox{State Variables: }%s\\\mbox{Parameters: }%s\\'
+        params_src = ",~".join([latex(self.sympy_dct[x]) for x in params])
+        template_src = r"\mbox{State Variables: }%s\\\mbox{Parameters: }%s\\"
         self.latex_src = template_src % (states_src, params_src)
 
-        self.latex_src = ''
-        self.latex_src += r'\begin{eqnarray}'
+        self.latex_src = ""
+        self.latex_src += r"\begin{eqnarray}"
         for eq in self.equations:
-            tmp = latex(self.sympy_dct[eq], mul_symbol='dot')
-            self.latex_src += tmp.replace('=',' &=& ') + r'\\'
-        self.latex_src += r'\end{eqnarray}'
+            tmp = latex(self.sympy_dct[eq], mul_symbol="dot")
+            self.latex_src += tmp.replace("=", " &=& ") + r"\\"
+        self.latex_src += r"\end{eqnarray}"
 
     def _handle_call_function(self, ins):
         narg = int(ins.arg)
 
         # hacky way to handle keyword arguments
-        if self.kwargs and self.var[-(narg+1)] == (self.kwargs + ".pop"):
+        if self.kwargs and self.var[-(narg + 1)] == (self.kwargs + ".pop"):
             arg = self.var[-narg][1:-1]
-            self.var[-(narg+1)] = arg
+            self.var[-(narg + 1)] = arg
             new_arg = "%s" % arg
             self.signature.append(new_arg)
 
         else:
             args = [] if narg == 0 else [str(x) for x in self.var[-narg:]]
-            func_name = self.var[-(narg+1)]
+            func_name = self.var[-(narg + 1)]
             func_globals = get_function_globals(self.model.ode)
             pyfunc = eval(func_name, func_globals)
             sympyfunc = self.pyfunc_to_sympyfunc.get(pyfunc)
             if sympyfunc is not None:
-                self.var[-(narg+1)] = sympyfunc(self, args)
+                self.var[-(narg + 1)] = sympyfunc(self, args)
             else:
-                self.var[-(narg+1)] = "{}({})".format(func_name, ','.join(args))
+                self.var[-(narg + 1)] = "{}({})".format(func_name, ",".join(args))
 
         if narg:
             del self.var[-narg:]
 
     def _handle_load_attr(self, ins):
         key = ins.argval
-        if self.var[-1] == 'self':
-            if key[:2] == 'd_':
-                key = key.split('d_')[-1]
+        if self.var[-1] == "self":
+            if key[:2] == "d_":
+                key = key.split("d_")[-1]
                 depth = 1
             else:
                 depth = 0
@@ -324,7 +330,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
                     depth += 1
                     key = self.variables[key].integral
             if depth > 0:
-                key = 'Derivative(%s%s)' % (key, ', t'*depth)
+                key = "Derivative(%s%s)" % (key, ", t" * depth)
             self.var[-1] = key
         else:
             self.var[-1] += "." + key
@@ -335,27 +341,26 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         del self.var[-1]
         if rval != lval:
             eqn = "Eq(%s, %s)" % (lval, rval)
-            self.equations.append('eqn_%d' % len(self.equations))
+            self.equations.append("eqn_%d" % len(self.equations))
             self.var[-1] = "%s = %s" % (self.equations[-1], eqn)
         else:
             del self.var[-1]
 
-
     def _handle_store_fast(self, ins):
         key = ins.argval
 
-        prefix, indent = '', ''
+        prefix, indent = "", ""
 
         if ins.argval == self.var[-1]:
             del self.var[-1]
             return
-        elif self.variables[key].type == 'local':
+        elif self.variables[key].type == "local":
 
             eqn = "Eq(%s, %s)" % (key, self.var[-1])
-            self.equations.append('eqn_%d' % len(self.equations))
-            indent =  " "*(self.space+self.indent)
+            self.equations.append("eqn_%d" % len(self.equations))
+            indent = " " * (self.space + self.indent)
             prefix = "with evaluate(False):" + self.newline
-            self.var[-1] ="{}{}{} = {}".format(prefix, indent, self.equations[-1], eqn)
+            self.var[-1] = "{}{}{} = {}".format(prefix, indent, self.equations[-1], eqn)
         else:
             self.var[-1] = "{} = {}".format(key, self.var[-1])
 
@@ -380,7 +385,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             self.enter_indent = True
             self.jump_targets.append(target)
         else:
-            self.var.append('')
+            self.var.append("")
             self.output_statement()
 
     def _handle_return_value(self, ins):
@@ -390,40 +395,43 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         def wrapper(func):
             func._source_funcs = source_funcs
             return func
+
         return wrapper
 
     def _random_func(func):
         """
         A decorator for registering random functions
         """
+
         @wraps(func)
         def wrap(self, args):
             self.has_random = True
             return func(self, args)
+
         return wrap
 
     def _generate_sympy_func(self, func, args):
-        return "%s(%s)" % (func, ', '.join(args))
+        return "%s(%s)" % (func, ", ".join(args))
 
     @_py2sympy(np.exp)
     def _np_exp(self, args):
-        return self._generate_sympy_func('exp', args)
+        return self._generate_sympy_func("exp", args)
 
     @_py2sympy(np.log)
     def _np_log(self, args):
-        return self._generate_sympy_func('log', args)
+        return self._generate_sympy_func("log", args)
 
     @_py2sympy(np.power)
     def _np_power(self, args):
-        return self._generate_sympy_func('pow', args)
+        return self._generate_sympy_func("pow", args)
 
     @_py2sympy(np.cbrt)
     def _np_cbrt(self, args):
-        return self._generate_sympy_func('cbrt', args)
+        return self._generate_sympy_func("cbrt", args)
 
     @_py2sympy(np.sqrt)
     def _np_sqrt(self, args):
-        return self._generate_sympy_func('sqrt', args)
+        return self._generate_sympy_func("sqrt", args)
 
     @_py2sympy(random.gauss, np.random.normal)
     @_random_func

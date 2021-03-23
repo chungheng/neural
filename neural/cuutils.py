@@ -109,25 +109,21 @@ __global__ void repeat_double(
 }
 """
 
-mod = SourceModule(src_random_cuda,
-    options = ["--ptxas-options=-v"],
-    no_extern_c = True
-)
+mod = SourceModule(src_random_cuda, options=["--ptxas-options=-v"], no_extern_c=True)
 _generate_spike = mod.get_function("generate_spike")
-_generate_spike.prepare('iddPPP')
+_generate_spike.prepare("iddPPP")
 
 _generate_seed = mod.get_function("generate_seed")
-_generate_seed.prepare('iP')
+_generate_seed.prepare("iP")
 
-mod = SourceModule(src_repeat_cuda,
-    options = ["--ptxas-options=-v"]
-)
+mod = SourceModule(src_repeat_cuda, options=["--ptxas-options=-v"])
 
-_repeat_float =  mod.get_function("repeat_float")
-_repeat_float.prepare('iiPP')
+_repeat_float = mod.get_function("repeat_float")
+_repeat_float.prepare("iiPP")
 
-_repeat_double =  mod.get_function("repeat_double")
-_repeat_double.prepare('iiPP')
+_repeat_double = mod.get_function("repeat_double")
+_repeat_double.prepare("iiPP")
+
 
 class CUDASpikeGenerator(object):
     """
@@ -140,8 +136,9 @@ class CUDASpikeGenerator(object):
     freq: float
         The cut-off frequency of the low pass filter.
     """
+
     def __init__(self, dt, num, scale, **kwargs):
-        self.dtype = kwargs.pop('dtype', np.float64)
+        self.dtype = kwargs.pop("dtype", np.float64)
 
         self.dt = dt
         self.num = num
@@ -152,19 +149,34 @@ class CUDASpikeGenerator(object):
         self.gpu_scale = gpuarray.to_gpu(self.scale)
         self.spike = gpuarray.zeros(num, dtype=self.dtype)
 
-        self.block = (128,1,1)
-        self.grid = (min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
-                    (self.num-1) / self.block[0] + 1), 1)
+        self.block = (128, 1, 1)
+        self.grid = (
+            min(
+                6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
+                (self.num - 1) / self.block[0] + 1,
+            ),
+            1,
+        )
 
         self._generate_spike = _generate_spike
         self._generate_seed = _generate_seed
         self._generate_seed.prepared_async_call(
-            self.grid, self.block, None, np.int32(self.num), self.gpu_seed)
+            self.grid, self.block, None, np.int32(self.num), self.gpu_seed
+        )
 
     def generate(self, rate):
         self._generate_spike.prepared_async_call(
-            self.grid, self.block, None, np.int32(self.num), self.dt, rate,
-            self.gpu_seed, self.gpu_scale.gpudata, self.spike.gpudata)
+            self.grid,
+            self.block,
+            None,
+            np.int32(self.num),
+            self.dt,
+            rate,
+            self.gpu_seed,
+            self.gpu_scale.gpudata,
+            self.spike.gpudata,
+        )
+
 
 def cu_lpf(stimulus, dt, freq):
     """
@@ -178,7 +190,7 @@ def cu_lpf(stimulus, dt, freq):
         The cut-off frequency of the low pass filter.
     """
     num = len(stimulus)
-    num_fft = int(num/2 + 1)
+    num_fft = int(num / 2 + 1)
     idtype = stimulus.dtype
     odtype = np.complex128 if idtype == np.float64 else np.complex64
 
@@ -191,19 +203,20 @@ def cu_lpf(stimulus, dt, freq):
     d_fstimulus = gpuarray.empty(num_fft, odtype)
     fft(d_stimulus, d_fstimulus, plan)
 
-    df = 1./dt/num
-    idx = int(freq//df)
+    df = 1.0 / dt / num
+    idx = int(freq // df)
 
     unit = int(d_fstimulus.dtype.itemsize / 4)
     offset = int(d_fstimulus.gpudata) + d_fstimulus.dtype.itemsize * idx
 
-    cuda.memset_d32(offset, 0, unit*(num_fft-idx))
+    cuda.memset_d32(offset, 0, unit * (num_fft - idx))
 
     plan = Plan(stimulus.shape, odtype, idtype)
     d_lpf_stimulus = gpuarray.empty(num, idtype)
     ifft(d_fstimulus, d_lpf_stimulus, plan, False)
 
     return d_lpf_stimulus.get()
+
 
 def cu_repeat(input, repeat, output=None):
     """
@@ -227,20 +240,27 @@ def cu_repeat(input, repeat, output=None):
     >>> numpy.allclose(numpy.repeat(a.get(), 5), a_repeat.get())
     """
     num = len(input)
-    tot_num = num*repeat
+    tot_num = num * repeat
     if output is None:
-        output = gpuarray.empty(num*repeat, input.dtype)
+        output = gpuarray.empty(num * repeat, input.dtype)
 
-    block = (1024,1,1)
-    grid = (min(6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
-            (tot_num-1) / block[0] + 1), 1)
+    block = (1024, 1, 1)
+    grid = (
+        min(
+            6 * cuda.Context.get_device().MULTIPROCESSOR_COUNT,
+            (tot_num - 1) / block[0] + 1,
+        ),
+        1,
+    )
 
     if input.dtype == np.float32:
-        _repeat_float.prepared_async_call(grid, block, None,
-        num, repeat, input.gpudata, output.gpudata)
+        _repeat_float.prepared_async_call(
+            grid, block, None, num, repeat, input.gpudata, output.gpudata
+        )
     elif input.dtype == np.float64:
-        _repeat_double.prepared_async_call(grid, block, None,
-        num, repeat, input.gpudata, output.gpudata)
+        _repeat_double.prepared_async_call(
+            grid, block, None, num, repeat, input.gpudata, output.gpudata
+        )
     else:
         raise TypeError(repr(input.dtype))
 

@@ -36,11 +36,14 @@ except ImportError:
 def _new_md5():
     try:
         import hashlib
+
         return hashlib.md5()
     except ImportError:
         # for Python << 2.5
         import md5
+
         return md5.new()
+
 
 # copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
 def _get_per_user_string():
@@ -49,10 +52,12 @@ def _get_per_user_string():
     except ImportError:
         checksum = _new_md5()
         from os import environ
+
         checksum.update(environ["HOME"])
         return checksum.hexdigest()
     else:
         return "uid%d" % getuid()
+
 
 class Backend(object):
     def __new__(cls, model, **kwargs):
@@ -60,18 +65,17 @@ class Backend(object):
         Factory for instantiating different backends.
         """
         if cls is Backend:
-            backend = kwargs.pop('backend', None)
-            if backend == 'scalar':
-                assert FuncGenerator is not None, \
-                    "PyCodegen is not installed."
+            backend = kwargs.pop("backend", None)
+            if backend == "scalar":
+                assert FuncGenerator is not None, "PyCodegen is not installed."
                 return super(Backend, cls).__new__(ScalarBackend)
-            elif backend == 'numpy':
-                assert NumpyKernelGenerator is not None, \
-                    "PyCodegen is not installed."
+            elif backend == "numpy":
+                assert NumpyKernelGenerator is not None, "PyCodegen is not installed."
                 return super(Backend, cls).__new__(NumpyBackend)
-            elif backend == 'cuda':
-                assert CudaKernelGenerator is not None, \
-                    "Either PyCUDA or PyCodegen is not installed."
+            elif backend == "cuda":
+                assert (
+                    CudaKernelGenerator is not None
+                ), "Either PyCUDA or PyCodegen is not installed."
                 return super(Backend, cls).__new__(CUDABackend)
             else:
                 raise TypeError("Unexpected backend '{}'".format(backend))
@@ -83,6 +87,7 @@ class Backend(object):
     def compile(self):
         pass
 
+
 class ScalarBackend(Backend):
     def __init__(self, model, **kwargs):
         ostream = StringIO()
@@ -91,7 +96,7 @@ class ScalarBackend(Backend):
 
         post = model.__class__.post
         for cls in model.__class__.__bases__:
-            if cls.__name__ == 'Model' and post != cls.post:
+            if cls.__name__ == "Model" and post != cls.post:
                 code_gen = FuncGenerator(model, post, offset=4, ostream=ostream)
                 code_gen.generate()
                 break
@@ -102,7 +107,7 @@ class ScalarBackend(Backend):
         self.compile()
 
         self.ode = MethodType(self.module.ode, model)
-        if 'post' in self.module.__dict__:
+        if "post" in self.module.__dict__:
             self.post = MethodType(self.module.post, model)
 
     def compile(self):
@@ -111,17 +116,19 @@ class ScalarBackend(Backend):
         from os.path import join, isfile
         from tempfile import gettempdir
 
-        cache_dir = join(gettempdir(),
-                "pyneural-compiler-cache-%s" % _get_per_user_string())
+        cache_dir = join(
+            gettempdir(), "pyneural-compiler-cache-%s" % _get_per_user_string()
+        )
 
         try:
             mkdir(cache_dir)
         except OSError as e:
             from errno import EEXIST
+
             if e.errno != EEXIST:
                 raise
 
-        source = self.source.encode('utf-8')
+        source = self.source.encode("utf-8")
 
         checksum = _new_md5()
 
@@ -153,18 +160,16 @@ class ScalarBackend(Backend):
 
 class NumpyBackend(ScalarBackend):
     def __init__(self, model, **kwargs):
-        self.num = kwargs.pop('num', None)
+        self.num = kwargs.pop("num", None)
 
         ostream = StringIO()
-        code_gen = NumpyKernelGenerator(model, model.ode, offset=4,
-            ostream=ostream)
+        code_gen = NumpyKernelGenerator(model, model.ode, offset=4, ostream=ostream)
         code_gen.generate()
 
         post = model.__class__.post
         for cls in model.__class__.__bases__:
-            if cls.__name__ == 'Model' and post != cls.post:
-                code_gen = NumpyKernelGenerator(model, post, offset=4,
-                    ostream=ostream)
+            if cls.__name__ == "Model" and post != cls.post:
+                code_gen = NumpyKernelGenerator(model, post, offset=4, ostream=ostream)
                 code_gen.generate()
                 break
 
@@ -174,7 +179,7 @@ class NumpyBackend(ScalarBackend):
         self.compile()
 
         self.ode = MethodType(self.module.ode, model)
-        if 'post' in self.module.__dict__:
+        if "post" in self.module.__dict__:
             self.post = MethodType(self.module.post, model)
 
     def reset(self, **kwargs):
@@ -187,38 +192,41 @@ class NumpyBackend(ScalarBackend):
             kwargs (dict): keyward arguments.
         """
         params = []
-        items = chain( self.model.params.items())
+        items = chain(self.model.params.items())
         for key, val in self.model.params.items():
             val = kwargs.pop(key, val)
-            if hasattr(val, '__len__'): # params with __len__
-                assert self.num == len(val), \
-                    "Instance has {} units, but '{}' has {} entires".format(
-                        self.num, key, len(val)
-                    )
+            if hasattr(val, "__len__"):  # params with __len__
+                assert self.num == len(
+                    val
+                ), "Instance has {} units, but '{}' has {} entires".format(
+                    self.num, key, len(val)
+                )
                 if not isinstance(val, np.ndarray):
                     self.model.params[key] = np.asarray(val)
 
         for key, val in self.model.states.items():
             val = kwargs.pop(key, val)
 
-            if hasattr(val, '__len__'): # params with __len__
-                assert self.num == len(val), \
-                    "Instance has {} units, but '{}' has {} entires".format(
-                        self.num, key, len(val)
-                    )
+            if hasattr(val, "__len__"):  # params with __len__
+                assert self.num == len(
+                    val
+                ), "Instance has {} units, but '{}' has {} entires".format(
+                    self.num, key, len(val)
+                )
                 self.model.states[key] = np.asarray(val, dtype=self.dtype)
             elif isinstance(val, Number):
-                self.model.states[key] = np.ones(self.num, dtype=self.dtype)*val
+                self.model.states[key] = np.ones(self.num, dtype=self.dtype) * val
             else:
                 raise TypeError("Invalid {0} variable: {1}".format(attr, key))
 
+
 class CUDABackend(Backend):
     def __init__(self, model, **kwargs):
-        self.backend = kwargs.pop('backend', None)
-        self.num = kwargs.pop('num', None)
+        self.backend = kwargs.pop("backend", None)
+        self.num = kwargs.pop("num", None)
         self.data = dict()
         self.model = model
-        self.dtype = kwargs.pop('dtype', np.float64)
+        self.dtype = kwargs.pop("dtype", np.float64)
         self.compile(**kwargs)
 
     def _allocate_cuda_memory(self, key):
@@ -249,7 +257,7 @@ class CUDABackend(Backend):
             # allocate GPU memory
             if key in self.model.states:
                 self._allocate_cuda_memory(key)
-            elif hasattr(val, '__len__'): # params with __len__
+            elif hasattr(val, "__len__"):  # params with __len__
                 self._allocate_cuda_memory(key)
                 params.append(key)
 
@@ -267,8 +275,7 @@ class CUDABackend(Backend):
                     val = val.astype(self.dtype)
                     drv.memcpy_htod(self.data[key].gpudata, val)
                 else:
-                    drv.memcpy_dtod(self.data[key].gpudata, val.gpudata,
-                        val.nbytes)
+                    drv.memcpy_dtod(self.data[key].gpudata, val.gpudata, val.nbytes)
             elif isinstance(val, Number):
                 if key in self.model.params:
                     self.model.params[key] = val
@@ -290,12 +297,12 @@ class CUDABackend(Backend):
         for key in keys:
             val = getattr(self.model, key)
             val = kwargs.get(key, val)
-            if hasattr(val, '__len__'):
+            if hasattr(val, "__len__"):
                 _num = len(val)
                 self.num = self.num or _num
-                assert self.num == _num, 'Mismatch in data size: %s' % key
+                assert self.num == _num, "Mismatch in data size: %s" % key
         else:
-            assert self.num, 'Please give the number of models to run'
+            assert self.num, "Please give the number of models to run"
 
         # reset gpu data
         params = self.reset(**kwargs)
@@ -311,49 +318,37 @@ class CUDABackend(Backend):
         if self.has_random:
             self.seed = drv.mem_alloc(self.num * 48)
             self.init_random_seed.prepared_async_call(
-                self.grid,
-                self.block,
-                None,
-                self.num,
-                self.seed)
+                self.grid, self.block, None, self.num, self.seed
+            )
 
     def update(self, d_t, **kwargs):
-        """
-
-        """
-        st = kwargs.pop('st', None)
+        """"""
+        st = kwargs.pop("st", None)
         args = []
         for key, dtype in zip(self.args, self.arg_ctype[2:]):
-            if key == 'seed':
+            if key == "seed":
                 args.append(self.seed)
                 continue
 
             val = self.data.get(key, None)
             if val is None:
                 val = kwargs[key]
-            if hasattr(val, '__len__'):
-                assert dtype == 'P', \
-                    "Expect GPU array but get a scalar input: %s" % key
-                assert val.dtype == self.dtype, \
+            if hasattr(val, "__len__"):
+                assert dtype == "P", "Expect GPU array but get a scalar input: %s" % key
+                assert val.dtype == self.dtype, (
                     "GPU array float type mismatches: %s" % key
+                )
             else:
-                assert dtype != 'P', \
-                    "Expect GPU array but get a scalar input: %s" % key
+                assert dtype != "P", "Expect GPU array but get a scalar input: %s" % key
 
-            args.append(val.gpudata if dtype == 'P' else val)
+            args.append(val.gpudata if dtype == "P" else val)
 
-        self.kernel.prepared_async_call(
-            self.grid,
-            self.block,
-            st,
-            self.num,
-            d_t,
-            *args)
+        self.kernel.prepared_async_call(self.grid, self.block, st, self.num, d_t, *args)
 
     def cuda_profile(self, **kwargs):
-        num = kwargs.pop('num', 1000)
-        niter = kwargs.pop('niter', 1000)
-        dtype = kwargs.pop('dtype', np.float64)
+        num = kwargs.pop("num", 1000)
+        niter = kwargs.pop("niter", 1000)
+        dtype = kwargs.pop("dtype", np.float64)
 
         self.cuda_compile(num=num, dtype=dtype)
 
@@ -361,11 +356,11 @@ class CUDABackend(Backend):
 
         start = drv.Event()
         end = drv.Event()
-        secs = 0.
+        secs = 0.0
 
         for i in range(niter):
             start.record()
-            self._cuda_update(0., **args)
+            self._cuda_update(0.0, **args)
             end.record()
             end.synchronize()
             secs += start.time_till(end)
@@ -374,22 +369,21 @@ class CUDABackend(Backend):
             args[key].gpudata.free()
 
         name = self.__class__.__name__
-        print('Average run time of {}: {} ms'.format(name, secs/niter))
+        print("Average run time of {}: {} ms".format(name, secs / niter))
 
     def get_cuda_kernel(self, **kwargs):
-        code_generator = CudaKernelGenerator(self.model,
-            dtype=self.dtype, **kwargs)
+        code_generator = CudaKernelGenerator(self.model, dtype=self.dtype, **kwargs)
         code_generator.generate()
 
         try:
-            mod = SourceModule(code_generator.cuda_src,
-                options = [
-                    "--ptxas-options=-v",
-                    "--expt-relaxed-constexpr"],
-                no_extern_c = code_generator.has_random)
+            mod = SourceModule(
+                code_generator.cuda_src,
+                options=["--ptxas-options=-v", "--expt-relaxed-constexpr"],
+                no_extern_c=code_generator.has_random,
+            )
             func = mod.get_function(self.model.__class__.__name__)
         except:
-            lines = code_generator.cuda_src.split('\n')
+            lines = code_generator.cuda_src.split("\n")
             num_digits = 1 + int(np.floor(np.log10(len(lines))))
             for index, line in enumerate(lines):
                 print("{: >{}}: {}".format(index, num_digits, line))
@@ -404,18 +398,23 @@ class CUDABackend(Backend):
 
         self.has_random = code_generator.has_random
         if self.has_random:
-            init_random_seed = mod.get_function('generate_seed')
+            init_random_seed = mod.get_function("generate_seed")
             init_random_seed.prepare(code_generator.init_random_seed_arg)
             self.init_random_seed = init_random_seed
 
         deviceData = pycuda.tools.DeviceData()
         maxThreads = int(np.float(deviceData.registers // func.num_regs))
-        maxThreads = int(2**int(np.log(maxThreads) / np.log(2)))
+        maxThreads = int(2 ** int(np.log(maxThreads) / np.log(2)))
         threadsPerBlock = int(min(256, maxThreads, deviceData.max_threads))
         self.block = (threadsPerBlock, 1, 1)
         self.grid = (
-            int(min(6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
-                (self.num-1) / threadsPerBlock + 1)),
-            1)
+            int(
+                min(
+                    6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
+                    (self.num - 1) / threadsPerBlock + 1,
+                )
+            ),
+            1,
+        )
 
         return func
