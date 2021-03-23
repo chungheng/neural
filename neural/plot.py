@@ -5,6 +5,7 @@ Plotting functions.
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 def plot_multiple(data_x, *args, **kwargs):
     """
     Plot multiple data curves against a same x-axis on mulitple subplots.
@@ -47,16 +48,16 @@ def plot_multiple(data_x, *args, **kwargs):
             `pyplot.plot` method. For example, one could use `label` to add a
             legend to a curve.
         """
-        xlim = kwargs.pop('xlim', None)
-        ylim = kwargs.pop('ylim', None)
-        spike = kwargs.pop('spike', False)
-        ylabel = kwargs.pop('ylabel', None)
-        ds_rate = kwargs.pop('ds_rate', None)
+        xlim = kwargs.pop("xlim", None)
+        ylim = kwargs.pop("ylim", None)
+        spike = kwargs.pop("spike", False)
+        ylabel = kwargs.pop("ylabel", None)
+        ds_rate = kwargs.pop("ds_rate", None)
 
         if spike:
             ylim = [0, 1.2]
-            ylabel = ylabel or 'Spike Train'
-            axe.yaxis.set_ticklabels([' '])
+            ylabel = ylabel or "Spike Train"
+            axe.yaxis.set_ticklabels([" "])
 
         if ds_rate is not None:
             data_x = data_x[::ds_rate]
@@ -71,20 +72,20 @@ def plot_multiple(data_x, *args, **kwargs):
         if ylabel:
             axe.set_ylabel(ylabel)
 
-    figw = kwargs.pop('figw', 5)
-    figh = kwargs.pop('figh', 2)
-    xlabel = kwargs.pop('xlabel', 'Time, [s]')
+    figw = kwargs.pop("figw", 5)
+    figh = kwargs.pop("figh", 2)
+    xlabel = kwargs.pop("xlabel", "Time, [s]")
 
     num = len(args)
 
-    fig, axes = plt.subplots(num, 1, figsize=(figw, num*figh))
+    fig, axes = plt.subplots(num, 1, figsize=(figw, num * figh))
 
-    if not hasattr(axes, '__len__'):
+    if not hasattr(axes, "__len__"):
         axes = [axes]
 
     for i, (dataset, axe) in enumerate(zip(args, axes)):
         axe.grid()
-        if i < num-1:
+        if i < num - 1:
             axe.xaxis.set_ticklabels([])
 
         if isinstance(dataset, np.ndarray):
@@ -99,7 +100,7 @@ def plot_multiple(data_x, *args, **kwargs):
             for key, val in kwargs.items():
                 if not key in subkwargs:
                     subkwargs[key] = val
-            has_legend = has_legend or ('label' in subkwargs)
+            has_legend = has_legend or ("label" in subkwargs)
             _plot(axe, data_x, data_y, **subkwargs)
         if has_legend:
             axe.legend()
@@ -108,3 +109,24 @@ def plot_multiple(data_x, *args, **kwargs):
     plt.tight_layout()
 
     return fig, axes
+
+
+def yyaxis(ax: plt.Axes, c: "color" = "red") -> plt.Axes:
+    """Create A second axis with colored spine/ticks/label
+
+    Note:
+        This method will only make the twinx look like the color in
+        MATLAB's :code:`yyaxis` function. However, unlike in MATLAB,
+        it will not set the linestyle and linecolor of the lines that
+        are plotted after twinx creation.
+
+    Arguments:
+        ax: the main axis to generate a twinx from
+        c: color of the twinx, see https://matplotlib.org/stable/gallery/color/color_demo.html
+            for color specifications accepted by matplotlib.
+    """
+    ax2 = ax.twinx()
+    ax2.spines["right"].set_color(c)
+    ax2.tick_params(axis="y", colors=c)
+    ax2.yaxis.label.set_color(c)
+    return ax2

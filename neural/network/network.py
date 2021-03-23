@@ -35,6 +35,7 @@ PY3 = sys.version_info[0] == 3
 if PY2:
     raise Exception("neural.network does not support Python 2.")
 
+
 class Symbol(object):
     def __init__(self, container, key):
         self.container = container
@@ -43,6 +44,7 @@ class Symbol(object):
     def __getitem__(self, given):
         attr = getattr(self.container.recorder, self.key)
         return attr.__getitem__(given)
+
 
 class Input(object):
     def __init__(self, num=None, name=None):
@@ -58,7 +60,7 @@ class Input(object):
         self.data = data
         self.steps = len(data) if hasattr(data, "__len__") else 0
         self.iter = iter(self.data)
-        if hasattr(data, '__iter__'):
+        if hasattr(data, "__iter__"):
             self.iter = iter(self.data)
         elif isinstance(data, garray.GPUArray):
             self.iter = (x for x in self.data)
@@ -73,6 +75,7 @@ class Input(object):
     def reset(self):
         self.iter = iter(self.data)
 
+
 class Container(object):
     """
     A wrapper holds an Model instance with symbolic reference to its varaibles.
@@ -81,6 +84,7 @@ class Container(object):
     >>> hhn = Container(HodgkinHuxley)
     >>> hhn.v # reference to hhn.states['v']
     """
+
     def __init__(self, obj, num, name=None):
         self.obj = obj
         self.num = num
@@ -88,16 +92,16 @@ class Container(object):
         self.vars = {}
         self.inputs = dict()
         self.recorder = None
-        self.latex_src = self._get_latex()
-        self.graph_src = self._get_graph()
+        # self.latex_src = self._get_latex()
+        # self.graph_src = self._get_graph()
         self._rec = []
 
     def __call__(self, **kwargs):
         for key, val in kwargs.items():
             if isinstance(self.obj, Model):
-                if (key in self.obj.Variables):
+                if key in self.obj.Variables:
                     setattr(self.obj, key, val)
-                elif (key in self.obj.Inputs):
+                elif key in self.obj.Inputs:
                     assert isinstance(val, (Symbol, Number, Input))
                     self.inputs[key] = val
                 else:
@@ -127,10 +131,14 @@ class Container(object):
     def set_recorder(self, steps, rate=1):
         if not self._rec:
             self.recorder = None
-        elif (self.recorder is None) or \
-            (self.recorder.total_steps != steps) or \
-            (set(self.recorder.dct.keys()) != set(self._rec)):
-            self.recorder = Recorder(self.obj, self._rec, steps, gpu_buffer=500, rate=rate)
+        elif (
+            (self.recorder is None)
+            or (self.recorder.total_steps != steps)
+            or (set(self.recorder.dct.keys()) != set(self._rec))
+        ):
+            self.recorder = Recorder(
+                self.obj, self._rec, steps, gpu_buffer=500, rate=rate
+            )
         return self.recorder
 
     def _get_latex(self):
@@ -144,8 +152,9 @@ class Container(object):
             latex_src += "<br>Input: " + ", ".join(vars)
             vars = []
             for _k, _v in sg.variables.items():
-                if (_v.type == 'state' or _v.type == 'intermediate') \
-                    and (_v.integral == None):
+                if (_v.type == "state" or _v.type == "intermediate") and (
+                    _v.integral == None
+                ):
                     vars.append("\({}\)".format(_k))
 
             latex_src += "<br>Variables: " + ", ".join(vars)
@@ -157,15 +166,15 @@ class Container(object):
             return self.obj.to_graph()
         return MINIMUM_PNG
 
-
     @classmethod
     def isacceptable(cls, obj):
         return hasattr(obj, "update") and callable(obj.update)
 
+
 class Network(object):
-    """
-    """
-    def __init__(self, solver='euler', backend='cuda'):
+    """"""
+
+    def __init__(self, solver="euler", backend="cuda"):
         self.containers = OrderedDict()
         self.inputs = OrderedDict()
         self.solver = solver
@@ -180,8 +189,8 @@ class Network(object):
         return input
 
     def add(self, module, num=None, name=None, record=None, **kwargs):
-        backend = kwargs.pop('backend', self.backend)
-        solver = kwargs.pop('solver', self.solver)
+        backend = kwargs.pop("backend", self.backend)
+        solver = kwargs.pop("solver", self.solver)
         num = num
         name = name or "obj{}".format(len(self.containers))
         record = record or []
@@ -191,7 +200,7 @@ class Network(object):
             obj = module(solver=solver, **kwargs)
         elif isclass(module):
             assert Container.isacceptable(module)
-            kwargs['size'] = num
+            kwargs["size"] = num
             obj = module(**kwargs, backend=backend)
         else:
             msg = "{} is not a submodule nor an instance of {}"
@@ -209,7 +218,7 @@ class Network(object):
         return container
 
     def run(self, dt, steps=0, rate=1, verbose=False, **kwargs):
-        solver = kwargs.pop('solver', self.solver)
+        solver = kwargs.pop("solver", self.solver)
         if not self._iscompiled:
             raise Exception("Please compile before running the network.")
 
@@ -255,7 +264,7 @@ class Network(object):
             for recorder in recorders:
                 recorder.update(i)
 
-    def compile(self, dtype=None, debug=False, backend='cuda'):
+    def compile(self, dtype=None, debug=False, backend="cuda"):
         dtype = dtype or np.float64
         for c in self.containers.values():
             dct = {}
@@ -267,29 +276,33 @@ class Network(object):
                         #         c.name, val.container.name))
                         dct[key] = np.zeros(val.container.num)
                     else:
-                        dct[key] = dtype(0.)
+                        dct[key] = dtype(0.0)
                 elif isinstance(val, Input):
                     if val.num is not None:
                         if c.num is not None and val.num != c.num:
-                            raise Exception("Size mismatches: {} {}".format(
-                                c.name, val.name))
+                            raise Exception(
+                                "Size mismatches: {} {}".format(c.name, val.name)
+                            )
                         dct[key] = np.zeros(val.num)
                     else:
-                        dct[key] = dtype(0.)
+                        dct[key] = dtype(0.0)
                 elif isinstance(val, Number):
                     dct[key] = dtype(val)
                 else:
                     raise Exception()
 
-            if hasattr(c.obj, 'compile'):
+            if hasattr(c.obj, "compile"):
                 if isinstance(c.obj, Model):
                     c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
                 else:
                     c.obj.compile(**dct)
                 if debug:
-                    s = ''.join([", {}={}".format(*k) for k in dct.items()])
-                    print("{}.cuda_compile(dtype=dtype, num={}{})".format(
-                    c.name, c.num, s))
+                    s = "".join([", {}={}".format(*k) for k in dct.items()])
+                    print(
+                        "{}.cuda_compile(dtype=dtype, num={}{})".format(
+                            c.name, c.num, s
+                        )
+                    )
         self._iscompiled = True
 
     def record(self, *args):
@@ -299,12 +312,14 @@ class Network(object):
 
     def to_graph(self, png=False, svg=False):
         import pydot
-        graph = pydot.Dot(graph_type='digraph', rankdir='LR', splines='ortho',
-        decorate=True)
+
+        graph = pydot.Dot(
+            graph_type="digraph", rankdir="LR", splines="ortho", decorate=True
+        )
 
         nodes = {}
-        for c in list(self.containers.values())+list(self.inputs.values()):
-            node = pydot.Node(c.name, shape='rect')
+        for c in list(self.containers.values()) + list(self.inputs.values()):
+            node = pydot.Node(c.name, shape="rect")
             nodes[c.name] = node
             graph.add_node(node)
 
@@ -318,30 +333,29 @@ class Network(object):
                     label = val.key
                 elif isinstance(val, Input):
                     source = val.name
-                    label = ''
+                    label = ""
                 else:
                     raise Exception()
                 u = nodes[source]
                 graph.add_edge(pydot.Edge(u, v, label=label))
                 edges.append((source, target, label))
         if png:
-            png_str = graph.create_png(prog='dot')
+            png_str = graph.create_png(prog="dot")
 
             return png_str
 
         else:
-            D_bytes = graph.create_dot(prog='dot')
+            D_bytes = graph.create_dot(prog="dot")
 
-            D = str(D_bytes, encoding='utf-8')
+            D = str(D_bytes, encoding="utf-8")
 
             if D == "":  # no data returned
                 print("Graphviz layout with %s failed" % (prog))
                 print()
                 print("To debug what happened try:")
                 print("P = nx.nx_pydot.to_pydot(G)")
-                print("P.write_dot(\"file.dot\")")
+                print('P.write_dot("file.dot")')
                 print("And then run %s on file.dot" % (prog))
-
 
             # List of "pydot.Dot" instances deserialized from this string.
             Q_list = pydot.graph_from_dot_data(D)
@@ -362,24 +376,24 @@ class Network(object):
                 min_dist = np.inf
                 min_ex, min_ey = [0, 0], [0, 0]
                 for _ex, _ey in zip(zip(ex, ex[1:]), zip(ey, ey[1:])):
-                    dist = (np.mean(_ex) - x)**2 + (np.mean(_ey) - y)**2
+                    dist = (np.mean(_ex) - x) ** 2 + (np.mean(_ey) - y) ** 2
                     if dist < min_dist:
                         min_dist = dist
                         min_ex[:] = _ex[:]
                         min_ey[:] = _ey[:]
                 if min_ex[0] == min_ex[1]:
                     _x = min_ex[0]
-                    _x = np.sign(x-_x)*10+_x
+                    _x = np.sign(x - _x) * 10 + _x
                     _y = y
                 else:
                     _x = x
                     _y = min_ey[0]
-                    _y = np.sign(y-_y)*10+_y
-                return _x, _y-3
+                    _y = np.sign(y - _y) * 10 + _y
+                return _x, _y - 3
 
-            elements =[]
+            elements = []
             bb = Q.get_bb()
-            viewbox = bb[1:-1].replace(',', ' ')
+            viewbox = bb[1:-1].replace(",", " ")
 
             for n in nodes.keys():
 
@@ -394,37 +408,48 @@ class Network(object):
                     h = float(node.get_height())
 
                     x, y = map(float, pos.split(","))
-                    attrs = {'width': w, 'height': h, 'rx':5, 'ry':5,
-                        'x': x, 'y': y, 'stroke-width': 1.5,
-                        'fill': 'none', 'stroke': '#48caf9'}
+                    attrs = {
+                        "width": w,
+                        "height": h,
+                        "rx": 5,
+                        "ry": 5,
+                        "x": x,
+                        "y": y,
+                        "stroke-width": 1.5,
+                        "fill": "none",
+                        "stroke": "#48caf9",
+                    }
 
-                    elements.append({
-                        'label': [n, x, y],
-                        'shape': 'rect',
-                        'attrs': attrs,
-                        'latex': obj.latex_src,
-                        'graph': obj.graph_src})
+                    elements.append(
+                        {
+                            "label": [n, x, y],
+                            "shape": "rect",
+                            "attrs": attrs,
+                            "latex": obj.latex_src,
+                            "graph": obj.graph_src,
+                        }
+                    )
 
             min_x, min_y, scale_w, scale_h = np.inf, np.inf, 0, 0
             for el in elements:
-                if min_x > el['attrs']['x']:
-                    min_x = el['attrs']['x']
-                    scale_w = 2*min_x / el['attrs']['width']
-                if min_y > el['attrs']['y']:
-                    min_y = el['attrs']['y']
-                    scale_h = 2*min_y / el['attrs']['height']
+                if min_x > el["attrs"]["x"]:
+                    min_x = el["attrs"]["x"]
+                    scale_w = 2 * min_x / el["attrs"]["width"]
+                if min_y > el["attrs"]["y"]:
+                    min_y = el["attrs"]["y"]
+                    scale_h = 2 * min_y / el["attrs"]["height"]
             for el in elements:
-                w = scale_w * el['attrs']['width']
-                h = scale_h * el['attrs']['height']
-                el['attrs']['x'] = el['attrs']['x'] - w/2
-                el['attrs']['y'] = el['attrs']['y'] - h/2
-                el['attrs']['width'] = w
-                el['attrs']['height'] = h
+                w = scale_w * el["attrs"]["width"]
+                h = scale_h * el["attrs"]["height"]
+                el["attrs"]["x"] = el["attrs"]["x"] - w / 2
+                el["attrs"]["y"] = el["attrs"]["y"] - h / 2
+                el["attrs"]["width"] = w
+                el["attrs"]["height"] = h
 
             for e in Q.get_edge_list():
-                pos = (e.get_pos()[1:-1]).split(' ')
-                ax, ay = [float(v) for v in pos[0].split(',')[1:]]
-                pos = [v.split(',') for v in pos[1:]]
+                pos = (e.get_pos()[1:-1]).split(" ")
+                ax, ay = [float(v) for v in pos[0].split(",")[1:]]
+                pos = [v.split(",") for v in pos[1:]]
 
                 xx = [float(v[0]) for v in pos] + [ax]
                 yy = [float(v[1]) for v in pos] + [ay]
@@ -436,15 +461,15 @@ class Network(object):
                     _x = __x
                     _y = __y
                 path = ["{} {}".format(_x, _y) for _x, _y in zip(x, y)]
-                p = 'M' + " L".join(path)
-                attrs = {'d': p, 'stroke-width': 1.5, 'fill': 'none', 'stroke':'black'}
+                p = "M" + " L".join(path)
+                attrs = {"d": p, "stroke-width": 1.5, "fill": "none", "stroke": "black"}
                 lp = e.get_lp()
                 if lp:
-                    lx, ly = [float(v) for v in lp[1:-1].split(',')]
+                    lx, ly = [float(v) for v in lp[1:-1].split(",")]
                     lx, ly = get_label_xy(lx, ly, x, y)
-                    label = [e.get_label() or '', lx, ly]
-                elements.append({'label':label, 'shape': 'path', 'attrs':attrs})
-            output = {'elements': elements, 'viewbox': viewbox}
+                    label = [e.get_label() or "", lx, ly]
+                elements.append({"label": label, "shape": "path", "attrs": attrs})
+            output = {"elements": elements, "viewbox": viewbox}
             return output
 
     def get_obj(self, name):
