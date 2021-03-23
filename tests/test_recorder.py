@@ -2,7 +2,12 @@ import pytest
 import numpy as np
 import pycuda.autoinit
 import pycuda.gpuarray as garray
+
+# pylint:disable=import-error
 from neural.recorder import Recorder, CUDARecorder, NumpyRecorder, ScalarRecorder
+
+# pylint:enable=import-error
+
 
 class FakeData:
     def __init__(self, steps=100, num=10):
@@ -48,7 +53,7 @@ class FakeData:
         self.attr_spike = self.arr_spk[index]
 
     def attr_names(self):
-        return ['attr', 'attr_spike']
+        return ["attr", "attr_spike"]
 
     def to_scalar(self):
         return self.__class__(steps=self.steps, num=1)
@@ -57,6 +62,7 @@ class FakeData:
 @pytest.fixture
 def data():
     return FakeData()
+
 
 def test_construction(data):
     """Test that __new__ generates the correct recorders"""
@@ -67,8 +73,8 @@ def test_construction(data):
     assert rec.rate == 1
     assert rec.total_steps == data.steps
     assert all([k in rec.dct for k in data.attr_names()])
-    assert 'attr_spike' in rec.spike_vars
-    np.testing.assert_equal(rec.attr, rec.dct['attr'])
+    assert "attr_spike" in rec.spike_vars
+    np.testing.assert_equal(rec.attr, rec.dct["attr"])
 
     data.to_gpu()
     rec = Recorder(data, data.attr_names(), data.steps, rate=1)
@@ -78,10 +84,11 @@ def test_construction(data):
     rec = Recorder(scalar_data, scalar_data.attr_names(), data.steps, rate=1)
     assert isinstance(rec, ScalarRecorder)
 
+
 def test_continous_recording(data):
     # Continous data in CPU
-    rec = Recorder(data, ['attr'], data.steps, rate=1)
-    rec2 = Recorder(data, ['attr'], data.steps, rate=1)
+    rec = Recorder(data, ["attr"], data.steps, rate=1)
+    rec2 = Recorder(data, ["attr"], data.steps, rate=1)
     rec_obj = iter(rec)
     for tt in range(data.steps):
         data.update(tt)
@@ -91,8 +98,8 @@ def test_continous_recording(data):
     np.testing.assert_equal(rec.attr, rec2.attr)
 
     rate = 3
-    rec = Recorder(data, ['attr'], data.steps, rate=rate)
-    rec2 = Recorder(data, ['attr'], data.steps, rate=rate)
+    rec = Recorder(data, ["attr"], data.steps, rate=rate)
+    rec2 = Recorder(data, ["attr"], data.steps, rate=rate)
     rec_obj = iter(rec)
     for tt in range(data.steps):
         data.update(tt)
@@ -103,8 +110,8 @@ def test_continous_recording(data):
 
     # Continous data in GPU
     data.to_gpu()
-    rec = Recorder(data, ['attr'], data.steps, rate=1)
-    rec2 = Recorder(data, ['attr'], data.steps, rate=1)
+    rec = Recorder(data, ["attr"], data.steps, rate=1)
+    rec2 = Recorder(data, ["attr"], data.steps, rate=1)
     rec_obj = iter(rec)
     for tt in range(data.steps):
         data.update(tt)
@@ -114,8 +121,8 @@ def test_continous_recording(data):
     np.testing.assert_equal(rec.attr, rec2.attr)
 
     rate = 3
-    rec = Recorder(data, ['attr'], data.steps, rate=rate)
-    rec2 = Recorder(data, ['attr'], data.steps, rate=rate)
+    rec = Recorder(data, ["attr"], data.steps, rate=rate)
+    rec2 = Recorder(data, ["attr"], data.steps, rate=rate)
     rec_obj = iter(rec)
     for tt in range(data.steps):
         data.update(tt)
@@ -126,8 +133,8 @@ def test_continous_recording(data):
 
     # Continous Scalar data in CPU
     data = data.to_scalar()
-    rec = Recorder(data, ['attr'], data.steps, rate=1)
-    rec2 = Recorder(data, ['attr'], data.steps, rate=1)
+    rec = Recorder(data, ["attr"], data.steps, rate=1)
+    rec2 = Recorder(data, ["attr"], data.steps, rate=1)
     rec_obj = iter(rec)
     for tt in range(data.steps):
         data.update(tt)
@@ -137,8 +144,8 @@ def test_continous_recording(data):
     np.testing.assert_equal(rec.attr, rec2.attr)
 
     rate = 3
-    rec = Recorder(data, ['attr'], data.steps, rate=rate)
-    rec2 = Recorder(data, ['attr'], data.steps, rate=rate)
+    rec = Recorder(data, ["attr"], data.steps, rate=rate)
+    rec2 = Recorder(data, ["attr"], data.steps, rate=rate)
     rec_obj = iter(rec)
     for tt in range(data.steps):
         data.update(tt)
@@ -150,7 +157,7 @@ def test_continous_recording(data):
 
 def test_spike_recording(data):
     # Spiking data in CPU
-    rec = Recorder(data, ['attr_spike'], data.steps, rate=1)
+    rec = Recorder(data, ["attr_spike"], data.steps, rate=1)
     rec_obj = iter(rec)
     for tt in range(data.steps):
         data.update(tt)
@@ -158,17 +165,17 @@ def test_spike_recording(data):
     np.testing.assert_equal(rec.attr_spike, data.arr_spk.T)
 
     rate = 3
-    rec = Recorder(data, ['attr_spike'], data.steps, rate=rate)
+    rec = Recorder(data, ["attr_spike"], data.steps, rate=rate)
     accumulated_spikes = np.zeros((rec.steps, data.num))
     for tt in range(data.steps):
         data.update(tt)
         rec.update(tt)
-        accumulated_spikes[int(tt/rate)] += data.attr_spike
+        accumulated_spikes[int(tt / rate)] += data.attr_spike
     np.testing.assert_equal(rec.attr_spike, accumulated_spikes.T)
 
     # Spiking data in GPU
     data.to_gpu()
-    rec = Recorder(data, ['attr_spike'], data.steps, rate=1)
+    rec = Recorder(data, ["attr_spike"], data.steps, rate=1)
     rec_obj = iter(rec)
     for tt in range(data.steps):
         data.update(tt)
@@ -176,17 +183,17 @@ def test_spike_recording(data):
     np.testing.assert_equal(rec.attr_spike, data.arr_spk.get().T)
 
     rate = 3
-    rec = Recorder(data, ['attr_spike'], data.steps, rate=rate)
+    rec = Recorder(data, ["attr_spike"], data.steps, rate=rate)
     accumulated_spikes = garray.zeros((rec.steps, data.num), dtype=int)
     for tt in range(data.steps):
         data.update(tt)
         rec.update(tt)
-        accumulated_spikes[int(tt/rate)] += data.attr_spike
+        accumulated_spikes[int(tt / rate)] += data.attr_spike
     np.testing.assert_equal(rec.attr_spike, accumulated_spikes.get().T)
 
     # Scalar Spiking data in GPU
     data = data.to_scalar()
-    rec = Recorder(data, ['attr_spike'], data.steps, rate=1)
+    rec = Recorder(data, ["attr_spike"], data.steps, rate=1)
     rec_obj = iter(rec)
     for tt in range(data.steps):
         data.update(tt)
@@ -194,10 +201,10 @@ def test_spike_recording(data):
     np.testing.assert_equal(rec.attr_spike, data.arr_spk)
 
     rate = 3
-    rec = Recorder(data, ['attr_spike'], data.steps, rate=rate)
-    accumulated_spikes = np.zeros((rec.steps, ))
+    rec = Recorder(data, ["attr_spike"], data.steps, rate=rate)
+    accumulated_spikes = np.zeros((rec.steps,))
     for tt in range(data.steps):
         data.update(tt)
         rec.update(tt)
-        accumulated_spikes[int(tt/rate)] += data.attr_spike
+        accumulated_spikes[int(tt / rate)] += data.attr_spike
     np.testing.assert_equal(rec.attr_spike, accumulated_spikes)
