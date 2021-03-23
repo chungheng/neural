@@ -1,22 +1,17 @@
+# pylint:disable=no-member
 """
 Utility modules for recording data from Neural models
 """
+import sys
 from abc import abstractmethod
 from numbers import Number
-
-import sys
-import time
 import numpy as np
-import pycuda
+from pycuda.compiler import SourceModule
 import pycuda.gpuarray as garray
 import pycuda.driver as cuda
 
-
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
-
-from pycuda.compiler import SourceModule
-from pycuda.tools import dtype_to_ctype
 
 src_cuda = """
 __global__ void copy(
@@ -40,12 +35,14 @@ __global__ void copy(
 
 _copy = {'float': None, 'double': None}
 
-for key, val in _copy.items():
-    mod = SourceModule(src_cuda % {'type': key},
-        options = ["--ptxas-options=-v"])
+for _key, val in _copy.items():
+    mod = SourceModule(
+        src_cuda % {'type': _key},
+        options=["--ptxas-options=-v"]
+    )
     func = mod.get_function('copy')
     func.prepare('iiiPP')
-    _copy[key] = func
+    _copy[_key] = func
 
 class Recorder(object):
     """
@@ -53,7 +50,7 @@ class Recorder(object):
 
     Attributes:
     """
-    def __new__(cls, obj, attrs, steps, **kwargs):
+    def __new__(cls, obj, attrs, steps, rate=1, **kwargs):
         if cls is Recorder:
             attr = getattr(obj, attrs[0])
             if isinstance(attr, Number):
@@ -66,14 +63,21 @@ class Recorder(object):
                 raise TypeError("{} of type: {}".format(attr, type(attr)))
         return super(Recorder, cls).__new__(cls)
 
-    def __init__(self, obj, attrs, steps, **kwargs):
+    def __init__(self, obj, attrs, steps, rate=1, **kwargs):
         self.obj = obj
         self.total_steps = steps
-        self.rate = kwargs.pop('rate', 1)
-        self.steps = int(steps/self.rate)
+        self.rate = rate
+        self.steps = len(np.arange(steps)[::rate])
 
         self.dct = {key:None for key in attrs}
         self.init_dct()
+
+        # get spike_variables
+        self.spike_vars = tuple([
+            key
+            for key in attrs
+            if 'spike' in key.lower()
+        ])
 
         callback = kwargs.pop('callback', False)
         if callback:
@@ -91,19 +95,16 @@ class Recorder(object):
         """
         initialize the dict that contains the numpy arrays
         """
-        pass
 
     @abstractmethod
     def update(self, index):
         """
         update the record
         """
-        pass
 
     def __iter__(self):
         for i in range(self.total_steps):
-            if i % self.rate == 0:
-                self.update(i)
+            self.update(i)
             yield i
 
     def __getitem__(self, key):
@@ -128,8 +129,20 @@ class ScalarRecorder(Recorder):
 
     def update(self, index):
         d_index = int(index/self.rate) # downsample index
+
+        # increment spike count directly in dct
+        for key in self.spike_vars:
+            self.dct[key][d_index] += getattr(self.obj, key)
+
+        if (index % self.rate) != 0:
+            return
+
         for key in self.dct.keys():
-            self.dct[key][d_index] = getattr(self.obj, key)
+            if key in self.spike_vars:
+                continue
+            else:
+                self.dct[key][d_index] = getattr(self.obj, key)
+
 
 class NumpyRecorder(Recorder):
     """
@@ -146,8 +159,19 @@ class NumpyRecorder(Recorder):
 
     def update(self, index):
         d_index = int(index/self.rate) # downsample index
+
+        # increment spike count directly in dct
+        for key in self.spike_vars:
+            self.dct[key][:, d_index] += getattr(self.obj, key)
+
+        if (index % self.rate) != 0:
+            return
+
         for key in self.dct.keys():
-            self.dct[key][:,d_index] = getattr(self.obj, key)
+            if key in self.spike_vars:
+                continue
+            else:
+                self.dct[key][:, d_index] = getattr(self.obj, key)
 
 class CUDARecorder(Recorder):
     """
@@ -195,23 +219,47 @@ class CUDARecorder(Recorder):
     def _copy_memory_dtod(self, index):
         # downsample index
         d_index = int(index/self.rate)
+
         # buffer index
         b_index = d_index % self.buffer_length
+
+        for key in self.spike_vars:
+            src = getattr(self.obj, key)
+            self.gpu_dct[key][b_index] += src
+
+        if index % self.rate != 0:
+            return
+
         for key in self.dct.keys():
             src = getattr(self.obj, key)
-            dst = int(self.gpu_dct[key].gpudata) + b_index * src.nbytes
+            if key in self.spike_vars:
+                continue
+            else:
+                dst = int(self.gpu_dct[key].gpudata) + b_index * src.nbytes
+                cuda.memcpy_dtod(dst, src.gpudata, src.nbytes)
 
-            cuda.memcpy_dtod(dst, src.gpudata, src.nbytes)
-
+        # dump data to CPU if simulation complete or buffer full
         if (d_index == self.steps-1) or (b_index == self.buffer_length-1):
             for key in self.dct.keys():
                 buffer = self.get_buffer(key, d_index)
                 cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
 
     def _copy_memory_dtoh(self, index):
-        d_index = int(index/self.rate) # downsample index
+        # downsample index
+        d_index = int(index/self.rate)
+
+        # increment spike count directly in dct
+        for key in self.spike_vars:
+            self.dct[key][:, d_index] += getattr(self.obj, key).get()
+
+        if (index % self.rate) != 0:
+            return
+
         for key in self.dct.keys():
-            self.dct[key][:,d_index] = getattr(self.obj, key).get()
+            if key in self.spike_vars:
+                continue
+            else:
+                self.dct[key][:, d_index] = getattr(self.obj, key).get()
 
     def _py2_get_buffer(self, key, index):
         beg = int(index / self.buffer_length) * self.buffer_length
@@ -221,6 +269,6 @@ class CUDARecorder(Recorder):
         return np.getbuffer(self.dct[key], offset, size)
 
     def _py3_get_buffer(self, key, index):
-        mv = memoryview(self.dct[key].T)
+        mem_view = memoryview(self.dct[key].T)
         beg = int(index / self.buffer_length) * self.buffer_length
-        return mv[beg:index+1]
+        return mem_view[beg:index+1]
