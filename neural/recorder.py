@@ -243,6 +243,10 @@ class CUDARecorder(Recorder):
             for key in self.dct.keys():
                 buffer = self.get_buffer(key, d_index)
                 cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
+            for key in self.spike_vars:
+                self.gpu_dct[key].fill(0.)
+
+
 
     def _copy_memory_dtoh(self, index):
         # downsample index
