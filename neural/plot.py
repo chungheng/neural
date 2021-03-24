@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker
 import numpy as np
 
+
 def plot_multiple(data_x, *args, **kwargs):
     """
     Plot multiple data curves against a same x-axis on mulitple subplots.

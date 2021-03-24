@@ -92,8 +92,8 @@ class Container(object):
         self.vars = {}
         self.inputs = dict()
         self.recorder = None
-        # self.latex_src = self._get_latex()
-        # self.graph_src = self._get_graph()
+        self.latex_src = self._get_latex()
+        self.graph_src = self._get_graph()
         self._rec = []
 
     def __call__(self, **kwargs):

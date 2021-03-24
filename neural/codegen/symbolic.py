@@ -12,6 +12,8 @@ import types
 from pycodegen.codegen import CodeGenerator
 from pycodegen.utils import get_func_signature
 
+from .. import errors as err
+
 
 class _Variable(object):
     default = {
@@ -273,7 +275,15 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         try:
             exec(self.sympy_src, globals(), self.sympy_dct)
         except:
-            print(self.sympy_src)
+            for n, line in enumerate(self.sympy_src.split("\n")):
+                try:
+                    exec(line, globals(), self.sympy_dct)
+                except Exception as e:
+                    # print(self.sympy_src)
+                    raise err.NeuralSymPyCodeGenError(
+                        f"""SymPy Compilation Failed for model {self.model.__class__.__name__} on:
+                        Line {n}: {line}"""
+                    ) from e
 
     def to_latex(self):
         cond = lambda v: v.type == "state" and v.integral is None
@@ -289,7 +299,12 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         self.latex_src = ""
         self.latex_src += r"\begin{eqnarray}"
         for eq in self.equations:
-            tmp = latex(self.sympy_dct[eq], mul_symbol="dot")
+            try:
+                tmp = latex(self.sympy_dct[eq], mul_symbol="dot")
+            except Exception as e:
+                raise err.NeuralSymPyCodeGenError(
+                    f"Failed to Generate Sympy Code for model {self.model.__class__.__name__}"
+                ) from e
             self.latex_src += tmp.replace("=", " &=& ") + r"\\"
         self.latex_src += r"\end{eqnarray}"
 
