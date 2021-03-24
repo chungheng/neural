@@ -1,7 +1,7 @@
 """
 Plotting functions.
 """
-
+import typing as tp
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -110,6 +110,128 @@ def plot_multiple(data_x, *args, **kwargs):
 
     return fig, axes
 
+def plot_spikes(
+    spikes: np.ndarray,
+    t: np.ndarray = None,
+    ax: plt.Axes = None,
+    markersize: int = None,
+    color: tp.Union[str, tp.Any] = "k",
+) -> plt.Axes:
+    """
+    Plot Spikes in raster format
+    Arguments:
+        spikes: the spike states in binary format, where 1 stands for a spike.
+            The shape of the spikes should either be (N_times, ) or (N_trials, N_times)
+        t: time axes for the spikes, use arange if not provided
+        ax: which axis to plot into, create one if not provided
+        markersize: size of raster
+        color: color for the raster. Any acceptable type of `matplotlib.pyplot.plot`'s
+            color argument is accepted.
+    Returns:
+        ax: the axis that the raster is plotted into
+    """
+    spikes = np.atleast_2d(spikes)
+    if spikes.ndim != 2:
+        raise NeuralUtilityError(
+            f"matrix need to be of ndim 2, (channels x time), got ndim={spikes.ndim}"
+        )
+    neu_idx, t_idx = np.nonzero(spikes)
+    if t is None:
+        t = np.arange(spikes.shape[1])
+
+    if ax is None:
+        fig = plt.gcf()
+        ax = fig.add_subplot()
+
+    try:
+        ax.plot(t[t_idx], neu_idx, "|", c=color, markersize=markersize)
+    except ValueError as e:
+        raise NeuralUtilityError(
+            "Raster plot failed, likely an issue with color or markersize setting"
+        ) from e
+    except IndexError as e:
+        raise NeuralUtilityError(
+            "Raster plot failed, likely an issue with spikes and time vector mismatch"
+        ) from e
+    except Exception as e:
+        raise NeuralUtilityError("Raster plot failed due to unknown error") from e
+    ax.set_xlim([t.min(), t.max()])
+    return ax
+
+
+def plot_mat(
+    mat: np.ndarray,
+    t: np.ndarray = None,
+    ax: plt.Axes = None,
+    cax=None,
+    vmin: float = None,
+    vmax: float = None,
+    cbar_kw: dict = None,
+    cmap: tp.Any = None,
+) -> tp.Union[tp.Tuple[plt.Axes, tp.Any], plt.Axes]:
+    """
+    Plot Matrix with formatted time axes
+    Arguments:
+        mat: the matrix to be plotted, it should of shape (N, Time)
+        t: time axes for the spikes, use arange if not provided
+        ax: which axis to plot into, create one if not provided
+        cax: which axis to plot colorbar into
+            - if instance of axis, plot into that axis
+            - if is True, steal axis from `ax`
+        vmin: minimum value for the imshow
+        vmax: maximum value for the imshow
+        cbar_kw: keyword arguments to be passed into the colorbar creation
+        cmap: colormap to use
+    Returns:
+        ax: the axis that the raster is plotted into
+        cbar: colorbar object
+            - only returned if cax is `True` or a `plt.Axes` instance
+    Example:
+        >>> dt, dur, start, stop = 1e-4, 2, 0.5, 1.0
+        >>> t = np.arange(0, dur, dt)
+        >>> amps = np.arange(0, 100, 10)
+        >>> wav = utils.generate_stimulus('step', dt, dur, (start, stop), amps)
+        >>> ax,cbar = plot_mat(wav, t=t, cax=True, vmin=10, vmax=100, cbar_kw={'label':'test'}, cmap=plt.cm.gnuplot)
+        >>> ax, = plot_mat(wav, t=t, cax=False, vmin=10, vmax=100, cbar_kw={'label':'test'}, cmap=plt.cm.gnuplot)
+    """
+    mat = np.atleast_2d(mat)
+    if mat.ndim != 2:
+        raise NeuralUtilityError(
+            f"matrix need to be of ndim 1 (N_time),or ndim 2 (N_trials x N_times), got ndim={mat.ndim}"
+        )
+    if t is None:
+        t = np.arange(mat.shape[1])
+    dt = t[1] - t[0]
+
+    @ticker.FuncFormatter
+    def major_formatter(x, pos):
+        return "{:.1f}".format(dt * x)
+
+    if ax is None:
+        fig = plt.gcf()
+        ax = fig.add_subplot()
+
+    cim = ax.imshow(
+        mat,
+        aspect="auto",
+        interpolation="none",
+        origin="lower",
+        vmin=vmin,
+        vmax=vmax,
+        cmap=cmap,
+    )
+    ax.xaxis.set_major_formatter(major_formatter)
+
+    if cax:
+        if cbar_kw is None:
+            cbar_kw = {}
+        if not isinstance(cax, plt.Axes):
+            cbar = plt.colorbar(cim, ax=ax, **cbar_kw)
+        else:
+            cbar = plt.colorbar(cim, cax, **cbar_kw)
+        return ax, cbar
+    else:
+        return (ax,)
 
 def yyaxis(ax: plt.Axes, c: "color" = "red") -> plt.Axes:
     """Create A second axis with colored spine/ticks/label
