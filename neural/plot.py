@@ -110,6 +110,7 @@ def plot_multiple(data_x, *args, **kwargs):
 
     return fig, axes
 
+
 def plot_spikes(
     spikes: np.ndarray,
     t: np.ndarray = None,
@@ -232,6 +233,7 @@ def plot_mat(
         return ax, cbar
     else:
         return (ax,)
+
 
 def yyaxis(ax: plt.Axes, c: "color" = "red") -> plt.Axes:
     """Create A second axis with colored spine/ticks/label
