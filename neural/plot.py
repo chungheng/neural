@@ -3,8 +3,8 @@ Plotting functions.
 """
 import typing as tp
 import matplotlib.pyplot as plt
+from matplotlib import ticker
 import numpy as np
-
 
 def plot_multiple(data_x, *args, **kwargs):
     """
