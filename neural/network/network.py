@@ -21,7 +21,7 @@ from inspect import isclass
 
 import numpy as np
 import pycuda.gpuarray as garray
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from ..basemodel import Model
 from ..future import SimpleNamespace
