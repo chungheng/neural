@@ -19,6 +19,7 @@ import zlib
 from binascii import unhexlify
 import numpy as np
 from scipy.signal import butter, lfilter
+from . import errors as err
 
 
 def chunk(btype, data):
@@ -150,20 +151,19 @@ def generate_spike_from_psth(
             2. :code:`(len(psth), )` if :code:`num == 1`
     """
     psth = np.squeeze(psth)
-    assert psth.ndim == 1
+    if psth.ndim != 1:
+        raise err.NeuralUtilityError(
+            f"Only 1D PSTH is currently accepted, got {psth.ndim} instead"
+        )
 
     rng = np.random.RandomState(seed)
-    shape = (len(psth), num) if num > 1 else (len(psth),)
+    shape = (len(psth), num)
     spikes = np.zeros(shape, dtype=int, order="C")
 
     randvar = rng.rand(*shape)
     spikes = randvar < d_t * psth[:, None]
 
-    # for i, rate in enumerate(psth):
-    #     spikes[i] = rng.rand(num) < d_t * rate
-    if num > 1:
-        return spikes.T
-    return spikes
+    return np.squeeze(spikes).T
 
 
 def compute_psth(spikes, d_t, window, interval):
