@@ -60,6 +60,9 @@ def test_generate_spike_from_psth(data):
     assert np.sum(ss[:, np.logical_and(t < 0.2 * dur, t > 0.8 * dur)]) == 0
     assert np.max(np.abs(np.sum(ss, axis=1) / (0.6 * dur) - rate) / rate) < 0.2
 
+    ss = utils.generate_spike_from_psth(dt, step, num=1, seed=seed)
+    assert ss.shape == (len(t),)
+
 
 def test_compute_psth(data, spikes):
     dt, dur, t, bw, num, seed = data
