@@ -217,6 +217,22 @@ class Network(object):
         self._iscompiled = False
         return container
 
+    def reset(self):
+        """Reset Network to Initial State"""
+        # reset recorders
+        for c in self.containers.values():
+            if c.recorder is not None:
+                c.recorder.reset()
+
+        # reset Model variables
+        for c in self.containers.values():
+            if isinstance(c.obj, Model):
+                c.obj.reset()
+
+        # reset inputs
+        for input in self.inputs.values():
+            input.reset()
+
     def run(self, dt, steps=0, rate=1, verbose=False, **kwargs):
         solver = kwargs.pop("solver", self.solver)
         if not self._iscompiled:
@@ -225,21 +241,9 @@ class Network(object):
         # calculate number of steps
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
 
-        # reset recorders
-        recorders = []
         for c in self.containers.values():
             recorder = c.set_recorder(steps, rate)
-            if recorder is not None:
-                recorders.append(recorder)
-
-        # reset Modle variables
-        for c in self.containers.values():
-            if isinstance(c.obj, Model):
-                c.obj.reset()
-
-        # reset inputs
-        for input in self.inputs.values():
-            input.reset()
+        self.reset()
 
         iterator = range(steps)
         if verbose:
@@ -261,8 +265,9 @@ class Network(object):
                     c.obj.update(dt, **args)
                 else:
                     c.obj.update(**args)
-            for recorder in recorders:
-                recorder.update(i)
+            for c in self.containers.values():
+                if c.recorder is not None:
+                    c.recorder.update(i)
 
     def compile(self, dtype=None, debug=False, backend="cuda"):
         dtype = dtype or np.float64
