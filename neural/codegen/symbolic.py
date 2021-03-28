@@ -278,8 +278,16 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             for n, line in enumerate(self.sympy_src.split("\n")):
                 try:
                     exec(line, globals(), self.sympy_dct)
+                except IndentationError as e:
+                    raise err.NeuralSymPyCodeGenError(
+                        "SymPy Compilation Failed for model"
+                        f" '{self.model.__class__.__name__}' on:"
+                        f" Line {n}: \n{line}"
+                         "\n This is likely an issue with using 'elif' statement"
+                         " , avoid 'elif' and prefer binary masking operators"
+                         " like '(x>0)*x' in general."
+                    ) from e
                 except Exception as e:
-                    # print(self.sympy_src)
                     raise err.NeuralSymPyCodeGenError(
                         "SymPy Compilation Failed for model"
                         f" '{self.model.__class__.__name__}' on:"
