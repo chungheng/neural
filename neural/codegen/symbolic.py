@@ -304,7 +304,8 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
                 tmp = latex(self.sympy_dct[eq], mul_symbol="dot")
             except Exception as e:
                 raise err.NeuralSymPyCodeGenError(
-                    f"Failed to Generate Sympy Code for model {self.model.__class__.__name__}"
+                    "Failed to Generate Sympy Code for model"
+                    f" {self.model.__class__.__name__}"
                 ) from e
             self.latex_src += tmp.replace("=", " &=& ") + r"\\"
         self.latex_src += r"\end{eqnarray}"
