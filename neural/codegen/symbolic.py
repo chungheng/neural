@@ -247,7 +247,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         for key in dir(self):
             if key[:8] == "_handle_":
                 setattr(self, key[1:], getattr(self, key))
-        #
+
         self.generate()
         self.get_symbols()
         self.sympy_dct = {}
@@ -281,8 +281,9 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
                 except Exception as e:
                     # print(self.sympy_src)
                     raise err.NeuralSymPyCodeGenError(
-                        f"""SymPy Compilation Failed for model {self.model.__class__.__name__} on:
-                        Line {n}: {line}"""
+                        "SymPy Compilation Failed for model"
+                        f" '{self.model.__class__.__name__}' on:"
+                        f" Line {n}: \n{line}"
                     ) from e
 
     def to_latex(self):
@@ -402,6 +403,21 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         else:
             self.var.append("")
             self.output_statement()
+
+    def handle_compare_op(self, ins):
+        """Convert Comparison Operation to Heaviside Expressions"""
+        op = ins.argval
+        if op in ['>', '>=']:
+            diff =f"{self.var[-2]} - {self.var[-1]}"
+        elif op in ['<', '<=']:
+            diff =f"{self.var[-1]} - {self.var[-2]}"
+        else:
+            raise ValueError(f"Comparison with Operator '{op}' not understood.")
+
+        thres = 1 if '=' in op else 0
+
+        self.var[-2] = f"Heaviside({diff}, {thres})"
+        del self.var[-1]
 
     def _handle_return_value(self, ins):
         self.var[-1] = ""
