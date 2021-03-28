@@ -297,10 +297,13 @@ class Network(object):
                     raise Exception()
 
             if hasattr(c.obj, "compile"):
-                if isinstance(c.obj, Model):
-                    c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
-                else:
-                    c.obj.compile(**dct)
+                try:
+                    if isinstance(c.obj, Model):
+                        c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
+                    else:
+                        c.obj.compile(**dct)
+                except Exception as e:
+                    raise Exception(f"Compilation Failed for Container {c.obj}") from e
                 if debug:
                     s = "".join([", {}={}".format(*k) for k in dct.items()])
                     print(
