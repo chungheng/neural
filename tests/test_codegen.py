@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 import random
 
 # pylint:disable=import-error
@@ -21,6 +22,7 @@ class FakeModel(Model):
         else:
             self.z = 100
 
+        self.y = np.exp(np.cbrt(np.sqrt(self.z))) + random.gauss(0.0, self.c)
         self.y = (self.y > self.z) * self.y
         self.y = (self.y < self.z) * self.y
         self.y = (self.y >= self.z) * self.y
