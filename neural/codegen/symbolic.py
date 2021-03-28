@@ -408,9 +408,9 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         """Convert Comparison Operation to Heaviside Expressions"""
         op = ins.argval
         if op in [">", ">="]:
-            diff = f"{self.var[-2]} - {self.var[-1]}"
+            diff = f"({self.var[-2]}) - ({self.var[-1]})"
         elif op in ["<", "<="]:
-            diff = f"{self.var[-1]} - {self.var[-2]}"
+            diff = f"({self.var[-1]}) - ({self.var[-2]})"
         else:
             raise ValueError(f"Comparison with Operator '{op}' not understood.")
 
