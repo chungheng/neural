@@ -283,9 +283,9 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
                         "SymPy Compilation Failed for model"
                         f" '{self.model.__class__.__name__}' on:"
                         f" Line {n}: \n{line}"
-                         "\n This is likely an issue with using 'elif' statement"
-                         " , avoid 'elif' and prefer binary masking operators"
-                         " like '(x>0)*x' in general."
+                        "\n This is likely an issue with using 'elif' statement"
+                        " , avoid 'elif' and prefer binary masking operators"
+                        " like '(x>0)*x' in general."
                     ) from e
                 except Exception as e:
                     raise err.NeuralSymPyCodeGenError(
