@@ -203,7 +203,10 @@ def plot_mat(
         )
     if t is None:
         t = np.arange(mat.shape[1])
-    dt = t[1] - t[0]
+    if len(t) > 1:
+        dt = t[1] - t[0]
+    else:
+        dt = 1
 
     @ticker.FuncFormatter
     def major_formatter(x, pos):
