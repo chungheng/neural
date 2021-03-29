@@ -7,12 +7,11 @@ Based on original script added by Andrew Nelson in 2014.
 Tingkai Liu, 2021
 """
 import warnings
-
+import typing as tp
 import numpy as np
 from scipy.optimize import OptimizeResult, minimize
 from scipy.optimize.optimize import _status_message
 from scipy._lib._util import check_random_state, MapWrapper
-
 from scipy.optimize._constraints import (
     Bounds,
     new_bounds_to_old,
@@ -20,8 +19,7 @@ from scipy.optimize._constraints import (
     LinearConstraint,
 )
 from scipy.sparse import issparse
-
-from tqdm.auto import tqdm
+from tqdm.auto import tqdm # pylint:disable=astroid-error
 
 __all__ = ["differential_evolution"]
 
@@ -29,17 +27,41 @@ _MACHEPS = np.finfo(np.float64).eps
 
 
 class OptimizationHistory:
-    def __init__(self, maxiter, popsize, Nparams):
+    """History of Optimization
+
+    This module supports backtracking of different parameter values and their
+    corresponding objective function values for visualization and debugging
+    purposes.
+
+    Parameters:
+        maxiter: Maximum optimization iteration before stopping
+        popsize: Number of candidate solutions simultaneously evaluated
+        Nparams: Number of parameters that are being optimized together
+
+    Attributes:
+        x: A 3-D array that keeps track of parameter values tried during
+            optimization
+        obj: A 2-D array that keeps track of objective function value for each
+            candidate solution
+    """
+
+    def __init__(self, maxiter: int, popsize: int, Nparams: int):
         self.x = np.zeros((maxiter, popsize, Nparams))
         self.obj = np.zeros((maxiter, popsize))
         self._ctr = 0
 
-    def update(self, idx, params, obj):
+    def update(self, idx: int, params: dict, obj: np.ndarray) -> None:
+        """Update cached history"""
         self.x[idx] = params
         self.obj[idx] = obj
         self._ctr = idx + 1
 
-    def prune(self):
+    def prune(self) -> None:
+        """Prune parameters and objective values
+
+        In case of early stopping, this will trim the results to only the steps
+        taken.
+        """
         self.x = self.x[: self._ctr]
         self.obj = self.obj[: self._ctr]
 
@@ -48,26 +70,26 @@ class OptimizationHistory:
 
 
 def differential_evolution(
-    func,
-    bounds,
-    args=(),
-    strategy="best1bin",
-    maxiter=1000,
-    popsize=15,
-    rtol=0.01,
-    mutation=(0.5, 1),
-    recombination=0.7,
-    seed=None,
-    callback=None,
-    verbose=False,
-    polish=True,
-    init="latinhypercube",
-    atol=0,
-    updating="immediate",
-    workers=1,
-    constraints=(),
-    batched=False,
-):
+    func: tp.Callable,
+    bounds: tp.Union[tp.Iterable[tp.Tuple(float)], "Bounds"],
+    args: tp.Tuple = (),
+    strategy: str = "best1bin",
+    maxiter: int = 1000,
+    popsize: int = 15,
+    rtol: float = 0.01,
+    mutation: tp.Union[float, tp.Tuple[float]] = (0.5, 1),
+    recombination: float = 0.7,
+    seed: tp.Union[int, "np.random.RandomState", "np.random.Generator"] = None,
+    callback: tp.Callable = None,
+    verbose: bool = False,
+    polish: bool = True,
+    init: tp.Union[str, "np.typing.ArrayLike"] = "latinhypercube",
+    atol: float = 0,
+    updating: tp.Union["immediate", "deferred"] = "immediate",
+    workers: tp.Union[int, "map-like callable"] = 1,
+    constraints: tp.Union["NonLinearConstraint", "LinearConstraint", "Bounds"] = (),
+    batched: bool = False,
+) -> OptimizeResult:
     """Finds the global minimum of a multivariate function.
 
     Differential Evolution is stochastic in nature (does not use gradient
@@ -77,267 +99,189 @@ def differential_evolution(
 
     The algorithm is due to Storn and Price [1]_.
 
-    Parameters
-    ----------
-    func : callable
-        The objective function to be minimized. Must be in the form
-        ``f(x, *args)``, where ``x`` is the argument in the form of a 1-D array
-        and ``args`` is a  tuple of any additional fixed parameters needed to
-        completely specify the function.
-    bounds : sequence or `Bounds`, optional
-        Bounds for variables. There are two ways to specify the bounds:
-        1. Instance of `Bounds` class.
-        2. ``(min, max)`` pairs for each element in ``x``, defining the finite
-        lower and upper bounds for the optimizing argument of `func`. It is
-        required to have ``len(bounds) == len(x)``. ``len(bounds)`` is used
-        to determine the number of parameters in ``x``.
-    args : tuple, optional
-        Any additional fixed parameters needed to
-        completely specify the objective function.
-    strategy : str, optional
-        The differential evolution strategy to use. Should be one of:
+    Parameters:
+        func: The objective function to be minimized. Must be in the form
+            ``f(x, *args)``, where ``x`` is the argument in the form of a 1-D array
+            and ``args`` is a  tuple of any additional fixed parameters needed to
+            completely specify the function.
+        bounds: Bounds for variables. There are two ways to specify the bounds:
+            1. Instance of `Bounds` class.
+            2. ``(min, max)`` pairs for each element in ``x``, defining the finite
+            lower and upper bounds for the optimizing argument of `func`. It is
+            required to have ``len(bounds) == len(x)``. ``len(bounds)`` is used
+            to determine the number of parameters in ``x``.
+        args: Any additional fixed parameters needed to completely specify the
+            objective function.
+        strategy: The differential evolution strategy to use. Should be one of:
 
-            - 'best1bin'
-            - 'best1exp'
-            - 'rand1exp'
-            - 'randtobest1exp'
-            - 'currenttobest1exp'
-            - 'best2exp'
-            - 'rand2exp'
-            - 'randtobest1bin'
-            - 'currenttobest1bin'
-            - 'best2bin'
-            - 'rand2bin'
-            - 'rand1bin'
+                - 'best1bin' (default)
+                - 'best1exp'
+                - 'rand1exp'
+                - 'randtobest1exp'
+                - 'currenttobest1exp'
+                - 'best2exp'
+                - 'rand2exp'
+                - 'randtobest1bin'
+                - 'currenttobest1bin'
+                - 'best2bin'
+                - 'rand2bin'
+                - 'rand1bin'
 
-        The default is 'best1bin'.
-    maxiter : int, optional
-        The maximum number of generations over which the entire population is
-        evolved. The maximum number of function evaluations (with no polishing)
-        is: ``(maxiter + 1) * popsize * len(x)``
-    popsize : int, optional
-        A multiplier for setting the total population size. The population has
-        ``popsize * len(x)`` individuals (unless the initial population is
-        supplied via the `init` keyword).
-    rtol : float, optional
-        Relative tolerance for convergence, the solving stops when
-        ``np.std(pop) <= atol + rtol * np.abs(np.mean(population_energies))``,
-        where and `atol` and `rtol` are the absolute and relative tolerance
-        respectively.
-    mutation : float or tuple(float, float), optional
-        The mutation constant. In the literature this is also known as
-        differential weight, being denoted by F.
-        If specified as a float it should be in the range [0, 2].
-        If specified as a tuple ``(min, max)`` dithering is employed. Dithering
-        randomly changes the mutation constant on a generation by generation
-        basis. The mutation constant for that generation is taken from
-        ``U[min, max)``. Dithering can help speed convergence significantly.
-        Increasing the mutation constant increases the search radius, but will
-        slow down convergence.
-    recombination : float, optional
-        The recombination constant, should be in the range [0, 1]. In the
-        literature this is also known as the crossover probability, being
-        denoted by CR. Increasing this value allows a larger number of mutants
-        to progress into the next generation, but at the risk of population
-        stability.
-    seed : {int, `~np.random.RandomState`, `~np.random.Generator`}, optional
-        If `seed` is not specified the `~np.random.RandomState` singleton is
-        used.
-        If `seed` is an int, a new ``RandomState`` instance is used,
-        seeded with seed.
-        If `seed` is already a ``RandomState`` or a ``Generator`` instance,
-        then that object is used.
-        Specify `seed` for repeatable minimizations.
-    verbose : bool, optional
-        Prints the evaluated `func` at every iteration.
-    callback : callable, `callback(xk, convergence=val)`, optional
-        A function to follow the progress of the minimization. ``xk`` is
-        the current value of ``x0``. ``val`` represents the fractional
-        value of the population convergence.  When ``val`` is greater than one
-        the function halts. If callback returns `True`, then the minimization
-        is halted (any polishing is still carried out).
-    polish : bool, optional
-        If True (default), then `scipy.optimize.minimize` with the `L-BFGS-B`
-        method is used to polish the best population member at the end, which
-        can improve the minimization slightly. If a constrained problem is
-        being studied then the `trust-constr` method is used instead.
-    init : str or array-like, optional
-        Specify which type of population initialization is performed. Should be
-        one of:
+        maxiter: The maximum number of generations over which the entire population is
+            evolved. The maximum number of function evaluations (with no polishing)
+            is: ``(maxiter + 1) * popsize * len(x)``
+        popsize: A multiplier for setting the total population size. The population has
+            ``popsize * len(x)`` individuals (unless the initial population is
+            supplied via the `init` keyword).
+        rtol: Relative tolerance for convergence, the solving stops when
+            ``np.std(pop) <= atol + rtol * np.abs(np.mean(population_energies))``,
+            where and `atol` and `rtol` are the absolute and relative tolerance
+            respectively.
+        mutation: The mutation constant. In the literature this is also known as
+            differential weight, being denoted by F.
+            If specified as a float it should be in the range [0, 2].
+            If specified as a tuple ``(min, max)`` dithering is employed. Dithering
+            randomly changes the mutation constant on a generation by generation
+            basis. The mutation constant for that generation is taken from
+            ``U[min, max)``. Dithering can help speed convergence significantly.
+            Increasing the mutation constant increases the search radius, but will
+            slow down convergence.
+        recombination: The recombination constant, should be in the range [0, 1]. In the
+            literature this is also known as the crossover probability, being
+            denoted by CR. Increasing this value allows a larger number of mutants
+            to progress into the next generation, but at the risk of population
+            stability.
+        seed: Seed for random number generator, specify for repeatable minimizations.
 
-            - 'latinhypercube'
-            - 'random'
-            - array specifying the initial population. The array should have
-              shape ``(M, len(x))``, where M is the total population size and
-              len(x) is the number of parameters.
-              `init` is clipped to `bounds` before use.
+            - If `seed` is not specified the `~np.random.RandomState` singleton is
+                used.
+            - If `seed` is an int, a new ``RandomState`` instance is used,
+                seeded with seed.
+            - If `seed` is already a ``RandomState`` or a ``Generator`` instance,
+                then that object is used.
 
-        The default is 'latinhypercube'. Latin Hypercube sampling tries to
-        maximize coverage of the available parameter space. 'random'
-        initializes the population randomly - this has the drawback that
-        clustering can occur, preventing the whole of parameter space being
-        covered. Use of an array to specify a population subset could be used,
-        for example, to create a tight bunch of initial guesses in an location
-        where the solution is known to exist, thereby reducing time for
+        verbose: Print and update progressbar at every iteration.
+        callback : function of form `callback(xk, convergence=val)`.
+            A function to follow the progress of the minimization. ``xk`` is
+            the current value of ``x0``. ``val`` represents the fractional
+            value of the population convergence.  When ``val`` is greater than one
+            the function halts. If callback returns `True`, then the minimization
+            is halted (any polishing is still carried out).
+        polish: If True (default), then `scipy.optimize.minimize` with the `L-BFGS-B`
+            method is used to polish the best population member at the end, which
+            can improve the minimization slightly. If a constrained problem is
+            being studied then the `trust-constr` method is used instead.
+        init: Specify which type of population initialization is performed.
+            Should be one of:
+
+                - 'latinhypercube'
+                - 'random'
+                - array specifying the initial population. The array should have
+                    shape ``(M, len(x))``, where M is the total population size and
+                    len(x) is the number of parameters.
+                    `init` is clipped to `bounds` before use.
+
+            The default is 'latinhypercube'. Latin Hypercube sampling tries to
+            maximize coverage of the available parameter space. 'random'
+            initializes the population randomly - this has the drawback that
+            clustering can occur, preventing the whole of parameter space being
+            covered. Use of an array to specify a population subset could be used,
+            for example, to create a tight bunch of initial guesses in an location
+            where the solution is known to exist, thereby reducing time for
+            convergence.
+        atol : Absolute tolerance for convergence, the solving stops when
+            ``np.std(pop) <= atol + rtol * np.abs(np.mean(population_energies))``,
+            where and `atol` and `rtol` are the absolute and relative tolerance
+            respectively.
+        updating : If ``'immediate'``, the best solution vector is continuously updated
+            within a single generation [4]_. This can lead to faster convergence as
+            trial vectors can take advantage of continuous improvements in the best
+            solution.
+            With ``'deferred'``, the best solution vector is updated once per
+            generation. Only ``'deferred'`` is compatible with parallelization, and
+            the `workers` keyword can over-ride this option.
+
+        workers : If `workers` is an int the population is subdivided into `workers`
+            sections and evaluated in parallel
+            (uses `multiprocessing.Pool <multiprocessing>`).
+            Supply -1 to use all available CPU cores.
+            Alternatively supply a map-like callable, such as
+            `multiprocessing.Pool.map` for evaluating the population in parallel.
+            This evaluation is carried out as ``workers(func, iterable)``.
+            This option will override the `updating` keyword to
+            ``updating='deferred'`` if ``workers != 1``.
+            Requires that `func` be pickleable.
+
+        constraints: Constraints on the solver, over and above those applied by
+            the `bounds` kwd. Uses the approach by Lampinen [5]_.
+
+        batched: If `batched` is True, then the cost function `func` is expected to
+            handle 2D input parameters of shape `(Nparams, Npop)`. `batched` and
+            `workers` cannot both be true since `batched` processing is fundamentally
+            different from how `workers` compute energy values.
+
+    Returns:
+        res: The optimization result represented as a `OptimizeResult` object.
+            Important attributes are: ``x`` the solution array, ``success`` a
+            Boolean flag indicating if the optimizer exited successfully and
+            ``message`` which describes the cause of the termination. See
+            `OptimizeResult` for a description of other attributes. If `polish`
+            was employed, and a lower minimum was obtained by the polishing, then
+            OptimizeResult also contains the ``jac`` attribute.
+            If the eventual solution does not satisfy the applied constraints
+            ``success`` will be `False`.
+
+    Notes:
+        Differential evolution is a stochastic population based method that is
+        useful for global optimization problems. At each pass through the population
+        the algorithm mutates each candidate solution by mixing with other candidate
+        solutions to create a trial candidate. There are several strategies [2]_ for
+        creating trial candidates, which suit some problems more than others. The
+        'best1bin' strategy is a good starting point for many systems. In this
+        strategy two members of the population are randomly chosen. Their difference
+        is used to mutate the best member (the 'best' in 'best1bin'), :math:`b_0`,
+        so far:
+
+        .. math::
+
+            b' = b_0 + mutation * (population[rand0] - population[rand1])
+
+        A trial vector is then constructed. Starting with a randomly chosen ith
+        parameter the trial is sequentially filled (in modulo) with parameters from
+        ``b'`` or the original candidate. The choice of whether to use ``b'`` or the
+        original candidate is made with a binomial distribution (the 'bin' in
+        'best1bin') - a random number in [0, 1) is generated. If this number is
+        less than the `recombination` constant then the parameter is loaded from
+        ``b'``, otherwise it is loaded from the original candidate. The final
+        parameter is always loaded from ``b'``. Once the trial candidate is built
+        its fitness is assessed. If the trial is better than the original candidate
+        then it takes its place. If it is also better than the best overall
+        candidate it also replaces that.
+        To improve your chances of finding a global minimum use higher `popsize`
+        values, with higher `mutation` and (dithering), but lower `recombination`
+        values. This has the effect of widening the search radius, but slowing
         convergence.
-    atol : float, optional
-        Absolute tolerance for convergence, the solving stops when
-        ``np.std(pop) <= atol + rtol * np.abs(np.mean(population_energies))``,
-        where and `atol` and `rtol` are the absolute and relative tolerance
-        respectively.
-    updating : {'immediate', 'deferred'}, optional
-        If ``'immediate'``, the best solution vector is continuously updated
-        within a single generation [4]_. This can lead to faster convergence as
-        trial vectors can take advantage of continuous improvements in the best
-        solution.
-        With ``'deferred'``, the best solution vector is updated once per
-        generation. Only ``'deferred'`` is compatible with parallelization, and
-        the `workers` keyword can over-ride this option.
+        By default the best solution vector is updated continuously within a single
+        iteration (``updating='immediate'``). This is a modification [4]_ of the
+        original differential evolution algorithm which can lead to faster
+        convergence as trial vectors can immediately benefit from improved
+        solutions. To use the original Storn and Price behaviour, updating the best
+        solution once per iteration, set ``updating='deferred'``.
 
-        .. versionadded:: 1.2.0
-
-    workers : int or map-like callable, optional
-        If `workers` is an int the population is subdivided into `workers`
-        sections and evaluated in parallel
-        (uses `multiprocessing.Pool <multiprocessing>`).
-        Supply -1 to use all available CPU cores.
-        Alternatively supply a map-like callable, such as
-        `multiprocessing.Pool.map` for evaluating the population in parallel.
-        This evaluation is carried out as ``workers(func, iterable)``.
-        This option will override the `updating` keyword to
-        ``updating='deferred'`` if ``workers != 1``.
-        Requires that `func` be pickleable.
-
-        .. versionadded:: 1.2.0
-
-    constraints : {NonLinearConstraint, LinearConstraint, Bounds}
-        Constraints on the solver, over and above those applied by the `bounds`
-        kwd. Uses the approach by Lampinen [5]_.
-
-        .. versionadded:: 1.4.0
-
-    batched: bool, optional
-        If `batched` is True, then the cost function `func` is expected to handle
-        2D input parameters of shape `(Nparams, Npop)`. `batched` and `workers`
-        cannot both be true since `batched` processing is fundamentally
-        different from how `workers` compute energy values.
-
-    Returns
-    -------
-    res : OptimizeResult
-        The optimization result represented as a `OptimizeResult` object.
-        Important attributes are: ``x`` the solution array, ``success`` a
-        Boolean flag indicating if the optimizer exited successfully and
-        ``message`` which describes the cause of the termination. See
-        `OptimizeResult` for a description of other attributes. If `polish`
-        was employed, and a lower minimum was obtained by the polishing, then
-        OptimizeResult also contains the ``jac`` attribute.
-        If the eventual solution does not satisfy the applied constraints
-        ``success`` will be `False`.
-
-    Notes
-    -----
-    Differential evolution is a stochastic population based method that is
-    useful for global optimization problems. At each pass through the population
-    the algorithm mutates each candidate solution by mixing with other candidate
-    solutions to create a trial candidate. There are several strategies [2]_ for
-    creating trial candidates, which suit some problems more than others. The
-    'best1bin' strategy is a good starting point for many systems. In this
-    strategy two members of the population are randomly chosen. Their difference
-    is used to mutate the best member (the 'best' in 'best1bin'), :math:`b_0`,
-    so far:
-
-    .. math::
-
-        b' = b_0 + mutation * (population[rand0] - population[rand1])
-
-    A trial vector is then constructed. Starting with a randomly chosen ith
-    parameter the trial is sequentially filled (in modulo) with parameters from
-    ``b'`` or the original candidate. The choice of whether to use ``b'`` or the
-    original candidate is made with a binomial distribution (the 'bin' in
-    'best1bin') - a random number in [0, 1) is generated. If this number is
-    less than the `recombination` constant then the parameter is loaded from
-    ``b'``, otherwise it is loaded from the original candidate. The final
-    parameter is always loaded from ``b'``. Once the trial candidate is built
-    its fitness is assessed. If the trial is better than the original candidate
-    then it takes its place. If it is also better than the best overall
-    candidate it also replaces that.
-    To improve your chances of finding a global minimum use higher `popsize`
-    values, with higher `mutation` and (dithering), but lower `recombination`
-    values. This has the effect of widening the search radius, but slowing
-    convergence.
-    By default the best solution vector is updated continuously within a single
-    iteration (``updating='immediate'``). This is a modification [4]_ of the
-    original differential evolution algorithm which can lead to faster
-    convergence as trial vectors can immediately benefit from improved
-    solutions. To use the original Storn and Price behaviour, updating the best
-    solution once per iteration, set ``updating='deferred'``.
-
-    .. versionadded:: 0.15.0
-
-    Examples
-    --------
-    Let us consider the problem of minimizing the Rosenbrock function. This
-    function is implemented in `rosen` in `scipy.optimize`.
-
-    >>> from scipy.optimize import rosen, differential_evolution
-    >>> bounds = [(0,2), (0, 2), (0, 2), (0, 2), (0, 2)]
-    >>> result = differential_evolution(rosen, bounds)
-    >>> result.x, result.fun
-    (array([1., 1., 1., 1., 1.]), 1.9216496320061384e-19)
-
-    Now repeat, but with parallelization.
-
-    >>> bounds = [(0,2), (0, 2), (0, 2), (0, 2), (0, 2)]
-    >>> result = differential_evolution(rosen, bounds, updating='deferred',
-    ...                                 workers=2)
-    >>> result.x, result.fun
-    (array([1., 1., 1., 1., 1.]), 1.9216496320061384e-19)
-
-    Let's try and do a constrained minimization
-
-    >>> from scipy.optimize import NonlinearConstraint, Bounds
-    >>> def constr_f(x):
-    ...     return np.array(x[0] + x[1])
-    >>>
-    >>> # the sum of x[0] and x[1] must be less than 1.9
-    >>> nlc = NonlinearConstraint(constr_f, -np.inf, 1.9)
-    >>> # specify limits using a `Bounds` object.
-    >>> bounds = Bounds([0., 0.], [2., 2.])
-    >>> result = differential_evolution(rosen, bounds, constraints=(nlc),
-    ...                                 seed=1)
-    >>> result.x, result.fun
-    (array([0.96633867, 0.93363577]), 0.0011361355854792312)
-
-    Next find the minimum of the Ackley function
-    (https://en.wikipedia.org/wiki/Test_functions_for_optimization).
-
-    >>> from scipy.optimize import differential_evolution
-    >>> import numpy as np
-    >>> def ackley(x):
-    ...     arg1 = -0.2 * np.sqrt(0.5 * (x[0] ** 2 + x[1] ** 2))
-    ...     arg2 = 0.5 * (np.cos(2. * np.pi * x[0]) + np.cos(2. * np.pi * x[1]))
-    ...     return -20. * np.exp(arg1) - np.exp(arg2) + 20. + np.e
-    >>> bounds = [(-5, 5), (-5, 5)]
-    >>> result = differential_evolution(ackley, bounds)
-    >>> result.x, result.fun
-    (array([ 0.,  0.]), 4.4408920985006262e-16)
-
-    References
-    ----------
-    .. [1] Storn, R and Price, K, Differential Evolution - a Simple and
-           Efficient Heuristic for Global Optimization over Continuous Spaces,
-           Journal of Global Optimization, 1997, 11, 341 - 359.
-    .. [2] http://www1.icsi.berkeley.edu/~storn/code.html
-    .. [3] http://en.wikipedia.org/wiki/Differential_evolution
-    .. [4] Wormington, M., Panaccione, C., Matney, K. M., Bowen, D. K., -
-           Characterization of structures from X-ray scattering data using
-           genetic algorithms, Phil. Trans. R. Soc. Lond. A, 1999, 357,
-           2827-2848
-    .. [5] Lampinen, J., A constraint handling approach for the differential
-           evolution algorithm. Proceedings of the 2002 Congress on
-           Evolutionary Computation. CEC'02 (Cat. No. 02TH8600). Vol. 2. IEEE,
-           2002.
+    References:
+        .. [1] Storn, R and Price, K, Differential Evolution - a Simple and
+            Efficient Heuristic for Global Optimization over Continuous Spaces,
+            Journal of Global Optimization, 1997, 11, 341 - 359.
+        .. [2] http://www1.icsi.berkeley.edu/~storn/code.html
+        .. [3] http://en.wikipedia.org/wiki/Differential_evolution
+        .. [4] Wormington, M., Panaccione, C., Matney, K. M., Bowen, D. K., -
+            Characterization of structures from X-ray scattering data using
+            genetic algorithms, Phil. Trans. R. Soc. Lond. A, 1999, 357,
+            2827-2848
+        .. [5] Lampinen, J., A constraint handling approach for the differential
+            evolution algorithm. Proceedings of the 2002 Congress on
+            Evolutionary Computation. CEC'02 (Cat. No. 02TH8600). Vol. 2. IEEE,
+            2002.
     """
 
     # using a context manager means that any created Pool objects are
@@ -372,144 +316,127 @@ class DifferentialEvolutionSolver(object):
 
     """This class implements the differential evolution solver
 
-    Parameters
-    ----------
-    func : callable
-        The objective function to be minimized.  Must be in the form
-        ``f(x, *args)``, where ``x`` is the argument in the form of a 1-D array
-        and ``args`` is a  tuple of any additional fixed parameters needed to
-        completely specify the function.
-    bounds : sequence or `Bounds`, optional
-        Bounds for variables.  There are two ways to specify the bounds:
-        1. Instance of `Bounds` class.
-        2. ``(min, max)`` pairs for each element in ``x``, defining the finite
-        lower and upper bounds for the optimizing argument of `func`. It is
-        required to have ``len(bounds) == len(x)``. ``len(bounds)`` is used
-        to determine the number of parameters in ``x``.
-    args : tuple, optional
-        Any additional fixed parameters needed to
-        completely specify the objective function.
-    strategy : str, optional
-        The differential evolution strategy to use. Should be one of:
+    Parameters:
+        func: The objective function to be minimized. Must be in the form
+            ``f(x, *args)``, where ``x`` is the argument in the form of a 1-D array
+            and ``args`` is a  tuple of any additional fixed parameters needed to
+            completely specify the function.
+        bounds: Bounds for variables. There are two ways to specify the bounds:
+            1. Instance of `Bounds` class.
+            2. ``(min, max)`` pairs for each element in ``x``, defining the finite
+            lower and upper bounds for the optimizing argument of `func`. It is
+            required to have ``len(bounds) == len(x)``. ``len(bounds)`` is used
+            to determine the number of parameters in ``x``.
+        args: Any additional fixed parameters needed to completely specify the
+            objective function.
+        strategy: The differential evolution strategy to use. Should be one of:
 
-            - 'best1bin'
-            - 'best1exp'
-            - 'rand1exp'
-            - 'randtobest1exp'
-            - 'currenttobest1exp'
-            - 'best2exp'
-            - 'rand2exp'
-            - 'randtobest1bin'
-            - 'currenttobest1bin'
-            - 'best2bin'
-            - 'rand2bin'
-            - 'rand1bin'
+                - 'best1bin' (default)
+                - 'best1exp'
+                - 'rand1exp'
+                - 'randtobest1exp'
+                - 'currenttobest1exp'
+                - 'best2exp'
+                - 'rand2exp'
+                - 'randtobest1bin'
+                - 'currenttobest1bin'
+                - 'best2bin'
+                - 'rand2bin'
+                - 'rand1bin'
 
-        The default is 'best1bin'
+        maxiter: The maximum number of generations over which the entire population is
+            evolved. The maximum number of function evaluations (with no polishing)
+            is: ``(maxiter + 1) * popsize * len(x)``
+        popsize: A multiplier for setting the total population size. The population has
+            ``popsize * len(x)`` individuals (unless the initial population is
+            supplied via the `init` keyword).
+        rtol: Relative tolerance for convergence, the solving stops when
+            ``np.std(pop) <= atol + rtol * np.abs(np.mean(population_energies))``,
+            where and `atol` and `rtol` are the absolute and relative tolerance
+            respectively.
+        mutation: The mutation constant. In the literature this is also known as
+            differential weight, being denoted by F.
+            If specified as a float it should be in the range [0, 2].
+            If specified as a tuple ``(min, max)`` dithering is employed. Dithering
+            randomly changes the mutation constant on a generation by generation
+            basis. The mutation constant for that generation is taken from
+            ``U[min, max)``. Dithering can help speed convergence significantly.
+            Increasing the mutation constant increases the search radius, but will
+            slow down convergence.
+        recombination: The recombination constant, should be in the range [0, 1]. In the
+            literature this is also known as the crossover probability, being
+            denoted by CR. Increasing this value allows a larger number of mutants
+            to progress into the next generation, but at the risk of population
+            stability.
+        seed: Seed for random number generator, specify for repeatable minimizations.
 
-    maxiter : int, optional
-        The maximum number of generations over which the entire population is
-        evolved. The maximum number of function evaluations (with no polishing)
-        is: ``(maxiter + 1) * popsize * len(x)``
-    popsize : int, optional
-        A multiplier for setting the total population size. The population has
-        ``popsize * len(x)`` individuals (unless the initial population is
-        supplied via the `init` keyword).
-    rtol : float, optional
-        Relative tolerance for convergence, the solving stops when
-        ``np.std(pop) <= atol + rtol * np.abs(np.mean(population_energies))``,
-        where and `atol` and `rtol` are the absolute and relative tolerance
-        respectively.
-    mutation : float or tuple(float, float), optional
-        The mutation constant. In the literature this is also known as
-        differential weight, being denoted by F.
-        If specified as a float it should be in the range [0, 2].
-        If specified as a tuple ``(min, max)`` dithering is employed. Dithering
-        randomly changes the mutation constant on a generation by generation
-        basis. The mutation constant for that generation is taken from
-        U[min, max). Dithering can help speed convergence significantly.
-        Increasing the mutation constant increases the search radius, but will
-        slow down convergence.
-    recombination : float, optional
-        The recombination constant, should be in the range [0, 1]. In the
-        literature this is also known as the crossover probability, being
-        denoted by CR. Increasing this value allows a larger number of mutants
-        to progress into the next generation, but at the risk of population
-        stability.
-    seed : {int, `~np.random.RandomState`, `~np.random.Generator`}, optional
-        If `seed` is not specified the `~np.random.RandomState` singleton is
-        used.
-        If `seed` is an int, a new ``RandomState`` instance is used,
-        seeded with seed.
-        If `seed` is already a ``RandomState`` or a ``Generator`` instance,
-        then that object is used.
-        Specify `seed` for repeatable minimizations.
-    verbose : bool, optional
-        Prints the evaluated `func` at every iteration.
-    callback : callable, `callback(xk, convergence=val)`, optional
-        A function to follow the progress of the minimization. ``xk`` is
-        the current value of ``x0``. ``val`` represents the fractional
-        value of the population convergence. When ``val`` is greater than one
-        the function halts. If callback returns `True`, then the minimization
-        is halted (any polishing is still carried out).
-    polish : bool, optional
-        If True (default), then `scipy.optimize.minimize` with the `L-BFGS-B`
-        method is used to polish the best population member at the end, which
-        can improve the minimization slightly. If a constrained problem is
-        being studied then the `trust-constr` method is used instead.
-    maxfun : int, optional
-        Set the maximum number of function evaluations. However, it probably
-        makes more sense to set `maxiter` instead.
-    init : str or array-like, optional
-        Specify which type of population initialization is performed. Should be
-        one of:
+            - If `seed` is not specified the `~np.random.RandomState` singleton is
+                used.
+            - If `seed` is an int, a new ``RandomState`` instance is used,
+                seeded with seed.
+            - If `seed` is already a ``RandomState`` or a ``Generator`` instance,
+                then that object is used.
 
-            - 'latinhypercube'
-            - 'random'
-            - array specifying the initial population. The array should have
-              shape ``(M, len(x))``, where M is the total population size and
-              len(x) is the number of parameters.
-              `init` is clipped to `bounds` before use.
+        maxfun: Maximum number of function evaluations.
 
-        The default is 'latinhypercube'. Latin Hypercube sampling tries to
-        maximize coverage of the available parameter space. 'random'
-        initializes the population randomly - this has the drawback that
-        clustering can occur, preventing the whole of parameter space being
-        covered. Use of an array to specify a population could be used, for
-        example, to create a tight bunch of initial guesses in an location
-        where the solution is known to exist, thereby reducing time for
-        convergence.
-    atol : float, optional
-        Absolute tolerance for convergence, the solving stops when
-        ``np.std(pop) <= atol + rtol * np.abs(np.mean(population_energies))``,
-        where and `atol` and `rtol` are the absolute and relative tolerance
-        respectively.
-    updating : {'immediate', 'deferred'}, optional
-        If `immediate` the best solution vector is continuously updated within
-        a single generation. This can lead to faster convergence as trial
-        vectors can take advantage of continuous improvements in the best
-        solution.
-        With `deferred` the best solution vector is updated once per
-        generation. Only `deferred` is compatible with parallelization, and the
-        `workers` keyword can over-ride this option.
-    workers : int or map-like callable, optional
-        If `workers` is an int the population is subdivided into `workers`
-        sections and evaluated in parallel
-        (uses `multiprocessing.Pool <multiprocessing>`).
-        Supply `-1` to use all cores available to the Process.
-        Alternatively supply a map-like callable, such as
-        `multiprocessing.Pool.map` for evaluating the population in parallel.
-        This evaluation is carried out as ``workers(func, iterable)``.
-        This option will override the `updating` keyword to
-        `updating='deferred'` if `workers != 1`.
-        Requires that `func` be pickleable.
-    constraints : {NonLinearConstraint, LinearConstraint, Bounds}
-        Constraints on the solver, over and above those applied by the `bounds`
-        kwd. Uses the approach by Lampinen.
-    batched: bool
-        If `batched` is True, the cost function is expected to handle 2D
-        parameter values of shape `(Nparams, Npop)`. `batched` and `workers`
-        cannot both be True.
+            .. warning:: Use `maxiter` instead.
+
+        verbose: Print and update progressbar at every iteration.
+        callback : function of form `callback(xk, convergence=val)`.
+            A function to follow the progress of the minimization. ``xk`` is
+            the current value of ``x0``. ``val`` represents the fractional
+            value of the population convergence.  When ``val`` is greater than one
+            the function halts. If callback returns `True`, then the minimization
+            is halted (any polishing is still carried out).
+        polish: If True (default), then `scipy.optimize.minimize` with the `L-BFGS-B`
+            method is used to polish the best population member at the end, which
+            can improve the minimization slightly. If a constrained problem is
+            being studied then the `trust-constr` method is used instead.
+        init: Specify which type of population initialization is performed.
+            Should be one of:
+
+                - 'latinhypercube'
+                - 'random'
+                - array specifying the initial population. The array should have
+                    shape ``(M, len(x))``, where M is the total population size and
+                    len(x) is the number of parameters.
+                    `init` is clipped to `bounds` before use.
+
+            The default is 'latinhypercube'. Latin Hypercube sampling tries to
+            maximize coverage of the available parameter space. 'random'
+            initializes the population randomly - this has the drawback that
+            clustering can occur, preventing the whole of parameter space being
+            covered. Use of an array to specify a population subset could be used,
+            for example, to create a tight bunch of initial guesses in an location
+            where the solution is known to exist, thereby reducing time for
+            convergence.
+        atol : Absolute tolerance for convergence, the solving stops when
+            ``np.std(pop) <= atol + rtol * np.abs(np.mean(population_energies))``,
+            where and `atol` and `rtol` are the absolute and relative tolerance
+            respectively.
+        updating : If ``'immediate'``, the best solution vector is continuously updated
+            within a single generation [4]_. This can lead to faster convergence as
+            trial vectors can take advantage of continuous improvements in the best
+            solution.
+            With ``'deferred'``, the best solution vector is updated once per
+            generation. Only ``'deferred'`` is compatible with parallelization, and
+            the `workers` keyword can over-ride this option.
+        workers : If `workers` is an int the population is subdivided into `workers`
+            sections and evaluated in parallel
+            (uses `multiprocessing.Pool <multiprocessing>`).
+            Supply -1 to use all available CPU cores.
+            Alternatively supply a map-like callable, such as
+            `multiprocessing.Pool.map` for evaluating the population in parallel.
+            This evaluation is carried out as ``workers(func, iterable)``.
+            This option will override the `updating` keyword to
+            ``updating='deferred'`` if ``workers != 1``.
+            Requires that `func` be pickleable.
+        constraints: Constraints on the solver, over and above those applied by
+            the `bounds` kwd. Uses the approach by Lampinen [5]_.
+        batched: If `batched` is True, then the cost function `func` is expected to
+            handle 2D input parameters of shape `(Nparams, Npop)`. `batched` and
+            `workers` cannot both be true since `batched` processing is fundamentally
+            different from how `workers` compute energy values.
     """
 
     # Dispatch of mutation strategy method (binomial or exponential).
@@ -538,26 +465,26 @@ class DifferentialEvolutionSolver(object):
 
     def __init__(
         self,
-        func,
-        bounds,
-        args=(),
-        strategy="best1bin",
-        maxiter=1000,
-        popsize=15,
-        rtol=0.01,
-        mutation=(0.5, 1),
-        recombination=0.7,
-        seed=None,
-        maxfun=np.inf,
-        callback=None,
-        verbose=False,
-        polish=True,
-        init="latinhypercube",
-        atol=0,
-        updating="immediate",
-        workers=1,
-        constraints=(),
-        batched=False,
+        func: tp.Callable,
+        bounds: tp.Union[tp.Iterable[tp.Tuple(float)], "Bounds"],
+        args: tp.Tuple = (),
+        strategy: str = "best1bin",
+        maxiter: int = 1000,
+        popsize: int = 15,
+        rtol: float = 0.01,
+        mutation: tp.Union[float, tp.Tuple[float]] = (0.5, 1),
+        recombination: float = 0.7,
+        seed: tp.Union[int, "np.random.RandomState", "np.random.Generator"] = None,
+        maxfun: int = np.inf,
+        callback: tp.Callable = None,
+        verbose: bool = False,
+        polish: bool = True,
+        init: tp.Union[str, "np.typing.ArrayLike"] = "latinhypercube",
+        atol: float = 0,
+        updating: tp.Union["immediate", "deferred"] = "immediate",
+        workers: tp.Union[int, "map-like callable"] = 1,
+        constraints: tp.Union["NonLinearConstraint", "LinearConstraint", "Bounds"] = (),
+        batched: bool = False,
     ):
 
         if strategy in self._binomial:
