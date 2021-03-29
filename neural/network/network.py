@@ -261,10 +261,13 @@ class Network(object):
                         args[key] = val
                     else:
                         raise Exception()
-                if isinstance(c.obj, Model):
-                    c.obj.update(dt, **args)
-                else:
-                    c.obj.update(**args)
+                try:
+                    if isinstance(c.obj, Model):
+                        c.obj.update(dt, **args)
+                    else:
+                        c.obj.update(**args)
+                except Exception as e:
+                    raise Exception(f"Update Failed for model {c.obj}") from e
             for c in self.containers.values():
                 if c.recorder is not None:
                     c.recorder.update(i)
