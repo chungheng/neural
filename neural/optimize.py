@@ -17,6 +17,7 @@ from .optimizer import differential_evolution
 from .basemodel import Model
 from .network.operator import Repeat
 from .network import Network
+from . import errors as err
 
 PY37 = (sys.version_info.major * 10 + sys.version_info.minor) >= 37
 
@@ -166,9 +167,16 @@ class ModelOptimizer:
 
         return Nchannel, inputs
 
-    def _params_validator(self, constructor, params):
+    def _params_validator(
+        self, constructor: Model, params: tp.Union[dict, OrderedDict]
+    ):
         """Validate Parameters and Conform to Model Specification"""
-        if isinstance(params, dict) and not PY37:
+        if not isinstance(params, dict):
+            raise TypeError(
+                f"Params of type {type(params)} not understood, must be dict-like."
+            )
+
+        if not isinstance(params, OrderedDict) and not PY37:
             warnings.warn(
                 "dictionary params can lose insertion order before Python 3.7"
                 " . Params will be converted OrderedDict to ensure ordering as "

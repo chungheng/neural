@@ -8,3 +8,7 @@ class NeuralCodeGenError(NeuralError):
 
 class NeuralSymPyCodeGenError(NeuralCodeGenError):
     """Neural SymPy CodeGen Exception"""
+
+
+class NeuralOptimizerError(NeuralError):
+    """Base Error for neural.optimize module"""
