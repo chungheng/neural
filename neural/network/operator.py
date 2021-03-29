@@ -93,9 +93,6 @@ class Add(Operator):
                 "aggregate",
             )
         else:
-            import pdb
-
-            pdb.set_trace()
             raise NotImplementedError
 
 
