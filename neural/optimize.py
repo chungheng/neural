@@ -1,3 +1,4 @@
+
 """Parameter Optimization of Model and Network
 
 This module provides helper functions for optimizing parameter values of a
@@ -6,13 +7,13 @@ and SHGO. Because of the complex nature of biological neural networks,
 optimization via backpropagation is difficult. However, it is possible to
 optimize for parameters globally using non-convex methods.
 """
+import sys
 from inspect import signature
-import numpy as np
-from pycuda import gpuarray
-
+import typing as tp
 from collections import OrderedDict
 import warnings
-import sys
+import numpy as np
+from pycuda import gpuarray
 from .optimizer import differential_evolution
 from .basemodel import Model
 from .network.operator import Repeat
@@ -48,6 +49,13 @@ class ModelOptimizer:
         params:
         inputs:
         attrs: model attributes to compute cost function from
+        batchsize:
+        maxiter:
+        dtype:
+        verbose
+
+    Attributes:
+        _Nchannel: Number of parameters being optimized
     """
 
     def __init__(self, constructor, cost, params, inputs, attrs, dt, **kwargs):
@@ -56,6 +64,7 @@ class ModelOptimizer:
         self.cost = cost
         self.batchsize = kwargs.pop("batchsize", 100)
         self.maxiter = kwargs.pop("maxiter", 100)
+        self.verbose = kwargs.pop("verbose", True)
         self.dtype = kwargs.pop("dtype", np.float64)
         self._Nchannel, self.inputs = self._inputs_validator(constructor, inputs)
         self.params = self._params_validator(constructor, params)
@@ -72,7 +81,7 @@ class ModelOptimizer:
             maxiter=self.maxiter,
             popsize=self.batchsize,
             batched=True,
-            verbose=True,
+            verbose=self.verbose,
         )
 
     def objective_func(self, x: np.ndarray):
@@ -87,7 +96,21 @@ class ModelOptimizer:
         self._nn.containers["Target"].obj.params.update(**new_params)
         self._nn.compile(dtype=self.dtype)
         self._nn.run(self.dt, verbose=False)
-        return self.cost(self._nn.containers["Target"].recorder)
+
+        # reshape data into (Nparams, Nchannel, Nt) shape
+        # where Nchannel is the number of components for each parameter set
+        # e.g. Nchannel can refer to number of receptor channels in an Antennal
+        # Lobe circuit
+        target_result = {
+            k: np.swapaxes(
+                val.reshape((self._Nchannel, -1, val.shape[1])),
+                0,
+                1
+            )
+            for k,val
+            in self._nn.containers["Target"].recorder.dct.items()
+        }
+        return self.cost(target_result)
 
     def _create_network(self, params):
         nn = Network()
