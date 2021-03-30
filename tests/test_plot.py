@@ -60,7 +60,20 @@ def test_plot_spikes(spike_data):
     ax = plot.plot_spikes(spike_data, t=T)
     assert isinstance(ax, plt.Axes)
 
+    ax = plot.plot_spikes(spike_data, dt=DT)
+    assert isinstance(ax, plt.Axes)
+
     with pytest.raises(
         err.NeuralPlotError, match=r"Time vector .* does not have the same shape"
     ):
         ax = plot.plot_spikes(spike_data.T, t=[0])
+
+    with pytest.raises(
+        err.NeuralPlotError, match=r"dt must be a scalar value"
+    ):
+        ax = plot.plot_spikes(spike_data.T, dt=[DT])
+
+    with pytest.raises(
+        err.NeuralPlotError, match=r"dt must be a scalar value"
+    ):
+        ax = plot.plot_spikes(spike_data.T, dt=T)

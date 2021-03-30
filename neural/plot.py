@@ -115,6 +115,7 @@ def plot_multiple(data_x, *args, **kwargs):
 
 def plot_spikes(
     spikes: np.ndarray,
+    dt: float = None,
     t: np.ndarray = None,
     ax: plt.Axes = None,
     markersize: int = None,
@@ -125,7 +126,17 @@ def plot_spikes(
     Arguments:
         spikes: the spike states in binary format, where 1 stands for a spike.
             The shape of the spikes should either be (N_times, ) or (N_trials, N_times)
+        dt: time resolution of the time axis.
         t: time axes for the spikes, use arange if not provided
+
+        .. note::
+
+            If `t` is specified, it is assumed to have the same
+            length as `mat.shape[1]`, which is used to find the x coordinate of
+            the spiking values of the data. If `t` is
+            not specified, the time-axis is formated by resolution `dt`.
+            `dt` is assumed to be 1 if not specified.
+
         ax: which axis to plot into, create one if not provided
         markersize: size of raster
         color: color for the raster. Any acceptable type of `matplotlib.pyplot.plot`'s
@@ -138,14 +149,23 @@ def plot_spikes(
         raise err.NeuralPlotError(
             f"matrix need to be of ndim 2, (channels x time), got ndim={spikes.ndim}"
         )
-    if t is None:
-        t = np.arange(spikes.shape[1])
-    else:
+
+    if t is not None:
         if len(t) != spikes.shape[1]:
             raise err.NeuralPlotError(
                 "Time vector 't' does not have the same shape as the matrix."
                 f" Expected length {spikes.shape[1]} but got {len(t)}"
             )
+    else:
+        if dt is None:
+            dt = 1.
+        else:
+            if not np.isscalar(dt):
+                raise err.NeuralPlotError(
+                    "dt must be a scalar value."
+                )
+        t = np.arange(spikes.shape[1]) * dt
+
     if ax is None:
         fig = plt.gcf()
         ax = fig.add_subplot()
