@@ -23,11 +23,14 @@ import numpy as np
 import pycuda.gpuarray as garray
 from tqdm.auto import tqdm
 
+# pylint:disable=relative-beyond-top-level
 from ..basemodel import Model
 from ..future import SimpleNamespace
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
+
+# pylint:enable=relative-beyond-top-level
 
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
