@@ -19,7 +19,7 @@ from scipy.optimize._constraints import (
     LinearConstraint,
 )
 from scipy.sparse import issparse
-from tqdm.auto import tqdm # pylint:disable=astroid-error
+from tqdm.auto import tqdm
 
 __all__ = ["differential_evolution"]
 
@@ -71,8 +71,8 @@ class OptimizationHistory:
 
 def differential_evolution(
     func: tp.Callable,
-    bounds: tp.Union[tp.Iterable[tp.Tuple(float)], "Bounds"],
-    args: tp.Tuple = (),
+    bounds: tp.Union[tp.Iterable[tp.Tuple[float]], "Bounds"],
+    args: tp.Tuple[tp.Any] = (),
     strategy: str = "best1bin",
     maxiter: int = 1000,
     popsize: int = 15,
@@ -86,7 +86,7 @@ def differential_evolution(
     init: tp.Union[str, "np.typing.ArrayLike"] = "latinhypercube",
     atol: float = 0,
     updating: tp.Union["immediate", "deferred"] = "immediate",
-    workers: tp.Union[int, "map-like callable"] = 1,
+    workers: tp.Union[int, tp.Callable] = 1,
     constraints: tp.Union["NonLinearConstraint", "LinearConstraint", "Bounds"] = (),
     batched: bool = False,
 ) -> OptimizeResult:
@@ -466,8 +466,8 @@ class DifferentialEvolutionSolver(object):
     def __init__(
         self,
         func: tp.Callable,
-        bounds: tp.Union[tp.Iterable[tp.Tuple(float)], "Bounds"],
-        args: tp.Tuple = (),
+        bounds: tp.Union[tp.Iterable[tp.Tuple[float]], "Bounds"],
+        args: tp.Tuple[tp.Any] = (),
         strategy: str = "best1bin",
         maxiter: int = 1000,
         popsize: int = 15,
@@ -482,7 +482,7 @@ class DifferentialEvolutionSolver(object):
         init: tp.Union[str, "np.typing.ArrayLike"] = "latinhypercube",
         atol: float = 0,
         updating: tp.Union["immediate", "deferred"] = "immediate",
-        workers: tp.Union[int, "map-like callable"] = 1,
+        workers: tp.Union[int, tp.Callable] = 1,
         constraints: tp.Union["NonLinearConstraint", "LinearConstraint", "Bounds"] = (),
         batched: bool = False,
     ):
@@ -499,7 +499,8 @@ class DifferentialEvolutionSolver(object):
         if polish:
             warnings.warn(
                 "differential_evolution: 'polish' keyword not yet"
-                " implemented, it will be overwritten to False."
+                " implemented, it will be overwritten to False.",
+                UserWarning
             )
             polish = False
         self.polish = polish
