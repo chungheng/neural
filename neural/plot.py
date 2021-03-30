@@ -158,12 +158,10 @@ def plot_spikes(
             )
     else:
         if dt is None:
-            dt = 1.
+            dt = 1.0
         else:
             if not np.isscalar(dt):
-                raise err.NeuralPlotError(
-                    "dt must be a scalar value."
-                )
+                raise err.NeuralPlotError("dt must be a scalar value.")
         t = np.arange(spikes.shape[1]) * dt
 
     if ax is None:

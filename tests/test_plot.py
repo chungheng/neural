@@ -68,12 +68,8 @@ def test_plot_spikes(spike_data):
     ):
         ax = plot.plot_spikes(spike_data.T, t=[0])
 
-    with pytest.raises(
-        err.NeuralPlotError, match=r"dt must be a scalar value"
-    ):
+    with pytest.raises(err.NeuralPlotError, match=r"dt must be a scalar value"):
         ax = plot.plot_spikes(spike_data.T, dt=[DT])
 
-    with pytest.raises(
-        err.NeuralPlotError, match=r"dt must be a scalar value"
-    ):
+    with pytest.raises(err.NeuralPlotError, match=r"dt must be a scalar value"):
         ax = plot.plot_spikes(spike_data.T, dt=T)
