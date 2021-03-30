@@ -500,7 +500,7 @@ class DifferentialEvolutionSolver(object):
             warnings.warn(
                 "differential_evolution: 'polish' keyword not yet"
                 " implemented, it will be overwritten to False.",
-                UserWarning
+                UserWarning,
             )
             polish = False
         self.polish = polish

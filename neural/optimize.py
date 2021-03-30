@@ -1,4 +1,3 @@
-
 """Parameter Optimization of Model and Network
 
 This module provides helper functions for optimizing parameter values of a
@@ -102,13 +101,8 @@ class ModelOptimizer:
         # e.g. Nchannel can refer to number of receptor channels in an Antennal
         # Lobe circuit
         target_result = {
-            k: np.swapaxes(
-                val.reshape((self._Nchannel, -1, val.shape[1])),
-                0,
-                1
-            )
-            for k,val
-            in self._nn.containers["Target"].recorder.dct.items()
+            k: np.swapaxes(val.reshape((self._Nchannel, -1, val.shape[1])), 0, 1)
+            for k, val in self._nn.containers["Target"].recorder.dct.items()
         }
         return self.cost(target_result)
 

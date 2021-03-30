@@ -12,3 +12,11 @@ class NeuralSymPyCodeGenError(NeuralCodeGenError):
 
 class NeuralOptimizerError(NeuralError):
     """Base Error for neural.optimize module"""
+
+
+class NeuralUtilityError(NeuralError):
+    """Base Neural Utility Exception"""
+
+
+class NeuralPlotError(NeuralError):
+    """Base Neural Plotting Exception"""
