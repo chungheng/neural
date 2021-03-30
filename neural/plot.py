@@ -5,6 +5,7 @@ import typing as tp
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 import numpy as np
+from . import errors as err
 
 
 def plot_multiple(data_x, *args, **kwargs):
@@ -134,35 +135,42 @@ def plot_spikes(
     """
     spikes = np.atleast_2d(spikes)
     if spikes.ndim != 2:
-        raise NeuralUtilityError(
+        raise err.NeuralPlotError(
             f"matrix need to be of ndim 2, (channels x time), got ndim={spikes.ndim}"
         )
-    neu_idx, t_idx = np.nonzero(spikes)
     if t is None:
         t = np.arange(spikes.shape[1])
-
+    else:
+        if len(t) != spikes.shape[1]:
+            raise err.NeuralPlotError(
+                "Time vector 't' does not have the same shape as the matrix."
+                f" Expected length {spikes.shape[1]} but got {len(t)}"
+            )
     if ax is None:
         fig = plt.gcf()
         ax = fig.add_subplot()
 
+    neu_idx, t_idx = np.nonzero(spikes)
+
     try:
         ax.plot(t[t_idx], neu_idx, "|", c=color, markersize=markersize)
     except ValueError as e:
-        raise NeuralUtilityError(
+        raise err.NeuralPlotError(
             "Raster plot failed, likely an issue with color or markersize setting"
         ) from e
     except IndexError as e:
-        raise NeuralUtilityError(
+        raise err.NeuralPlotError(
             "Raster plot failed, likely an issue with spikes and time vector mismatch"
         ) from e
     except Exception as e:
-        raise NeuralUtilityError("Raster plot failed due to unknown error") from e
+        raise err.NeuralPlotError("Raster plot failed due to unknown error") from e
     ax.set_xlim([t.min(), t.max()])
     return ax
 
 
 def plot_mat(
     mat: np.ndarray,
+    dt: float = None,
     t: np.ndarray = None,
     ax: plt.Axes = None,
     cax=None,
@@ -173,9 +181,20 @@ def plot_mat(
 ) -> tp.Union[tp.Tuple[plt.Axes, tp.Any], plt.Axes]:
     """
     Plot Matrix with formatted time axes
+
     Arguments:
         mat: the matrix to be plotted, it should of shape (N, Time)
-        t: time axes for the spikes, use arange if not provided
+        dt: time resolution of the time axis.
+        t: time axes for the spikes, use arange if not provided.
+
+        .. note::
+
+            If `t` is specified, it is assumed to have the same
+            length as `mat.shape[1]`. Consequently, the x-axis will be formatted
+            to take the corresponding values from `t` based on index. If `t` is
+            not specified, the time-axis is formated by resolution `dt`.
+            If neither are specified, `dt` is assumed to be 1.
+
         ax: which axis to plot into, create one if not provided
         cax: which axis to plot colorbar into
             - if instance of axis, plot into that axis
@@ -184,10 +203,12 @@ def plot_mat(
         vmax: maximum value for the imshow
         cbar_kw: keyword arguments to be passed into the colorbar creation
         cmap: colormap to use
+
     Returns:
         ax: the axis that the raster is plotted into
         cbar: colorbar object
             - only returned if cax is `True` or a `plt.Axes` instance
+
     Example:
         >>> dt, dur, start, stop = 1e-4, 2, 0.5, 1.0
         >>> t = np.arange(0, dur, dt)
@@ -198,19 +219,28 @@ def plot_mat(
     """
     mat = np.atleast_2d(mat)
     if mat.ndim != 2:
-        raise NeuralUtilityError(
-            f"matrix need to be of ndim 1 (N_time),or ndim 2 (N_trials x N_times), got ndim={mat.ndim}"
+        raise err.NeuralPlotError(
+            "matrix need to be of ndim 1 (N_time),or ndim 2 (N_trials x N_times),"
+            f" got ndim={mat.ndim}"
         )
-    if t is None:
-        t = np.arange(mat.shape[1])
-    if len(t) > 1:
-        dt = t[1] - t[0]
-    else:
-        dt = 1
+    if t is not None:
+        if len(t) != mat.shape[1]:
+            raise err.NeuralPlotError(
+                "Time vector 't' does not have the same shape as the matrix."
+                f" Expected length {mat.shape[1]} but got {len(t)}"
+            )
 
-    @ticker.FuncFormatter
-    def major_formatter(x, pos):
-        return "{:.1f}".format(dt * x)
+        @ticker.FuncFormatter
+        def major_formatter(x, pos):
+            return "{:.1f}".format(np.interp(x, np.arange(len(t)), t))
+
+    else:
+        if dt is None:
+            dt = 1
+
+        @ticker.FuncFormatter
+        def major_formatter(x, pos):
+            return "{:.1f}".format(dt * x)
 
     if ax is None:
         fig = plt.gcf()
