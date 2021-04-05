@@ -29,7 +29,6 @@ from ..future import SimpleNamespace
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
-from ..logger import logger, NeuralError
 
 # pylint:enable=relative-beyond-top-level
 
