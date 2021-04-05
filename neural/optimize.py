@@ -51,7 +51,9 @@ class ModelOptimizer:
         batchsize:
         maxiter:
         dtype:
-        verbose
+        verbose:
+        atol:
+        rtol:
 
     Attributes:
         _Nchannel: Number of parameters being optimized
@@ -65,6 +67,9 @@ class ModelOptimizer:
         self.maxiter = kwargs.pop("maxiter", 100)
         self.verbose = kwargs.pop("verbose", True)
         self.dtype = kwargs.pop("dtype", np.float64)
+        self.rtol = kwargs.pop("rtol", 1e-2)
+        self.atol = kwargs.pop("atol", 0.)
+
         self._Nchannel, self.inputs = self._inputs_validator(constructor, inputs)
         self.params = self._params_validator(constructor, params)
         self.bounds = [val[1:] for val in self.params.values()]
@@ -81,6 +86,8 @@ class ModelOptimizer:
             popsize=self.batchsize,
             batched=True,
             verbose=self.verbose,
+            atol=self.atol,
+            rtol=self.rtol
         )
 
     def objective_func(self, x: np.ndarray):
