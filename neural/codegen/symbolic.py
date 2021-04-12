@@ -159,13 +159,10 @@ class VariableAnalyzer(CodeGenerator):
             self.var[-1] = key
             self.variables[key].dependencies.update(self._dependencies)
             self._dependencies = set()
-
         else:
             self.var[-1] = "{}.{}".format(self.var[-1], ins.argval)
-        try:
-            self.var[-2] = "{} = {}".format(self.var[-1], self.var[-2])
-        except:
-            import pdb; pdb.set_trace()
+
+        self.var[-2] = "{} = {}".format(self.var[-1], self.var[-2])
         del self.var[-1]
 
     def _set_variable(self, variable, **kwargs):
