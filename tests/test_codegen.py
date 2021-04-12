@@ -29,12 +29,8 @@ class FakeModel(Model):
             self.z = 100
 
         self.y = np.exp(np.cbrt(np.sqrt(self.z))) + random.gauss(0.0, self.c)
-        self.y = (
-            (self.y > self.z) * self.y
-        )
-        tmp = (
-            (self.y > self.z) * self.y
-        )
+        self.y = (self.y > self.z) * self.y
+        tmp = (self.y > self.z) * self.y
         self.y = (self.y < self.z) * self.y
         self.y = (self.y >= self.z) * self.y
         self.y = (self.y <= self.z) * self.y
