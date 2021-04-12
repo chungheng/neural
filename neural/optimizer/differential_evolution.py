@@ -838,17 +838,19 @@ class DifferentialEvolutionSolver(object):
                     )
                 break
 
+            convergence = self.rtol / (self.convergence + _MACHEPS)
             if self.verbose:
                 self._desc = (
-                    f"[DE {self._updating} {self.parameter_count} | {nit}"
-                    f" | {self.population_energies[0]:.4e}]"
+                    f"[DE {self.parameter_count}"
+                    f" | {nit}"
+                    f" | {self.population_energies[0]:.3e}"
+                    f" | {convergence*100:.3f} % ]"
                 )
                 self._pbar.desc = self._desc
                 self._pbar.update()
 
             if self.callback:
-                c = self.rtol / (self.convergence + _MACHEPS)
-                warning_flag = bool(self.callback(self.x, convergence=c))
+                warning_flag = bool(self.callback(self.x, convergence=convergence))
                 if warning_flag:
                     status_message = (
                         "callback function requested stop early" " by returning True"
@@ -952,9 +954,6 @@ class DifferentialEvolutionSolver(object):
             function evaluations will be reduced and energies will be
             right-padded with np.inf. Has shape ``(np.size(population, 0),)``
         """
-        if self.verbose:
-            self._pbar.set_description(f"{self._desc} Calc. Costs...")
-
         num_members = np.size(population, 0)
         nfevs = min(num_members, self.maxfun - num_members)
 
@@ -990,8 +989,6 @@ class DifferentialEvolutionSolver(object):
 
     def _promote_lowest_energy(self):
         # swaps 'best solution' into first population entry
-        if self.verbose:
-            self._pbar.set_description(f"{self._desc} Promoting Best Solution...")
 
         idx = np.arange(self.num_population_members)
         feasible_solutions = idx[self.feasible]
@@ -1046,8 +1043,6 @@ class DifferentialEvolutionSolver(object):
             constraint_violation has shape ``(np.size(population, 0), M)``,
             where M is the number of constraints.
         """
-        if self.verbose:
-            self._pbar.set_description(f"{self._desc} Calc. Feasibility...")
         num_members = np.size(population, 0)
         if not self._wrapped_constraints:
             # shortcut for no constraints
