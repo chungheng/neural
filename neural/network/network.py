@@ -14,6 +14,7 @@ Examples:
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
 import sys
+import warnings
 from collections import OrderedDict
 from functools import reduce
 from numbers import Number
@@ -241,12 +242,19 @@ class Network(object):
             input.reset()
 
     def run(self, dt, steps=0, rate=1, verbose=False, **kwargs):
+        """Run the entire Network from start to stop"""
         solver = kwargs.pop("solver", self.solver)
         if not self._iscompiled:
             raise Exception("Please compile before running the network.")
 
         # calculate number of steps
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
+        for name, val in self.inputs.items():
+            if val.steps == 0:
+                warnings.warn(
+                    f"Input '{name}' has 0 steps",
+                    UserWarning
+                )
 
         for c in self.containers.values():
             recorder = c.set_recorder(steps, rate)
@@ -257,30 +265,44 @@ class Network(object):
             iterator = tqdm(iterator)
 
         for i in iterator:
-            for c in self.inputs.values():
-                c.step()
+            self.update(dt, i)
 
-            for c in self.containers.values():
-                args = {}
-                for key, val in c.inputs.items():
-                    if isinstance(val, Symbol):
-                        args[key] = getattr(val.container.obj, val.key)
-                    elif isinstance(val, Input):
-                        args[key] = val.value # next(val)
-                    elif isinstance(val, Number):
-                        args[key] = val
-                    else:
-                        raise Exception()
-                try:
-                    if isinstance(c.obj, Model):
-                        c.obj.update(dt, **args)
-                    else:
-                        c.obj.update(**args)
-                except Exception as e:
-                    raise Exception(f"Update Failed for model {c.obj}") from e
-            for c in self.containers.values():
-                if c.recorder is not None:
-                    c.recorder.update(i)
+    def update(self, dt: float, idx: int):
+        """Update Network and all components
+
+        Arguments:
+            dt: time step
+            idx: time index of the update for recorder
+        """
+
+        # update inputs
+        for c in self.inputs.values():
+            c.step()
+
+        # update containers
+        for c in self.containers.values():
+            args = {}
+            for key, val in c.inputs.items():
+                if isinstance(val, Symbol):
+                    args[key] = getattr(val.container.obj, val.key)
+                elif isinstance(val, Input):
+                    args[key] = val.value
+                elif isinstance(val, Number):
+                    args[key] = val
+                else:
+                    raise Exception()
+            try:
+                if isinstance(c.obj, Model):
+                    c.obj.update(dt, **args)
+                else:
+                    c.obj.update(**args)
+            except Exception as e:
+                raise Exception(f"Update Failed for model {c.obj}") from e
+
+        # update recorders
+        for c in self.containers.values():
+            if c.recorder is not None:
+                c.recorder.update(idx)
 
     def compile(self, dtype=None, debug=False, backend="cuda"):
         dtype = dtype or np.float64
