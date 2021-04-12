@@ -68,7 +68,7 @@ class ModelOptimizer:
         self.verbose = kwargs.pop("verbose", True)
         self.dtype = kwargs.pop("dtype", np.float64)
         self.rtol = kwargs.pop("rtol", 1e-2)
-        self.atol = kwargs.pop("atol", 0.)
+        self.atol = kwargs.pop("atol", 0.0)
 
         self._Nchannel, self.inputs = self._inputs_validator(constructor, inputs)
         self.params = self._params_validator(constructor, params)
@@ -87,7 +87,7 @@ class ModelOptimizer:
             batched=True,
             verbose=self.verbose,
             atol=self.atol,
-            rtol=self.rtol
+            rtol=self.rtol,
         )
 
     def objective_func(self, x: np.ndarray):
