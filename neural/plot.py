@@ -3,10 +3,11 @@ Plotting functions.
 """
 import typing as tp
 import matplotlib.pyplot as plt
-from matplotlib import ticker
+from matplotlib import ticker, colors
 import numpy as np
 from . import errors as err
 
+COLOR_NORMS = tp.Union['none', 'log', 'discrete', 'power', ]
 
 def plot_multiple(data_x, *args, **kwargs):
     """
@@ -303,6 +304,6 @@ def yyaxis(ax: plt.Axes, c: "color" = "red") -> plt.Axes:
     """
     ax2 = ax.twinx()
     ax2.spines["right"].set_color(c)
-    ax2.tick_params(axis="y", colors=c)
+    ax2.tick_params(axis="y", colors=c, which='both')
     ax2.yaxis.label.set_color(c)
     return ax2
