@@ -125,6 +125,18 @@ class VariableAnalyzer(CodeGenerator):
         else:
             self.var[-1] += "." + ins.argval
 
+    def handle_load_method(self, ins):
+        """
+        Added for Python 3.7+
+        """
+        self.handle_load_attr(ins)
+
+    def handle_call_method(self, ins):
+        """
+        Added for Python 3.7+
+        """
+        self.handle_call_function(ins)
+
     def handle_load_fast(self, ins):
         if ins.argval in self.signature or ins.argval in self.variables:
             self._dependencies.add(ins.argval)
@@ -150,7 +162,10 @@ class VariableAnalyzer(CodeGenerator):
 
         else:
             self.var[-1] = "{}.{}".format(self.var[-1], ins.argval)
-        self.var[-2] = "{} = {}".format(self.var[-1], self.var[-2])
+        try:
+            self.var[-2] = "{} = {}".format(self.var[-1], self.var[-2])
+        except:
+            import pdb; pdb.set_trace()
         del self.var[-1]
 
     def _set_variable(self, variable, **kwargs):
@@ -275,15 +290,20 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         try:
             exec(self.sympy_src, globals(), self.sympy_dct)
         except:
-            for n, line in enumerate(self.sympy_src.split("\n")):
+            lines = self.sympy_src.split("\n")
+            for n, line in enumerate(lines):
+                line_before_str = f"     Line {n-1}: {lines[n-1]}\n" if n > 0 else ''
+                line_str = f"---> Line {n}: {lines[n]}\n"
+                line_after_str = f"     Line {n+1}: {lines[n+1]}\n" if n < len(lines)-1 else ''
+                lines_str = '\n' + line_before_str + line_str + line_after_str
                 try:
                     exec(line, globals(), self.sympy_dct)
                 except IndentationError as e:
-                    raise err.NeuralSymPyCodeGenError(
+                    raise err.NeuralSymPyCodeGenIdentationError(
                         "SymPy Compilation Failed for model"
                         f" '{self.model.__class__.__name__}' on:"
-                        f" Line {n}: \n{line}"
-                        "\n This is likely an issue with using 'elif' statement"
+                        f"{lines_str}"
+                        "This is likely an issue with using 'elif' statement"
                         " , avoid 'elif' and prefer binary masking operators"
                         " like '(x>0)*x' in general."
                     ) from e
@@ -291,7 +311,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
                     raise err.NeuralSymPyCodeGenError(
                         "SymPy Compilation Failed for model"
                         f" '{self.model.__class__.__name__}' on:"
-                        f" Line {n}: \n{line}"
+                        f"{lines_str}"
                     ) from e
 
     def to_latex(self):
@@ -379,13 +399,12 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         if ins.argval == self.var[-1]:
             del self.var[-1]
             return
-        elif self.variables[key].type == "local":
-
-            eqn = "Eq(%s, %s)" % (key, self.var[-1])
-            self.equations.append("eqn_%d" % len(self.equations))
-            indent = " " * (self.space + self.indent)
-            prefix = "with evaluate(False):" + self.newline
-            self.var[-1] = "{}{}{} = {}".format(prefix, indent, self.equations[-1], eqn)
+        # elif self.variables[key].type == "local":
+        #     eqn = "Eq(%s, %s)" % (key, self.var[-1])
+        #     self.equations.append("eqn_%d" % len(self.equations))
+        #     indent = " " * (self.space + self.indent)
+        #     prefix = "with evaluate(False):" + self.newline
+        #     self.var[-1] = "{}{}{} = {}".format(prefix, indent, self.equations[-1], eqn)
         else:
             self.var[-1] = "{} = {}".format(key, self.var[-1])
 

@@ -333,6 +333,12 @@ class CudaGenerator(with_metaclass(MetaClass, CodeGenerator)):
         else:
             self.var[-1] = "{0}.{1}".format(self.var[-1], key)
 
+    def handle_load_method(self, ins):
+        self.handle_load_attr(ins)
+
+    def handle_call_method(self, ins):
+        self.handle_call_function(ins)
+
     def process_jump(self, ins):
         if len(self.jump_targets) and self.jump_targets[0] == ins.offset:
             if len(self.var):

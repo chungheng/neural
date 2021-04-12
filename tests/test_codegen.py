@@ -2,6 +2,12 @@ import pytest
 import numpy as np
 import random
 
+try:
+    import pycuda.autoinit
+    CUDA = True
+except:
+    CUDA = False
+
 # pylint:disable=import-error
 from neural import Model
 from neural.codegen.symbolic import SympyGenerator
@@ -23,7 +29,12 @@ class FakeModel(Model):
             self.z = 100
 
         self.y = np.exp(np.cbrt(np.sqrt(self.z))) + random.gauss(0.0, self.c)
-        self.y = (self.y > self.z) * self.y
+        self.y = (
+            (self.y > self.z) * self.y
+        )
+        tmp = (
+            (self.y > self.z) * self.y
+        )
         self.y = (self.y < self.z) * self.y
         self.y = (self.y >= self.z) * self.y
         self.y = (self.y <= self.z) * self.y
@@ -46,3 +57,4 @@ def model():
 
 def test_sympy_gen(model):
     sg = SympyGenerator(model)
+    model.compile(backend='cuda' if CUDA else 'scalar')
