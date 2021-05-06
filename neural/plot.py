@@ -7,7 +7,13 @@ from matplotlib import ticker, colors
 import numpy as np
 from . import errors as err
 
-COLOR_NORMS = tp.Union['none', 'log', 'discrete', 'power', ]
+COLOR_NORMS = tp.Union[
+    "none",
+    "log",
+    "discrete",
+    "power",
+]
+
 
 def plot_multiple(data_x, *args, **kwargs):
     """
@@ -190,13 +196,16 @@ def plot_spikes(
 def plot_mat(
     mat: np.ndarray,
     dt: float = None,
+    dy: float = None,
     t: np.ndarray = None,
+    y: np.ndarray = None,
     ax: plt.Axes = None,
     cax=None,
     vmin: float = None,
     vmax: float = None,
     cbar_kw: dict = None,
     cmap: tp.Any = None,
+    shading: str = "nearest",
 ) -> tp.Union[tp.Tuple[plt.Axes, tp.Any], plt.Axes]:
     """
     Plot Matrix with formatted time axes
@@ -204,7 +213,8 @@ def plot_mat(
     Arguments:
         mat: the matrix to be plotted, it should of shape (N, Time)
         dt: time resolution of the time axis.
-        t: time axes for the spikes, use arange if not provided.
+        dy: resolution of the Y-axis
+        t: time axes for the matrix, use arange if not provided.
 
         .. note::
 
@@ -214,6 +224,16 @@ def plot_mat(
             not specified, the time-axis is formated by resolution `dt`.
             If neither are specified, `dt` is assumed to be 1.
 
+        y: spatial axes of the matrix, use arange if not provided.
+
+        .. note::
+
+            If `y` is specified, it is assumed to have the same
+            length as `mat.shape[0]`. Consequently, the y-axis will be formatted
+            to take the corresponding values from `y` based on index. If `y` is
+            not specified, the time-axis is formated by resolution `dy`.
+            If neither are specified, `dy` is assumed to be 1.
+
         ax: which axis to plot into, create one if not provided
         cax: which axis to plot colorbar into
             - if instance of axis, plot into that axis
@@ -222,6 +242,7 @@ def plot_mat(
         vmax: maximum value for the imshow
         cbar_kw: keyword arguments to be passed into the colorbar creation
         cmap: colormap to use
+        shading: optional, argument to be passed to `matplotlib.pyplot.pcolormesh`
 
     Returns:
         ax: the axis that the raster is plotted into
@@ -248,33 +269,27 @@ def plot_mat(
                 "Time vector 't' does not have the same shape as the matrix."
                 f" Expected length {mat.shape[1]} but got {len(t)}"
             )
-
-        @ticker.FuncFormatter
-        def major_formatter(x, pos):
-            return "{:.1f}".format(np.interp(x, np.arange(len(t)), t))
-
     else:
         if dt is None:
             dt = 1
+        t = np.arange(mat.shape[1]) * dt
 
-        @ticker.FuncFormatter
-        def major_formatter(x, pos):
-            return "{:.1f}".format(dt * x)
+    if y is not None:
+        if len(y) != mat.shape[0]:
+            raise err.NeuralPlotError(
+                "Spatial vector 'y' does not have the same shape as the matrix."
+                f" Expected length {mat.shape[0]} but got {len(y)}"
+            )
+    else:
+        if dy is None:
+            dy = 1
+        y = np.arange(mat.shape[0]) * dy
 
     if ax is None:
         fig = plt.gcf()
         ax = fig.add_subplot()
 
-    cim = ax.imshow(
-        mat,
-        aspect="auto",
-        interpolation="none",
-        origin="lower",
-        vmin=vmin,
-        vmax=vmax,
-        cmap=cmap,
-    )
-    ax.xaxis.set_major_formatter(major_formatter)
+    cim = ax.pcolormesh(t, y, mat, vmin=vmin, vmax=vmax, cmap=cmap, shading=shading)
 
     if cax:
         if cbar_kw is None:
@@ -304,6 +319,6 @@ def yyaxis(ax: plt.Axes, c: "color" = "red") -> plt.Axes:
     """
     ax2 = ax.twinx()
     ax2.spines["right"].set_color(c)
-    ax2.tick_params(axis="y", colors=c, which='both')
+    ax2.tick_params(axis="y", colors=c, which="both")
     ax2.yaxis.label.set_color(c)
     return ax2
