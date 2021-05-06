@@ -54,6 +54,8 @@ class ModelOptimizer:
         verbose:
         atol:
         rtol:
+        init_sigma: init_sigma * (upper_bound - lower_bound)/2 is the range of
+            initial conditions tested
 
     Attributes:
         _Nchannel: Number of parameters being optimized
@@ -69,26 +71,48 @@ class ModelOptimizer:
         self.dtype = kwargs.pop("dtype", np.float64)
         self.rtol = kwargs.pop("rtol", 1e-2)
         self.atol = kwargs.pop("atol", 0.0)
+        self.init_sigma = kwargs.pop("init_sigma", 0.1)
+        self.polish = kwargs.pop("polish", True)
 
         self._Nchannel, self.inputs = self._inputs_validator(constructor, inputs)
         self.params = self._params_validator(constructor, params)
         self.bounds = [val[1:] for val in self.params.values()]
+
+        popsize = self.batchsize * len(self.params)
+        if any([p[0] is None for p in self.params.values()]):
+            self.init = "latinhypercube"
+        else:
+            self.init = np.zeros((popsize, len(self.params)))
+            for p_idx, p in enumerate(self.params.values()):
+                init, lb, ub = p
+                self.init[:, p_idx] = (
+                    init
+                    + np.random.randn(popsize)
+                    * (ub - lb)
+                    / 2.0
+                    / 2.3263
+                    * self.init_sigma
+                )
 
         num_population_size = self.batchsize * len(self.params)
         self.num = num_population_size * self._Nchannel
         self._nn = self._create_network({})
 
     def optimize(self):
-        return differential_evolution(
+        res = differential_evolution(
             self.objective_func,
             self.bounds,
+            init=self.init,
             maxiter=self.maxiter,
             popsize=self.batchsize,
             batched=True,
             verbose=self.verbose,
+            polish=self.polish,
             atol=self.atol,
             rtol=self.rtol,
         )
+        res.params = {key: res.x[n] for n, (key, val) in enumerate(self.params.items())}
+        return res
 
     def objective_func(self, x: np.ndarray):
         if x.shape != (len(self.params), len(self.params) * self.batchsize):
@@ -210,12 +234,18 @@ class ModelOptimizer:
             params = OrderedDict(params)
 
         for key, val in params.items():
-            if len(val) != 3:
+            if len(val) not in [2, 3]:
                 raise ValueError(
-                    f" Parameter '{key}' is not specified as a 3-tuple of"
-                    f" (initial, lower bound, upper bound)"
+                    f" Parameter '{key}' has the wrong format. Need to be"
+                    " either a 3-tuple of (initial, lower bound, upper bound)"
+                    " or a 2-tuple of (lower bound, upper bound)"
                 )
-            init, lbound, ubound = val
+            if len(val) == 3:
+                init, lbound, ubound = val
+            else:
+                lbound, ubound = val
+                init = None
+
             if ubound < lbound:
                 raise ValueError(
                     f"Upper Bound {ubound} cannot be smaller than Lower "
@@ -228,28 +258,12 @@ class ModelOptimizer:
                 )
 
             # make sure initial guess is within bound
-            init = np.clip(init, lbound, ubound)
+            if init is not None:
+                init = np.clip(init, lbound, ubound)
 
             if key not in constructor.Default_Params:
                 raise AttributeError(
                     f"Parameter '{key}' not found in target '{target}'"
                 ) from e
-            # else:
-            #     default_val = constructor.Default_Params[key]
-            #     if np.isscalar(default_val):
-            #         continue
-            #     if len(default_val) == 3:
-            #         df_init,df_lbound,df_ubound = default_val
-
-            #         if lbound > df_ubound or ubound < df_lbound:
-            #             raise ValueError(
-            #                 f"Perimissible range of parameter '{key}' is not "
-            #                 f" Contained in the range specified in model"
-            #                 f" constructor, cannot optimize"
-            #             )
-            #         if lbound < df_lbound:
-            #             lbound = df_lbound
-            #         if ubound > df_ubound:
-            #             ubound = df_ubound
             params[key] = (init, lbound, ubound)
         return params
