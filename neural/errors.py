@@ -9,8 +9,10 @@ class NeuralCodeGenError(NeuralError):
 class NeuralSymPyCodeGenError(NeuralCodeGenError):
     """Neural SymPy CodeGen Exception"""
 
+
 class NeuralSymPyCodeGenIdentationError(NeuralSymPyCodeGenError):
     """Neural SymPy CodeGen Indentation Error - Likely caused by elif not understood"""
+
 
 class NeuralOptimizerError(NeuralError):
     """Base Error for neural.optimize module"""

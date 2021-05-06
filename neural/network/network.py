@@ -251,10 +251,7 @@ class Network(object):
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
         for name, val in self.inputs.items():
             if val.steps == 0:
-                warnings.warn(
-                    f"Input '{name}' has 0 steps",
-                    UserWarning
-                )
+                warnings.warn(f"Input '{name}' has 0 steps", UserWarning)
 
         for c in self.containers.values():
             recorder = c.set_recorder(steps, rate)

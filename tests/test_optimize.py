@@ -1,8 +1,14 @@
 import pytest
 import numpy as np
 import time
-import pycuda.autoinit
-import pycuda.gpuarray as garray
+
+try:
+    import pycuda.autoinit
+    import pycuda.gpuarray as garray
+
+    CUDA = True
+except:
+    CUDA = False
 import neural.optimize
 from collections import OrderedDict
 from neural import Model
@@ -85,14 +91,13 @@ def test_differential_evolution():
     )
     np.testing.assert_allclose(de_b.x, np.ones((5,)))
 
-    with pytest.warns(UserWarning, match="'polish' keyword not yet implemented"):
-        de = differential_evolution(
-            rosen,
-            bounds=bounds,
-            polish=True,
-            seed=0,
-        )
-        np.testing.assert_allclose(de.x, np.ones((5,)))
+    de = differential_evolution(
+        rosen,
+        bounds=bounds,
+        polish=True,
+        seed=0,
+    )
+    np.testing.assert_allclose(de.x, np.ones((5,)))
 
     with pytest.warns(UserWarning, match="'batched' keyword has overridden updating"):
         de_b = differential_evolution(

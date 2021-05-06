@@ -4,6 +4,7 @@ import random
 
 try:
     import pycuda.autoinit
+
     CUDA = True
 except:
     CUDA = False
@@ -53,4 +54,4 @@ def model():
 
 def test_sympy_gen(model):
     sg = SympyGenerator(model)
-    model.compile(backend='cuda' if CUDA else 'scalar')
+    model.compile(backend="cuda" if CUDA else "scalar")

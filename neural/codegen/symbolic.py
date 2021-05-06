@@ -289,10 +289,12 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         except:
             lines = self.sympy_src.split("\n")
             for n, line in enumerate(lines):
-                line_before_str = f"     Line {n-1}: {lines[n-1]}\n" if n > 0 else ''
+                line_before_str = f"     Line {n-1}: {lines[n-1]}\n" if n > 0 else ""
                 line_str = f"---> Line {n}: {lines[n]}\n"
-                line_after_str = f"     Line {n+1}: {lines[n+1]}\n" if n < len(lines)-1 else ''
-                lines_str = '\n' + line_before_str + line_str + line_after_str
+                line_after_str = (
+                    f"     Line {n+1}: {lines[n+1]}\n" if n < len(lines) - 1 else ""
+                )
+                lines_str = "\n" + line_before_str + line_str + line_after_str
                 try:
                     exec(line, globals(), self.sympy_dct)
                 except IndentationError as e:

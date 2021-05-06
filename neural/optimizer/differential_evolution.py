@@ -496,13 +496,13 @@ class DifferentialEvolutionSolver(object):
         self.strategy = strategy
 
         self.callback = callback
-        if polish:
-            warnings.warn(
-                "differential_evolution: 'polish' keyword not yet"
-                " implemented, it will be overwritten to False.",
-                UserWarning,
-            )
-            polish = False
+        # if polish:
+        #     warnings.warn(
+        #         "differential_evolution: 'polish' keyword not yet"
+        #         " implemented, it will be overwritten to False.",
+        #         UserWarning,
+        #     )
+        #     polish = False
         self.polish = polish
         # set the updating / parallelisation options
         if updating in ["immediate", "deferred"]:
@@ -573,6 +573,8 @@ class DifferentialEvolutionSolver(object):
         # we create a wrapped function to allow the use of map (and Pool.map
         # in the future)
         self.func = _FunctionWrapper(func, args)
+        if self.batched:
+            self.unbatched_func = lambda x: self.func(np.atleast_2d(x)).item()
         self.args = args
 
         # convert tuple of lower and upper bounds to limits
@@ -892,7 +894,7 @@ class DifferentialEvolutionSolver(object):
                     )
 
             result = minimize(
-                self.func,
+                self.func if not self.batched else self.unbatched_func,
                 np.copy(DE_result.x),
                 method=polish_method,
                 bounds=self.limits.T,
