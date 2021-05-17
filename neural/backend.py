@@ -282,7 +282,7 @@ class CUDABackend(Backend):
                     continue
                 self.data[key].fill(val)
             else:
-                raise TypeError("Invalid {0} variable: {1}".format(attr, key))
+                raise TypeError(f"Invalid '{key}' variable: {val}")
         return params
 
     def compile(self, **kwargs):
