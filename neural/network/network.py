@@ -136,7 +136,7 @@ class Container(object):
             if arg not in self._rec:
                 self._rec.append(arg)
 
-    def set_recorder(self, steps, rate=1):
+    def set_recorder(self, steps, rate=1, gpu_buffer=500):
         if not self._rec:
             self.recorder = None
         elif (
@@ -145,7 +145,7 @@ class Container(object):
             or (set(self.recorder.dct.keys()) != set(self._rec))
         ):
             self.recorder = Recorder(
-                self.obj, self._rec, steps, gpu_buffer=500, rate=rate
+                self.obj, self._rec, steps, gpu_buffer=gpu_buffer, rate=rate
             )
         return self.recorder
 
@@ -244,6 +244,7 @@ class Network(object):
     def run(self, dt, steps=0, rate=1, verbose=False, **kwargs):
         """Run the entire Network from start to stop"""
         solver = kwargs.pop("solver", self.solver)
+        gpu_buffer = kwargs.pop("gpu_buffer", 500)
         if not self._iscompiled:
             raise Exception("Please compile before running the network.")
 
@@ -254,7 +255,7 @@ class Network(object):
                 warnings.warn(f"Input '{name}' has 0 steps", UserWarning)
 
         for c in self.containers.values():
-            recorder = c.set_recorder(steps, rate)
+            recorder = c.set_recorder(steps, rate, gpu_buffer=gpu_buffer)
         self.reset()
 
         iterator = range(steps)
