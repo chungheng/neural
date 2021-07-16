@@ -280,7 +280,7 @@ class CUDARecorder(Recorder):
         return np.getbuffer(self.dct[key], offset, size)
 
     def _py3_get_buffer(self, key, index):
-        mv = memoryview(self.dct[key].T)
+        mem_view = memoryview(self.dct[key].T)
         beg = int(index / self.buffer_length) * self.buffer_length
         return mv[beg : index + 1]
 

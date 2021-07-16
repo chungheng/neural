@@ -43,10 +43,10 @@ def generate_stimulus(
     mode: str,
     d_t: float,
     duration: float,
-    support: tp.Iterable[float],
-    amplitude: tp.Union[float, tp.Iterable[float]],
+    support: tp.Tuple[float, float],
+    amplitude: tp.Union[float, np.ndarray],
     sigma: float = None,
-    dtype: np.dtype = np.float64,
+    dtype: "dtype" = np.float64,
     **kwargs,
 ) -> np.ndarray:
     """

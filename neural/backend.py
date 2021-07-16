@@ -244,6 +244,7 @@ class NumpyBackend(ScalarBackend):
         np.clip(value, a_min, a_max, out=value)
 
 
+
 class CUDABackend(Backend):
     def __init__(self, model, **kwargs):
         self.backend = kwargs.pop("backend", None)

@@ -50,6 +50,7 @@ if PY2:
 
 
 
+
 class Symbol(object):
     def __init__(
         self,
@@ -133,6 +134,7 @@ class Input(object):
             raise NeuralNetworkInputError(
                 f"type of data {self.data} for input {self.name} not understood, need to be iterable or PyCuda.GPUArray"
             )
+
 
 
 
