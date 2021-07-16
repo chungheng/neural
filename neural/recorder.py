@@ -1,7 +1,8 @@
-# pylint: disable=no-member
+# pylint:disable=no-member
 """
 Utility modules for recording data from Neural models
 """
+import sys
 from abc import abstractmethod
 from numbers import Number
 import sys
@@ -57,12 +58,7 @@ class Recorder(object):
         self.steps = int(steps / self.rate)
 
         self.dct = {key: None for key in attrs}
-
-        # handle spike
-        self._spike_recorder = dict()
-        for atr in attrs:
-            if "spike" in atr.lower():
-                self._spike_recorder[atr] = 0
+        self.spike_vars = tuple([key for key in attrs if "spike" in key.lower()])
         self.init_dct()
 
         if callback:
@@ -89,8 +85,7 @@ class Recorder(object):
 
     def __iter__(self):
         for i in range(self.total_steps):
-            if i % self.rate == 0:
-                self.update(i)
+            self.update(i)
             yield i
 
     def __getitem__(self, key):
@@ -121,8 +116,19 @@ class ScalarRecorder(Recorder):
 
     def update(self, index: int):
         d_index = int(index / self.rate)  # downsample index
+
+        # increment spike count directly in dct
+        for key in self.spike_vars:
+            self.dct[key][d_index] += getattr(self.obj, key)
+
+        if (index % self.rate) != 0:
+            return
+
         for key in self.dct.keys():
-            self.dct[key][d_index] = getattr(self.obj, key)
+            if key in self.spike_vars:
+                continue
+            else:
+                self.dct[key][d_index] = getattr(self.obj, key)
 
 
 class NumpyRecorder(Recorder):
@@ -143,10 +149,21 @@ class NumpyRecorder(Recorder):
             shape = (src.size, self.steps)
             self.dct[key] = np.zeros(shape, order="F", dtype=src.dtype)
 
-    def update(self, index: int):
+    def update(self, index):
         d_index = int(index / self.rate)  # downsample index
+
+        # increment spike count directly in dct
+        for key in self.spike_vars:
+            self.dct[key][:, d_index] += getattr(self.obj, key)
+
+        if (index % self.rate) != 0:
+            return
+
         for key in self.dct.keys():
-            self.dct[key][:, d_index] = getattr(self.obj, key)
+            if key in self.spike_vars:
+                continue
+            else:
+                self.dct[key][:, d_index] = getattr(self.obj, key)
 
 
 class CUDARecorder(Recorder):
@@ -155,7 +172,6 @@ class CUDARecorder(Recorder):
 
     Attributes:
     """
-
     def __init__(
         self,
         obj,
@@ -380,6 +396,6 @@ class CuPyRecorder(Recorder):
         return np.getbuffer(self.dct[key], offset, size)
 
     def _py3_get_buffer(self, key, index):
-        mv = memoryview(self.dct[key].T)
+        mem_view = memoryview(self.dct[key].T)
         beg = int(index / self.buffer_length) * self.buffer_length
-        return mv[beg : index + 1]
+        return mem_view[beg : index + 1]

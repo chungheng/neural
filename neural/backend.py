@@ -48,7 +48,6 @@ except ImportError:
 
 from .logger import NeuralBackendError
 
-
 # copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
 def _new_md5():
     try:
@@ -244,6 +243,7 @@ class NumpyBackend(ScalarBackend):
     def clip(self, value, a_min, a_max):
         np.clip(value, a_min, a_max, out=value)
 
+
 class CUDABackend(Backend):
     def __init__(self, model, **kwargs):
         self.backend = kwargs.pop("backend", None)
@@ -364,6 +364,7 @@ class CUDABackend(Backend):
             )
 
     def update(self, d_t, **kwargs):
+        """Update State Variables"""
         st = kwargs.pop("st", None)
         args = []
         for key, dtype in zip(self.args, self.arg_ctype[2:]):

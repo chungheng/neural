@@ -80,11 +80,9 @@ class ModelMetaClass(type):
                 if hasattr(val, "__len__"):
                     if len(val) != 3:
                         raise NeuralModelError(
-                            f"""Variable {key}
-                                should be a scalar of a iterable of 3 elements
-                                (initial value, upper bound, lower bound)
-                                but {val} is given.
-                            """
+                            f"Variable {key} should be a scalar of a iterable "
+                            "of 3 elements (initial value, upper bound, lower bound) "
+                            f"but {val} is given."
                         )
                     bounds[key] = val[1:]
                     states[key] = val[0]
@@ -337,7 +335,6 @@ class Model(with_metaclass(ModelMetaClass, object)):
 
         TODO: enable using different state variables than self.states
         """
-
 
     def _ode_wrapper(self, states: dict = None, gstates: dict = None, **kwargs):
         """

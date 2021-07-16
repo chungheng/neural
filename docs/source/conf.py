@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.abspath("../"))
 # -- Project information -----------------------------------------------------
 
 project = "neural"
-copyright = "2021, Chung-Heng Yeh"
+copyright = "2021, Chung-Heng Yeh & Tingkai Liu"
 author = "Chung-Heng Yeh"
 
 # The short X.Y version
@@ -74,7 +74,7 @@ exclude_patterns = []
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = None
 
-
+1
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for

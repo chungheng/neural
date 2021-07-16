@@ -1,19 +1,23 @@
 """
 Utility functions for simulating the synapse and neuron models.
 
-
 Methods:
     generate_stimulus: generate stimuli; currently support `step`, `ramp` and
         `parabolic` stimuli.
     generate_spike_from_psth: generate spike sequences from a PSTH.
     compute_psth: compute PSTH from a set of spike sequences.
+    snr: compute Signal-to-Noise-Ratio between a signal and it's noisy version
+        in deciBel
+    fft: compute Fourier Transform of given signal(s), and returns the spectrum
+        as well as the frequency vector
+    nextpow2: compute next smallest power of 2 exponent for given number, same
+        as :code:`nextpow2` in MATLAB.
 """
 
 import struct
 import zlib
 import typing as tp
 from binascii import unhexlify
-
 import numpy as np
 from .logger import NeuralUtilityError, SignalTypeNotFoundError
 
@@ -275,13 +279,27 @@ def compute_psth(
     return rates, stamps
 
 
-class PSTH(object):
+class PSTH:
+    """Peri-Stimulus Time Histogram
+
+    This class facilitates computing PSTH of input spikes in an OOP fashion.
+    For 2D spiking data, the PSTH is computed as an average across spike times
+    for all neurons.
+
+    .. seealso:: :py:func:`compute_psth`
+
+    Parameters:
+        spikes: 1D or 2D binary array of spike trains to compute PSTH from. For
+            2D array, the temporal axis is infered as the longer dimension. The
+            other dimension is treated as neuron indices.
+        dt: time-step for spikes along the temporal dimension of :code:`spikes`
+    """
     def __init__(
         self,
         spikes: np.ndarray,
         d_t: float,
         window: float = 20e-3,
-        shift: float = 10e-3,
+        shift: float = 10e-3
     ):
         self.window = window
         self.shift = shift
@@ -321,3 +339,95 @@ class PSTH(object):
             stack.append(other.psth)
 
         self.psth = np.vstack(stack)
+
+
+def snr(u: np.ndarray, u_rec: np.ndarray) -> np.ndarray:
+    """Compute Signal to Noise Ratio
+
+    Computes the SNR according to the formula
+    :math:`SNR[u, u_{rec}] = 10\log_{10} \frac{u^2}{(u-u_{rec})^2}`
+
+    Parameters:
+        u: Clean Signal
+        u_rec: Noisy Signal
+
+    Returns:
+        snr: Signal-to-Noise-Ratio in deciBel
+    """
+    err = u - u_rec
+    _snr = np.full(err.shape, np.inf, dtype=u.dtype)
+    mask = err != 0
+    _snr[mask] = 10 * np.log10(u[mask] ** 2 / err[mask] ** 2)
+    return _snr
+
+
+def random_signal(
+    t: np.ndarray, bw: float = None, num: int = 1, seed: int = None
+) -> np.ndarray:
+    """Generate Random Signal
+
+    Parameters:
+        t: time points
+        bw: bandwidth of output signal in Hz. If specified, lowpass filter white
+            noise signal with butterworth filter. If :code:`None` (default),
+            return white noise signal.
+        num: number of signals to generate.
+        seed: seed for random number generator.
+
+    Returns:
+        A float ndarray of shape :code:`(num, len(t))` that is of bandwidth
+        :code:`bw`.
+    """
+    if isinstance(seed, np.random.RandomState):
+        rng = seed
+    else:
+        rng = np.random.RandomState(seed)
+
+    wn = rng.randn(num, len(t))
+    if bw is None:
+        return wn
+    fs = 1 / (t[1] - t[0])
+    b, a = butter(5, bw, btype="low", analog=False, fs=fs)
+    sig = lfilter(b, a, wn, axis=-1)
+    pow = np.mean(sig ** 2, axis=-1)
+    sig /= np.sqrt(pow)[:, None]  # RMS power normalization
+    return sig
+
+
+def nextpow2(n: "Number") -> float:
+    """Find Minimum Power 2 Exponent"""
+    return np.ceil(np.log2(n))
+
+
+def fft(
+    signal: np.ndarray,
+    dt: float = 1.0,
+    axis: int = -1,
+    extra_power2: int = None,
+    fftshift: bool = True,
+) -> tp.Tuple[np.ndarray, np.ndarray]:
+    """Compute Spectrum of Signal
+
+    Parameters:
+        signal: Signal to take fft of.
+        dt: time resolution of the signal
+        axis: axis long which to take fft, default to last
+        extra_power2: extra power of 2 to add to fft when computing NFFT.
+            setting it to :code:`None` will not pad the signal.
+        fftshift: seeting to :code:`True` (default) will shift the signal to be
+            centered at 0 Hz.
+
+    Returns:
+        A 2-tuple of frequency (in Hz) and Spectrum
+    """
+    Nt = signal.shape[axis]
+    if extra_power2 is None:
+        nfft = Nt
+    else:
+        nfft = 2 ** int(nextpow2(Nt) + extra_power2)
+    spec = np.fft.fft(signal, n=nfft, axis=axis)
+    freq = np.fft.fftfreq(nfft, d=dt * (Nt / nfft))
+    if fftshift:
+        spec = np.fft.fftshift(spec, axes=axis)
+        freq = np.fft.fftshift(freq, axes=axis)
+    return freq, spec

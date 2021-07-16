@@ -14,6 +14,7 @@ Examples:
     >>> nn.run(dt, s=numpy.random.rand(10000))
 """
 import sys
+import warnings
 from collections import OrderedDict
 from functools import reduce
 from numbers import Number
@@ -22,8 +23,9 @@ from warnings import warn
 import typing as tp
 import numpy as np
 import pycuda.gpuarray as garray
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
+# pylint:disable=relative-beyond-top-level
 from ..basemodel import Model
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
@@ -38,11 +40,14 @@ from ..logger import (
     NeuralRecorderWarning,
 )
 
+# pylint:enable=relative-beyond-top-level
+
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
 
 if PY2:
     raise NeuralNetworkError("neural.network does not support Python 2.")
+
 
 
 class Symbol(object):
@@ -99,10 +104,17 @@ class Input(object):
             )
         self.data = data
         self.steps = len(data) if hasattr(data, "__len__") else 0
-        self.reset()  # create iter object
+        self.iter = iter(self.data)
+        if hasattr(data, "__iter__"):
+            self.iter = iter(self.data)
+        elif isinstance(data, garray.GPUArray):
+            self.iter = (x for x in self.data)
+        else:
+            raise TypeError()
+
         return self
 
-    def step(self) -> None:
+    def step(self):
         self.value = next(self)
 
     def __next__(self):
@@ -121,6 +133,7 @@ class Input(object):
             raise NeuralNetworkInputError(
                 f"type of data {self.data} for input {self.name} not understood, need to be iterable or PyCuda.GPUArray"
             )
+
 
 
 class Container(object):
@@ -227,7 +240,7 @@ class Container(object):
             if arg not in self._rec:
                 self._rec.append(arg)
 
-    def set_recorder(self, steps: int, rate: int = 1) -> Recorder:
+    def set_recorder(self, steps: int, rate: int = 1, gpu_buffer: int = 500) -> Recorder:
         """Create Recorder Instace
 
         Keyword Arguments:
@@ -242,7 +255,7 @@ class Container(object):
             or (set(self.recorder.dct.keys()) != set(self._rec))
         ):
             self.recorder = Recorder(
-                self.obj, self._rec, steps, gpu_buffer=500, rate=rate
+                self.obj, self._rec, steps, gpu_buffer=gpu_buffer, rate=rate
             )
         return self.recorder
 
@@ -276,7 +289,6 @@ class Container(object):
 
 class Network(object):
     """Neural Network Object"""
-
     def __init__(self, solver: str = "euler", backend: str = "cuda"):
         self.containers = OrderedDict()
         self.inputs = OrderedDict()
@@ -363,11 +375,9 @@ class Network(object):
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
 
         # reset recorders
-        recorders = []
         for c in self.containers.values():
-            recorder = c.set_recorder(steps, rate)
-            if recorder is not None:
-                recorders.append(recorder)
+            if c.recorder is not None:
+                c.recorder.reset()
 
         # reset Model variables
         for c in self.containers.values():
@@ -384,41 +394,53 @@ class Network(object):
             iterator = tqdm(iterator, total=steps, desc=session_name)
 
         for i in iterator:
-            for c in self.inputs.values():  # 1. update input
-                c.step()
+            self.update(dt, i)
 
-            for c in self.containers.values():  # 2. update containers
-                args = {}
-                for key, val in c.inputs.items():
-                    if isinstance(val, Symbol):
-                        args[key] = getattr(val.container.obj, val.key)
-                    elif isinstance(val, Input):
-                        args[key] = val.value
-                    elif isinstance(val, Number):
-                        args[key] = val
-                    else:
-                        raise NeuralNetworkCompileError(
-                            f"Container wrapping [{c.obj}] input {key} value {val} not understood"
-                        )
-                if isinstance(c.obj, Model):
-                    try:
-                        c.obj.update(dt, **args)
-                    except Exception as e:
-                        raise NeuralNetworkUpdateError(
-                            f"Container wrapping [{c.obj}] Error"
-                        ) from e
+    def update(self, dt: float, idx: int) -> None:
+        """Update Network and all components
+
+        Arguments:
+            dt: time step
+            idx: time index of the update for recorder
+        """
+        for c in self.inputs.values():  # 1. update input
+            c.step()
+
+        for c in self.containers.values():  # 2. update containers
+            args = {}
+            for key, val in c.inputs.items():
+                if isinstance(val, Symbol):
+                    args[key] = getattr(val.container.obj, val.key)
+                elif isinstance(val, Input):
+                    args[key] = val.value
+                elif isinstance(val, Number):
+                    args[key] = val
                 else:
-                    try:
-                        c.obj.update(**args)
-                    except Exception as e:
-                        raise NeuralNetworkUpdateError(
-                            f"Container wrapping [{c.obj}] Error"
-                        ) from e
-            for recorder in recorders:  # 3. update recorder
-                recorder.update(i)
+                    raise NeuralNetworkCompileError(
+                        f"Container wrapping [{c.obj}] input {key} "
+                        f"value {val} not understood"
+                    )
+            if isinstance(c.obj, Model):
+                try:
+                    c.obj.update(dt, **args)
+                except Exception as e:
+                    raise NeuralNetworkUpdateError(
+                        f"Update Failed for Model [{c.obj}]"
+                    ) from e
+            else:
+                try:
+                    c.obj.update(**args)
+                except Exception as e:
+                    raise NeuralNetworkUpdateError(
+                        f"Update Failed for Model [{c.obj}]"
+                    ) from e
+        # update recorders
+        for c in self.containers.values():
+            if c.recorder is not None:
+                c.recorder.update(idx)
 
     def compile(
-        self, dtype: tp.Any = None, debug: bool = False, backend: str = None
+        self, dtype: tp.Any = None, debug: bool = False, backend: str = "cuda"
     ) -> None:
         backend = backend or self.backend
         dtype = dtype or np.float64
@@ -439,10 +461,9 @@ class Network(object):
                             # raise Exception("Size mismatches: [{}: {}] vs. [{}: {}]".format(
                             #     c.name, c.num, val.name, val.num))
                             err = NeuralNetworkWarning(
-                                f"""Size mismatches: [{c.name}: {c.num}] vs. [{val.name}: {val.num}].
-                                Unless you are connecting Input object directly to a Project container,
-                                this is likely a bug.
-                                """
+                                f"Size mismatches: [{c.name}: {c.num}] vs. [{val.name}: {val.num}]. "
+                                "Unless you are connecting Input object directly to a Project container, "
+                                "this is likely a bug."
                             )
                             warn(err)
                         dct[key] = np.zeros(val.num)
@@ -456,13 +477,18 @@ class Network(object):
                     )
 
             if hasattr(c.obj, "compile"):
-                if isinstance(c.obj, Model):
-                    c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
-                else:
-                    c.obj.compile(**dct)
+                try:
+                    if isinstance(c.obj, Model):
+                        c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
+                    else:
+                        c.obj.compile(**dct)
+                except Exception as e:
+                    raise Exception(f"Compilation Failed for Container {c.obj}") from e
                 if debug:
                     s = "".join([", {}={}".format(*k) for k in dct.items()])
-                    print(f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})")
+                    print(
+                        f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})"
+                    )
         self._iscompiled = True
 
     def record(self, *args: tp.Iterable[Symbol]):

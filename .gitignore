@@ -1,7 +1,9 @@
 *.pyc
 neural.egg-info/
-.ipynb_checkpoints/
-.vscode/
-.pytest_cache
-examples/
 docs/_build
+*.pytest_cache
+examples/
+*.bak
+.ipynb_checkpoints
+.vscode/
+.tox/

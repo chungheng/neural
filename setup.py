@@ -65,5 +65,22 @@ if __name__ == "__main__":
         maintainer=MAINTAINER,
         maintainer_email=MAINTAINER_EMAIL,
         packages=PACKAGES,
-        install_requires=["jinja2 >= 2.8", "pycuda"],
+        install_requires=[
+            "Jinja2 >= 2.11",
+            "matplotlib >= 3.3",
+            "numpy >= 1.19",
+            "pycuda >= 2019.1",
+            "scipy >= 1.5",
+            "tqdm >= 4.48",
+        ],
+        extras_require={
+            "dev": [
+                "black >= 20.8",
+                "pylint >= 2.7",
+                "pytest >= 6.0",
+            ],
+            "test": [
+                "pytest >= 6.0",
+            ],
+        },
     )

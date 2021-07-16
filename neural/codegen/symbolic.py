@@ -7,10 +7,11 @@ import os
 from six import StringIO, get_function_code, get_function_globals
 from six import with_metaclass
 from sympy import *
-import types
 
 from pycodegen.codegen import CodeGenerator
 from pycodegen.utils import get_func_signature
+
+from ..logger import NeuralSymPyCodeGenError, NeuralSymPyCodeGenIdentationError
 
 
 class _Variable(object):
@@ -123,6 +124,18 @@ class VariableAnalyzer(CodeGenerator):
         else:
             self.var[-1] += "." + ins.argval
 
+    def handle_load_method(self, ins):
+        """
+        Added for Python 3.7+
+        """
+        self.handle_load_attr(ins)
+
+    def handle_call_method(self, ins):
+        """
+        Added for Python 3.7+
+        """
+        self.handle_call_function(ins)
+
     def handle_load_fast(self, ins):
         if ins.argval in self.signature or ins.argval in self.variables:
             self._dependencies.add(ins.argval)
@@ -145,9 +158,9 @@ class VariableAnalyzer(CodeGenerator):
             self.var[-1] = key
             self.variables[key].dependencies.update(self._dependencies)
             self._dependencies = set()
-
         else:
             self.var[-1] = "{}.{}".format(self.var[-1], ins.argval)
+
         self.var[-2] = "{} = {}".format(self.var[-1], self.var[-2])
         del self.var[-1]
 
@@ -245,7 +258,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         for key in dir(self):
             if key[:8] == "_handle_":
                 setattr(self, key[1:], getattr(self, key))
-        #
+
         self.generate()
         self.get_symbols()
         self.sympy_dct = {}
@@ -273,7 +286,31 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         try:
             exec(self.sympy_src, globals(), self.sympy_dct)
         except:
-            print(self.sympy_src)
+            lines = self.sympy_src.split("\n")
+            for n, line in enumerate(lines):
+                line_before_str = f"     Line {n-1}: {lines[n-1]}\n" if n > 0 else ""
+                line_str = f"---> Line {n}: {lines[n]}\n"
+                line_after_str = (
+                    f"     Line {n+1}: {lines[n+1]}\n" if n < len(lines) - 1 else ""
+                )
+                lines_str = "\n" + line_before_str + line_str + line_after_str
+                try:
+                    exec(line, globals(), self.sympy_dct)
+                except IndentationError as e:
+                    raise NeuralSymPyCodeGenIdentationError(
+                        "SymPy Compilation Failed for model"
+                        f" '{self.model.__class__.__name__}' on:"
+                        f"{lines_str}"
+                        "This is likely an issue with using 'elif' statement"
+                        " , avoid 'elif' and prefer binary masking operators"
+                        " like '(x>0)*x' in general."
+                    ) from e
+                except Exception as e:
+                    raise NeuralSymPyCodeGenError(
+                        "SymPy Compilation Failed for model"
+                        f" '{self.model.__class__.__name__}' on:"
+                        f"{lines_str}"
+                    ) from e
 
     def to_latex(self):
         cond = lambda v: v.type == "state" and v.integral is None
@@ -289,7 +326,13 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         self.latex_src = ""
         self.latex_src += r"\begin{eqnarray}"
         for eq in self.equations:
-            tmp = latex(self.sympy_dct[eq], mul_symbol="dot")
+            try:
+                tmp = latex(self.sympy_dct[eq], mul_symbol="dot")
+            except Exception as e:
+                raise NeuralSymPyCodeGenError(
+                    "Failed to Generate Sympy Code for model"
+                    f" {self.model.__class__.__name__}"
+                ) from e
             self.latex_src += tmp.replace("=", " &=& ") + r"\\"
         self.latex_src += r"\end{eqnarray}"
 
@@ -355,7 +398,6 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             del self.var[-1]
             return
         elif self.variables[key].type == "local":
-
             eqn = "Eq(%s, %s)" % (key, self.var[-1])
             self.equations.append("eqn_%d" % len(self.equations))
             indent = " " * (self.space + self.indent)
@@ -387,6 +429,21 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         else:
             self.var.append("")
             self.output_statement()
+
+    def handle_compare_op(self, ins):
+        """Convert Comparison Operation to Heaviside Expressions"""
+        op = ins.argval
+        if op in [">", ">="]:
+            diff = f"{self.var[-2]} - {self.var[-1]}"
+        elif op in ["<", "<="]:
+            diff = f"{self.var[-1]} - {self.var[-2]}"
+        else:
+            raise ValueError(f"Comparison with Operator '{op}' not understood.")
+
+        thres = 1 if "=" in op else 0
+
+        self.var[-2] = f"Heaviside({diff}, {thres})"
+        del self.var[-1]
 
     def _handle_return_value(self, ins):
         self.var[-1] = ""
