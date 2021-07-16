@@ -129,7 +129,7 @@ def generate_stimulus(
         generator([waveforms], d_t, support, [amplitude], **kwargs)
 
     if sigma is not None:
-        waveforms += sigma * np.random.rand(shape)
+        waveforms += sigma * np.random.randn(*shape)
     return waveforms
 
 
@@ -317,14 +317,18 @@ def nextpow2(n: "Number") -> float:
     """Find Minimum Power 2 Exponent"""
     return np.ceil(np.log2(n))
 
-
 def fft(
-    signal: np.ndarray, axis: int = -1, extra_power2: int = None, fftshift: bool = True
+    signal: np.ndarray,
+    dt: float = 1.,
+    axis: int = -1,
+    extra_power2: int = None,
+    fftshift: bool = True
 ) -> tp.Tuple[np.ndarray, np.ndarray]:
     """Compute Spectrum of Signal
 
     Parameters:
         signal: Signal to take fft of.
+        dt: time resolution of the signal
         axis: axis long which to take fft, default to last
         extra_power2: extra power of 2 to add to fft when computing NFFT.
             setting it to :code:`None` will not pad the signal.
@@ -336,12 +340,12 @@ def fft(
     """
     Nt = signal.shape[axis]
     if extra_power2 is None:
-        nfft = signal.shape[axis]
+        nfft = Nt
     else:
         nfft = 2 ** int(nextpow2(Nt) + extra_power2)
-    spec = np.fft.fft(signal, n=nfft, axis=axix)
-    freq = np.fft.fftfreq(nfft, d=dt * (NT / nfft))
+    spec = np.fft.fft(signal, n=nfft, axis=axis)
+    freq = np.fft.fftfreq(nfft, d=dt * (Nt / nfft))
     if fftshift:
         spec = np.fft.fftshift(spec, axes=axis)
         freq = np.fft.fftshift(freq, axes=axis)
-    return freq, sepc
+    return freq, spec

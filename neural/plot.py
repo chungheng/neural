@@ -204,8 +204,7 @@ def plot_mat(
     vmin: float = None,
     vmax: float = None,
     cbar_kw: dict = None,
-    cmap: tp.Any = None,
-    shading: str = "nearest",
+    **pcolormesh_kwargs
 ) -> tp.Union[tp.Tuple[plt.Axes, tp.Any], plt.Axes]:
     """
     Plot Matrix with formatted time axes
@@ -241,8 +240,9 @@ def plot_mat(
         vmin: minimum value for the imshow
         vmax: maximum value for the imshow
         cbar_kw: keyword arguments to be passed into the colorbar creation
-        cmap: colormap to use
-        shading: optional, argument to be passed to `matplotlib.pyplot.pcolormesh`
+
+    Keyword Arguments:
+        **pcolormesh_kwargs: Keyword Arguments to be passed into the :py:func:`matplotlib.pyplot.pcolormesh` function.
 
     Returns:
         ax: the axis that the raster is plotted into
@@ -289,7 +289,11 @@ def plot_mat(
         fig = plt.gcf()
         ax = fig.add_subplot()
 
-    cim = ax.pcolormesh(t, y, mat, vmin=vmin, vmax=vmax, cmap=cmap, shading=shading)
+    cim = ax.pcolormesh(
+        t, y, mat,
+        vmin=vmin, vmax=vmax,
+        **pcolormesh_kwargs
+    )
 
     if cax:
         if cbar_kw is None:
