@@ -32,7 +32,7 @@ try:
 except ImportError:
     CudaKernelGenerator = None
 
-from .import errors as err
+from . import errors as err
 
 # copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
 def _new_md5():

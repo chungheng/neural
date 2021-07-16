@@ -204,7 +204,7 @@ def plot_mat(
     vmin: float = None,
     vmax: float = None,
     cbar_kw: dict = None,
-    **pcolormesh_kwargs
+    **pcolormesh_kwargs,
 ) -> tp.Union[tp.Tuple[plt.Axes, tp.Any], plt.Axes]:
     """
     Plot Matrix with formatted time axes
@@ -289,11 +289,7 @@ def plot_mat(
         fig = plt.gcf()
         ax = fig.add_subplot()
 
-    cim = ax.pcolormesh(
-        t, y, mat,
-        vmin=vmin, vmax=vmax,
-        **pcolormesh_kwargs
-    )
+    cim = ax.pcolormesh(t, y, mat, vmin=vmin, vmax=vmax, **pcolormesh_kwargs)
 
     if cax:
         if cbar_kw is None:

@@ -317,12 +317,13 @@ def nextpow2(n: "Number") -> float:
     """Find Minimum Power 2 Exponent"""
     return np.ceil(np.log2(n))
 
+
 def fft(
     signal: np.ndarray,
-    dt: float = 1.,
+    dt: float = 1.0,
     axis: int = -1,
     extra_power2: int = None,
-    fftshift: bool = True
+    fftshift: bool = True,
 ) -> tp.Tuple[np.ndarray, np.ndarray]:
     """Compute Spectrum of Signal
 
