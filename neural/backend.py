@@ -32,6 +32,8 @@ try:
 except ImportError:
     CudaKernelGenerator = None
 
+from .import errors as err
+
 # copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
 def _new_md5():
     try:
@@ -300,7 +302,10 @@ class CUDABackend(Backend):
             if hasattr(val, "__len__"):
                 _num = len(val)
                 self.num = self.num or _num
-                assert self.num == _num, "Mismatch in data size: %s" % key
+                if self.num != _num:
+                    raise err.NeuralBackendError(
+                        f"Mismatch in data size for '{key}'. Expect {self.num}, got {_num}."
+                    )
         else:
             assert self.num, "Please give the number of models to run"
 
