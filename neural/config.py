@@ -39,6 +39,7 @@ BACKEND = None
 _pycuda_skcuda_merge = None
 _math_engine = None
 
+
 def init(backend: str = "numpy") -> None:
     """
     Initialize Neural and Backend
@@ -63,6 +64,7 @@ def init(backend: str = "numpy") -> None:
     _math_engine = None
     if backend == "scalar":
         import math
+
         CUDA = False
         INITIALIZED = True
         BACKEND = backend
@@ -72,7 +74,9 @@ def init(backend: str = "numpy") -> None:
         try:
             import numpy
         except ImportError as e:
-            raise NeuralBackendError("NumPy specified as backend but not installed") from e
+            raise NeuralBackendError(
+                "NumPy specified as backend but not installed"
+            ) from e
         CUDA = False
         INITIALIZED = True
         BACKEND = backend
@@ -82,13 +86,18 @@ def init(backend: str = "numpy") -> None:
         try:
             import pycuda
         except ImportError as e:
-            raise NeuralBackendError("PyCUDA specified as backend but not installed") from e
+            raise NeuralBackendError(
+                "PyCUDA specified as backend but not installed"
+            ) from e
 
         try:
             import skcuda.misc
+
             skcuda.misc.init()
         except ImportError as e:
-            raise NeuralBackendError("PyCUDA specified as backend, Scikit-CUDA is required but not installed") from e
+            raise NeuralBackendError(
+                "PyCUDA specified as backend, Scikit-CUDA is required but not installed"
+            ) from e
         except Exception as e:
             raise NeuralBackendError("Scikit-CUDA Initialization Failed") from e
 
@@ -140,7 +149,10 @@ def init(backend: str = "numpy") -> None:
             _math_engine = cupy
         return
     else:
-        raise NeuralBackendError(f"Backend {backend} Not understood, only scalar/numpy/pycuda/cupy are supported.")
+        raise NeuralBackendError(
+            f"Backend {backend} Not understood, only scalar/numpy/pycuda/cupy are supported."
+        )
+
 
 def cuda_available() -> bool:
     """Check if CUDA is available"""
@@ -169,6 +181,7 @@ def cuda_available() -> bool:
 
 def neural_initialized(func):
     """Decorator to enforce neural initialization"""
+
     @functools.wraps(func)
     def function(*args, **kwargs):
         if not INITIALIZED:
@@ -176,10 +189,13 @@ def neural_initialized(func):
                 "Neural Not Initialized, call neural.init(backend='') first."
             )
         return func(*args, **kwargs)
+
     return function
+
 
 def with_backend(backend: str):
     """Decorator to enforce a specific backend"""
+
     def actual_wrapper(func):
         @functools.wraps(func)
         def function(*args, **kwargs):
@@ -188,15 +204,18 @@ def with_backend(backend: str):
                     "Neural Not Initialized, call neural.init(backend='') first."
                 )
             return func(*args, **kwargs)
+
         return function
+
     return actual_wrapper
+
 
 @neural_initialized
 def backend_array_module():
-    if BACKEND == 'numpy':
-        return importlib.import_module('numpy')
-    if BACKEND == 'cupy':
-        return importlib.import_module('cupy')
-    if BACKEND == 'pycuda':
-        return importlib.import_module('pycuda.gpuarray')
+    if BACKEND == "numpy":
+        return importlib.import_module("numpy")
+    if BACKEND == "cupy":
+        return importlib.import_module("cupy")
+    if BACKEND == "pycuda":
+        return importlib.import_module("pycuda.gpuarray")
     return None

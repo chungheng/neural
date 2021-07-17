@@ -10,8 +10,8 @@ def data():
     t = np.arange(0, 1.0, dt)
     bw = 100  # 30 Hz
     num = 2
-    start, stop = .2, .8
-    amp = 10.
+    start, stop = 0.2, 0.8
+    amp = 10.0
     seed = 0
     return dt, dur, t, bw, num, start, stop, amp, seed
 
@@ -28,7 +28,9 @@ def test_stimuli(data):
 
 def test_psth(data):
     dt, dur, t, bw, num, start, stop, amp, seed = data
-    spikes = utils.generate_stimulus("spike", dt, dur, (start, stop), np.full((100,), amp))
+    spikes = utils.generate_stimulus(
+        "spike", dt, dur, (start, stop), np.full((100,), amp)
+    )
     psth, psth_t = utils.PSTH(spikes, d_t=dt, window=20e-3, shift=10e-3).compute()
     psth2, psth_t2 = utils.compute_psth(spikes, d_t=dt, window=20e-3, interval=10e-3)
 
@@ -44,6 +46,7 @@ def test_psth(data):
     num = 2
     seed = 0
     return dt, dur, t, bw, num, seed
+
 
 @pytest.fixture
 def spikes(data):

@@ -2,6 +2,7 @@ import pytest
 from neural.basemodel import _dict_add_, _dict_add_scalar_, _dict_iadd_, Model
 from neural.backend import ScalarBackend, NumpyBackend, CUDABackend
 
+
 class LeakyIAF(Model):
     """
     Leaky IAF neuron model.
@@ -19,6 +20,7 @@ class LeakyIAF(Model):
             self.v = self.vr
             self.spike = 1.0
 
+
 @pytest.fixture
 def dict_vars() -> tuple:
     a = {"a": 0, "b": 1, "c": "Hello"}
@@ -28,6 +30,7 @@ def dict_vars() -> tuple:
     abc_ref = {"a": 5, "b": -4, "c": "Hello" + c * " World"}
     return (a, b, c, ab_ref, abc_ref)
 
+
 def test_dict_utils(dict_vars):
     a, b, c, ab_ref, abc_ref = dict_vars
     assert _dict_add_(a, b) == ab_ref
@@ -36,10 +39,10 @@ def test_dict_utils(dict_vars):
     assert tmp == ab_ref
     assert id(tmp) == id(a)
 
+
 def test_model():
     model = LeakyIAF()
-    model.compile(backend='scalar')
+    model.compile(backend="scalar")
     assert isinstance(model.backend, ScalarBackend)
     assert model.params == LeakyIAF.Default_Params
     assert model.states == LeakyIAF.Default_States
-    

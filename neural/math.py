@@ -20,6 +20,7 @@ from .logger import NeuralBackendError
 
 PY37 = sys.version_info >= (3, 7)
 
+
 def __getattr__(attr: str):
     try:
         return getattr(config._math_engine, attr)
@@ -27,8 +28,10 @@ def __getattr__(attr: str):
         pass
         # raise NeuralBackendError(f"Method '{attr}' not found in {config._math_engine}") from e
 
+
 def __dir__():
     return config._math_engine.__dir__()
+
 
 if not PY37:
     Pep562(__name__)

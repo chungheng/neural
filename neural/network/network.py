@@ -49,8 +49,6 @@ if PY2:
     raise NeuralNetworkError("neural.network does not support Python 2.")
 
 
-
-
 class Symbol(object):
     def __init__(
         self,
@@ -134,8 +132,6 @@ class Input(object):
             raise NeuralNetworkInputError(
                 f"type of data {self.data} for input {self.name} not understood, need to be iterable or PyCuda.GPUArray"
             )
-
-
 
 
 class Container(object):
@@ -242,7 +238,9 @@ class Container(object):
             if arg not in self._rec:
                 self._rec.append(arg)
 
-    def set_recorder(self, steps: int, rate: int = 1, gpu_buffer: int = 500) -> Recorder:
+    def set_recorder(
+        self, steps: int, rate: int = 1, gpu_buffer: int = 500
+    ) -> Recorder:
         """Create Recorder Instace
 
         Keyword Arguments:
@@ -291,6 +289,7 @@ class Container(object):
 
 class Network(object):
     """Neural Network Object"""
+
     def __init__(self, solver: str = "euler", backend: str = "cuda"):
         self.containers = OrderedDict()
         self.inputs = OrderedDict()
@@ -488,9 +487,7 @@ class Network(object):
                     raise Exception(f"Compilation Failed for Container {c.obj}") from e
                 if debug:
                     s = "".join([", {}={}".format(*k) for k in dct.items()])
-                    print(
-                        f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})"
-                    )
+                    print(f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})")
         self._iscompiled = True
 
     def record(self, *args: tp.Iterable[Symbol]):

@@ -10,9 +10,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from pycuda.gpuarray import GPUArray
 from .backend import Backend
-from .logger import (
-    NeuralModelError, NeuralModelWarning
-)
+from .logger import NeuralModelError, NeuralModelWarning
 
 PY2 = sys.version_info[0] == 3
 PY3 = sys.version_info[0] == 3
@@ -205,7 +203,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
         solver: str = "forward_euler",
         callback: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
         optimize: bool = False,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialize the model.
@@ -391,7 +389,9 @@ class Model(with_metaclass(ModelMetaClass, object)):
             except AttributeError:
                 np.clip(states[key], val[0], val[1], out=states[key])
             except Exception as e:
-                raise NeuralModelError(f"Model {self} clip state '{key}' unknown error") from e
+                raise NeuralModelError(
+                    f"Model {self} clip state '{key}' unknown error"
+                ) from e
 
     @classmethod
     def to_graph(cls, local: bool = False):

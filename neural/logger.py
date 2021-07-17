@@ -1,6 +1,7 @@
 class NeuralWarning(Warning):
     """Base Neural Warning Class"""
 
+
 class NeuralError(Exception):
     """Base Neural Exception Class"""
 
@@ -8,8 +9,10 @@ class NeuralError(Exception):
 class NeuralModelError(NeuralError):
     """Neural Exception for Model Module"""
 
+
 class NeuralModelWarning(NeuralWarning):
     """Neural Warning for Model Module"""
+
 
 class NeuralRecorderError(NeuralError):
     """Neural Exception for Recorder Module"""
@@ -70,8 +73,10 @@ class NeuralUtilityWarning(NeuralWarning):
         2. `plot.py`
     """
 
+
 class NeuralNetworkWarning(NeuralWarning):
     """Neural Error for Network Module unctions"""
+
 
 class NeuralCodeGenError(NeuralError):
     """Base Neural CodeGen Exception"""

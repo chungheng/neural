@@ -86,19 +86,15 @@ class Backend(object):
             backend = kwargs.pop("backend", None)
             if backend == "scalar":
                 if FuncGenerator is None:
-                    raise  NeuralBackendError(
-                        "PyCodegen is not installed."
-                    )
+                    raise NeuralBackendError("PyCodegen is not installed.")
                 return super(Backend, cls).__new__(ScalarBackend)
             elif backend == "numpy":
                 if NumpyKernelGenerator is None:
-                    raise NeuralBackendError(
-                        "PyCodegen is not installed."
-                    )
+                    raise NeuralBackendError("PyCodegen is not installed.")
                 return super(Backend, cls).__new__(NumpyBackend)
             elif backend == "cuda":
                 if CudaKernelGenerator is None:
-                    raise  NeuralBackendError(
+                    raise NeuralBackendError(
                         "Either PyCUDA or PyCodegen is not installed."
                     )
                 return super(Backend, cls).__new__(CUDABackend)
@@ -185,6 +181,7 @@ class ScalarBackend(Backend):
     def clip(self, value, a_min, a_max):
         np.clip(value, a_min, a_max, out=value)
 
+
 class NumpyBackend(ScalarBackend):
     def __init__(self, model, **kwargs):
         self.num = kwargs.pop("num", None)
@@ -224,7 +221,9 @@ class NumpyBackend(ScalarBackend):
             val = kwargs.pop(key, val)
             if hasattr(val, "__len__"):  # params with __len__
                 if self.num != len(val):
-                    raise NeuralBackendError(f"Instance has {self.num} units, but '{key}' has {len(val)} entires")
+                    raise NeuralBackendError(
+                        f"Instance has {self.num} units, but '{key}' has {len(val)} entires"
+                    )
                 if not isinstance(val, np.ndarray):
                     self.model.params[key] = np.asarray(val)
 
@@ -233,7 +232,9 @@ class NumpyBackend(ScalarBackend):
 
             if hasattr(val, "__len__"):  # params with __len__
                 if self.num != len(val):
-                    raise NeuralBackendError(f"Instance has {self.num} units, but '{key}' has {len(val)} entires")
+                    raise NeuralBackendError(
+                        f"Instance has {self.num} units, but '{key}' has {len(val)} entires"
+                    )
                 self.model.states[key] = np.asarray(val, dtype=self.dtype)
             elif isinstance(val, Number):
                 self.model.states[key] = np.ones(self.num, dtype=self.dtype) * val
@@ -242,7 +243,6 @@ class NumpyBackend(ScalarBackend):
 
     def clip(self, value, a_min, a_max):
         np.clip(value, a_min, a_max, out=value)
-
 
 
 class CUDABackend(Backend):
@@ -257,7 +257,7 @@ class CUDABackend(Backend):
         self._clip = ElementwiseKernel(
             "float *value, float a_min, float a_max",
             "value[i] = value[i] > a_min ? (value[i] < a_max ? value[i] : a_max) : a_min",
-            "clip"
+            "clip",
         )
 
     def _allocate_cuda_memory(self, key):
@@ -295,9 +295,7 @@ class CUDABackend(Backend):
             if isinstance(val, np.ndarray):
                 if val.dtype != self.dtype:
                     val = val.astype(self.dtype)
-                drv.memcpy_htod(
-                    self.data[key].gpudata, val
-                )
+                drv.memcpy_htod(self.data[key].gpudata, val)
             elif isinstance(val, garray.GPUArray):
                 if key in self.model.params:
                     if val.dtype != self.dtype:
@@ -309,13 +307,9 @@ class CUDABackend(Backend):
                 if val.dtype != self.dtype:
                     val = val.get()
                     val = val.astype(self.dtype)
-                    drv.memcpy_htod(
-                        self.data[key].gpudata, val
-                    )
+                    drv.memcpy_htod(self.data[key].gpudata, val)
                 else:
-                    drv.memcpy_dtod(
-                        self.data[key].gpudata, val.gpudata, val.nbytes
-                    )
+                    drv.memcpy_dtod(self.data[key].gpudata, val.gpudata, val.nbytes)
             elif isinstance(val, Number):
                 if key in self.model.params:
                     self.model.params[key] = val
@@ -379,12 +373,18 @@ class CUDABackend(Backend):
                     val = kwargs[key]
                 if hasattr(val, "__len__"):
                     if dtype != "P":
-                        raise NeuralBackendError(f"[{self.model}] Expect GPU array but get a scalar input: {key}")
+                        raise NeuralBackendError(
+                            f"[{self.model}] Expect GPU array but get a scalar input: {key}"
+                        )
                     if val.dtype != self.dtype:
-                        raise NeuralBackendError(f"[{self.model}] GPU array float type mismatches: {key}")
+                        raise NeuralBackendError(
+                            f"[{self.model}] GPU array float type mismatches: {key}"
+                        )
                 else:
                     if dtype == "P":
-                        raise NeuralBackendError(f"[{self.model}] Expect GPU array but get a scalar input: {key}")
+                        raise NeuralBackendError(
+                            f"[{self.model}] Expect GPU array but get a scalar input: {key}"
+                        )
             except Exception as e:
                 raise NeuralBackendError(f"{self.model} Error") from e
 
@@ -466,7 +466,6 @@ class CUDABackend(Backend):
         )
 
         return func
-
 
     def clip(self, value, a_min, a_max):
         if isinstance(value, garray.GPUArray):

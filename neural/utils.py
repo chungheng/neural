@@ -294,12 +294,13 @@ class PSTH:
             other dimension is treated as neuron indices.
         dt: time-step for spikes along the temporal dimension of :code:`spikes`
     """
+
     def __init__(
         self,
         spikes: np.ndarray,
         d_t: float,
         window: float = 20e-3,
-        shift: float = 10e-3
+        shift: float = 10e-3,
     ):
         self.window = window
         self.shift = shift

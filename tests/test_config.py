@@ -41,7 +41,7 @@ def test_init():
     assert neural.config.CUDA == False
     assert neural.config.INITIALIZED == True
     assert neural.config.BACKEND == "scalar"
-    
+
     if neural.config.cuda_available():
         try:
             import pycuda
@@ -73,13 +73,16 @@ def test_init():
             assert neural.config.BACKEND == "cupy"
 
     with pytest.raises(neural.logger.NeuralBackendError):
-        neural.config.init(backend='not_understood')
+        neural.config.init(backend="not_understood")
+
 
 def test_backend_array_module():
     neural = reload_neural()
     neural.config.init(backend="numpy")
     import numpy
+
     assert neural.config.backend_array_module() == numpy
     neural.config.init(backend="cupy")
     import cupy
+
     assert neural.config.backend_array_module() == cupy

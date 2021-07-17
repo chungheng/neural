@@ -2,6 +2,7 @@ import pytest
 from neural.basemodel import Model
 from neural.backend import ScalarBackend, NumpyBackend, CUDABackend
 
+
 class LeakyIAF(Model):
     """
     Leaky IAF neuron model.
@@ -19,7 +20,8 @@ class LeakyIAF(Model):
             self.v = self.vr
             self.spike = 1.0
 
+
 def test_backend():
     model = LeakyIAF()
-    model.compile(backend='scalar')
+    model.compile(backend="scalar")
     assert isinstance(model.backend, ScalarBackend)
