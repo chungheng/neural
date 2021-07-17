@@ -72,15 +72,17 @@ if __name__ == "__main__":
             "pycuda >= 2019.1",
             "scipy >= 1.5",
             "tqdm >= 4.48",
+            "sympy",
+            "pycodegen",
         ],
         extras_require={
             "dev": [
-                "black >= 20.8",
-                "pylint >= 2.7",
-                "pytest >= 6.0",
+                "black",
+                "pylint",
+                "pytest",
             ],
             "test": [
-                "pytest >= 6.0",
+                "pytes",
             ],
         },
     )
