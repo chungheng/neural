@@ -109,6 +109,9 @@ def test_network_running(single_spike_data):
 
 def test_network_backends(single_spike_data):
     dt, dur, start, stop, amp, spike = single_spike_data
+    num = 2
+    wav = utils.generate_stimulus("step", dt, dur, (start, stop), np.full((num,), amp))
+    wav_g = garray.to_gpu(np.ascontiguousarray(wav.T))
 
     # cuda backend
     nn = Network(backend="cuda")

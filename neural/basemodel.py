@@ -308,8 +308,8 @@ class Model(with_metaclass(ModelMetaClass, object)):
         ``update`` is a proxy to one of ``_cpu_update`` or ``_cuda_update``.
 
         Arguments:
-            d_t (float): time steps.
-            kwargs (dict): Arguments for input(s) or other purposes. For
+            d_t: time steps.
+            kwargs: Arguments for input(s) or other purposes. For
             example, one can use an extra boolean flag to indicate the
             period for counting spikes.
 
@@ -387,7 +387,7 @@ class Model(with_metaclass(ModelMetaClass, object)):
             try:
                 self.backend.clip(states[key], val[0], val[1])
             except AttributeError:
-                np.clip(states[key], val[0], val[1], out=states[key])
+                states.update({key: np.clip(states[key], val[0], val[1])})
             except Exception as e:
                 raise NeuralModelError(
                     f"Model {self} clip state '{key}' unknown error"

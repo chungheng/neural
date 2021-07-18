@@ -1,5 +1,6 @@
 # pylint: disable=attribute-defined-outside-init
 # pylint: disable=access-member-before-definition
+# fmt: off
 """
 Basic neuron models.
 """
@@ -35,7 +36,6 @@ class LeakyIAF(Model):
     Default_Params = dict(vt=-0.025, c=1.5, vr=-0.070, r=0.2)
 
     def ode(self, stimulus=0.0):
-
         self.spike = 0.0
         self.d_v = 1.0 / self.c * (-self.v / self.r + stimulus)
 
@@ -183,11 +183,7 @@ class ConnorStevens(Model):
         h_inf = alpha / (alpha + beta)
         tau_h = 1 / (3.8 * (alpha + beta))
 
-        a_inf = np.cbrt(
-            0.0761
-            * np.exp((self.v + 94.22) / 31.84)
-            / (1.0 + np.exp((self.v + 1.17) / 28.93))
-        )
+        a_inf = np.cbrt(0.0761 * np.exp((self.v + 94.22) / 31.84) / (1.0 + np.exp((self.v + 1.17) / 28.93)))
         tau_a = 0.3632 + 1.158 / (1.0 + np.exp((self.v + 55.96) / 20.12))
         b_inf = np.power(1 / (1 + np.exp((self.v + 53.3) / 14.54)), 4.0)
         tau_b = 1.24 + 2.678 / (1 + np.exp((self.v + 50) / 16.027))
@@ -223,9 +219,7 @@ class HodgkinHuxley(Model):
         if abs(alpha) <= 1e-7:
             self.d_n = 0.1 * (1.0 - self.n) - beta * self.n
         else:
-            self.d_n = (-0.01 * (self.v + 55.0) / alpha) * (
-                1.0 - self.n
-            ) - beta * self.n
+            self.d_n = (-0.01 * (self.v + 55.0) / alpha) * (1.0 - self.n) - beta * self.n
 
         alpha = np.exp(-(self.v + 40.0) / 10.0) - 1.0
         beta = 4.0 * np.exp(-(self.v + 65.0) / 18.0)

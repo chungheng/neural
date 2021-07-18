@@ -166,7 +166,6 @@ class ScalarBackend(Backend):
             import imp
 
             self.module = imp.load_source(self.name, cache_path)
-
         elif PY3:
             import importlib.util
 
@@ -228,7 +227,6 @@ class NumpyBackend(ScalarBackend):
 
         for key, val in self.model.states.items():
             val = kwargs.pop(key, val)
-
             if hasattr(val, "__len__"):  # params with __len__
                 if self.num != len(val):
                     raise NeuralBackendError(
@@ -236,7 +234,7 @@ class NumpyBackend(ScalarBackend):
                     )
                 self.model.states[key] = np.asarray(val, dtype=self.dtype)
             elif isinstance(val, Number):
-                self.model.states[key] = np.ones(self.num, dtype=self.dtype) * val
+                self.model.states[key] = np.full((self.num,), val, dtype=self.dtype)
             else:
                 raise NeuralBackendError(f"Invalid '{key}' variable: {val}")
 
@@ -428,12 +426,12 @@ class CUDABackend(Backend):
                 no_extern_c=code_generator.has_random,
             )
             func = mod.get_function(self.model.__class__.__name__)
-        except:
+        except Exception as e:
             lines = code_generator.cuda_src.split("\n")
             num_digits = 1 + int(np.floor(np.log10(len(lines))))
             for index, line in enumerate(lines):
                 print("{: >{}}: {}".format(index, num_digits, line))
-            raise NeuralBackendError("CUDA Kernel Generation Error")
+            raise NeuralBackendError("CUDA Kernel Generation Error") from e
 
         self.src = code_generator.cuda_src
         self.args = code_generator.args
