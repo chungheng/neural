@@ -89,12 +89,13 @@ def test_generate_spike_from_psth(data):
     dt, dur, t, bw, num, start, stop, amp, seed = data
     rate = 100
     step = utils.generate_stimulus("step", dt, dur, (0.2 * dur, 0.8 * dur), rate)
-    ss = utils.generate_spike_from_psth(dt, step, num=num, seed=seed)
+    t2, ss = utils.generate_spike_from_psth(dt, step, num=num, seed=seed)
+    np.testing.assert_equal(t, t2)
     assert ss.shape == (num, len(t))
     assert np.sum(ss[:, np.logical_and(t < 0.2 * dur, t > 0.8 * dur)]) == 0
     assert np.max(np.abs(np.sum(ss, axis=1) / (0.6 * dur) - rate) / rate) < 0.2
 
-    ss = utils.generate_spike_from_psth(dt, step, num=1, seed=seed)
+    _, ss = utils.generate_spike_from_psth(dt, step, num=1, seed=seed)
     assert ss.shape == (len(t),)
 
 

@@ -90,16 +90,19 @@ class Input(object):
         if data.ndim == 1:
             if self.num != 1 and self.num is not None:
                 raise NeuralNetworkInputError(
-                    f"Input '{self.name}' is specified with num={self.num} but was given data of shape={data.shape}"
+                    f"Input '{self.name}' is specified with num={self.num} but was "
+                    f"given data of shape={data.shape}"
                 )
         elif data.ndim == 2:
             if self.num != data.shape[1]:
                 raise NeuralNetworkInputError(
-                    f"Input '{self.name}' is specified with num={self.num} but was given data of shape={data.shape}"
+                    f"Input '{self.name}' is specified with num={self.num} but was "
+                    f"given data of shape={data.shape}"
                 )
         else:
             raise NeuralNetworkInputError(
-                f"Input '{self.name}' is given data of shape={data.shape}, only up-to 2D data is supported currently."
+                f"Input '{self.name}' is given data of shape={data.shape}, only up-to "
+                "2D data is supported currently."
             )
         self.data = data
         self.steps = len(data) if hasattr(data, "__len__") else 0
@@ -125,12 +128,14 @@ class Input(object):
         elif isinstance(self.data, garray.GPUArray):
             if not self.data.flags.c_contiguous:
                 raise NeuralNetworkInputError(
-                    f"Input {self.name} has non-contiguous pyCuda GPUArray as data, need to be C-contiguous"
+                    f"Input {self.name} has non-contiguous pyCuda GPUArray as data, "
+                    "need to be C-contiguous"
                 )
             self.iter = (x for x in self.data)
         else:
             raise NeuralNetworkInputError(
-                f"type of data {self.data} for input {self.name} not understood, need to be iterable or PyCuda.GPUArray"
+                f"type of data {self.data} for input {self.name} not understood, "
+                "need to be iterable or PyCuda.GPUArray"
             )
 
 
@@ -142,7 +147,7 @@ class Container(object):
 
     .. code-block:: python
 
-        >>> hhn = Container(HodgkinHuxley)
+        >>> hhn = Container(HodgkinHuxley())
         >>> hhn.v  # reference to hhn.states['v']
     """
 
@@ -158,10 +163,10 @@ class Container(object):
         self._rec = []
 
     def __repr__(self):
-        return f"""Container[{self.obj}] - num {self.num}"""
+        return f"Container[{self.obj}] - num {self.num}"
 
     def __call__(self, **kwargs):
-        """
+        """Setup input connection to Container
         Notes:
             Calling a container has the following behaviors:
                 1. If container wraps a `Model` module, then:
@@ -181,21 +186,21 @@ class Container(object):
                 elif key in self.obj.Inputs:
                     if not isinstance(val, (Symbol, Number, Input)):
                         raise NeuralContainerError(
-                            f"""Container {self.name} is called with value {val} that is of a type not understaood.
-                            Should be Symbol, Number of Input
-                            """
+                            f"Container {self.name} is called with value {val} that "
+                            "is of a type not understood. Should be Symbol, Number of "
+                            "Input"
                         )
                     self.inputs[key] = val
                 else:
                     raise NeuralContainerError(
-                        f"Attempting to set variable '{key}' of container but the variable is not understood"
+                        f"Attempting to set variable '{key}' of container but the "
+                        "variable is not understood"
                     )
             else:
                 if not isinstance(val, (Symbol, Number, Input)):
                     raise NeuralContainerError(
-                        f"""Container {self.name} is called with value {val} that is of a type not understaood.
-                        Should be Symbol, Number of Input
-                        """
+                        f"Container {self.name} is called with value {val} that is "
+                        "of a type not understood. Should be Symbol, Number of Input"
                     )
                 self.inputs[key] = val
         return self
@@ -222,9 +227,10 @@ class Container(object):
         """Cache Arguments to be Recorded
 
         Notes:
-            This method only tests if the specified arguments are found in the object to
-            be recorded from. To actaully create the `Recorder` instance, call the `set_recorder`
-            method after the recorded variables are cached in the `self._rec` list.
+            This method only tests if the specified arguments are found in the object
+            to be recorded from. To actaully create the `Recorder` instance, call the
+            `set_recorder` method after the recorded variables are cached in the
+            `self._rec` list.
         """
         for arg in args:
             try:
@@ -268,9 +274,7 @@ class Container(object):
             latex_src += "<br>Input: " + ", ".join(variables)
             variables = []
             for _k, _v in sg.variables.items():
-                if (_v.type == "state" or _v.type == "intermediate") and (
-                    _v.integral == None
-                ):
+                if (_v.type in ["state", "intermediate"]) and _v.integral == None:
                     variables.append(f"\({_k}\)")
             latex_src += "<br>Variables: " + ", ".join(variables)
 
@@ -282,9 +286,9 @@ class Container(object):
         return MINIMUM_PNG
 
     @classmethod
-    def isacceptable(cls, obj) -> bool:
-        """Check if a custom module is acceptable as Container"""
-        return hasattr(obj, "update") and callable(obj.update)
+    def isacceptable(cls, module_or_obj) -> bool:
+        """Check if a custom module or object is acceptable as Container"""
+        return hasattr(module_or_obj, "update") and callable(module_or_obj.update)
 
 
 class Network(object):
@@ -311,13 +315,17 @@ class Network(object):
         num: int = None,
         name: str = None,
         record=None,
-        # backend=None,
         solver=None,
         **kwargs,
     ):
         # backend = backend or self.backend
         solver = solver or self.solver
         name = name or f"obj{len(self.containers)}"
+        if name in self.containers:
+            raise NeuralNetworkError(
+                f"Duplicate container name is not allowed: '{name}'"
+            )
+
         record = record or []
         if isinstance(module, Model):
             obj = module
@@ -352,7 +360,6 @@ class Network(object):
         steps: int = 0,
         rate: int = 1,
         verbose: bool = False,
-        solver: str = None,
         session_name: str = "Network",
         **kwargs,
     ) -> None:
@@ -363,18 +370,39 @@ class Network(object):
             steps: number of steps to run, inferred from input if not specified
             rate: frequency of recording output
             verbose: whether to show progress
-            solver: specify solver to use
             session_name: name of the running session name, reflected in progress bar
         """
         if not self._iscompiled:
             raise NeuralNetworkCompileError(
                 "Please compile before running the network."
             )
-        solver = solver or self.solver
+
+        solver = kwargs.pop("solver", self.solver)
+        gpu_buffer = kwargs.pop("gpu_buffer", 500)
 
         # calculate number of steps
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
+        for name, val in self.inputs.items():
+            if val.steps == 0:
+                warnings.warn(f"Input '{name}' has 0 steps", UserWarning)
 
+        # create recorders
+        for c in self.containers.values():
+            recorder = c.set_recorder(steps, rate, gpu_buffer=gpu_buffer)
+
+        # reset everything
+        self.reset()
+
+        # create iterator for simulation loop
+        iterator = range(steps)
+        if verbose:
+            iterator = tqdm(iterator, total=steps, desc=session_name)
+
+        for i in iterator:
+            self.update(dt, i)
+
+    def reset(self) -> None:
+        """Reset everything"""
         # reset recorders
         for c in self.containers.values():
             if c.recorder is not None:
@@ -388,14 +416,6 @@ class Network(object):
         # reset inputs
         for input in self.inputs.values():
             input.reset()
-
-        # create iterator for simulation loop
-        iterator = range(steps)
-        if verbose:
-            iterator = tqdm(iterator, total=steps, desc=session_name)
-
-        for i in iterator:
-            self.update(dt, i)
 
     def update(self, dt: float, idx: int) -> None:
         """Update Network and all components
@@ -462,9 +482,9 @@ class Network(object):
                             # raise Exception("Size mismatches: [{}: {}] vs. [{}: {}]".format(
                             #     c.name, c.num, val.name, val.num))
                             err = NeuralNetworkWarning(
-                                f"Size mismatches: [{c.name}: {c.num}] vs. [{val.name}: {val.num}]. "
-                                "Unless you are connecting Input object directly to a Project container, "
-                                "this is likely a bug."
+                                f"Size mismatches: [{c.name}:{c.num}] vs. [{val.name}: "
+                                f"{val.num}]. Unless you are connecting Input object "
+                                "directly to a Project container, this is likely a bug."
                             )
                             warn(err)
                         dct[key] = np.zeros(val.num)
@@ -474,7 +494,8 @@ class Network(object):
                     dct[key] = dtype(val)
                 else:
                     raise NeuralNetworkCompileError(
-                        f"Container wrapping [{c.obj}] input {key} value {val} not understood"
+                        f"Container wrapping [{c.obj}] input {key} value {val} not "
+                        "understood"
                     )
 
             if hasattr(c.obj, "compile"):
@@ -546,7 +567,8 @@ class Network(object):
                     label = ""
                 else:
                     raise NeuralNetworkError(
-                        f"Container wrapping [{c.obj}] input {key} value {val} not understood"
+                        f"Container wrapping [{c.obj}] input {key} value {val} not "
+                        "understood"
                     )
                 u = nodes[source]
                 graph.add_edge(pydot.Edge(u, v, label=label))

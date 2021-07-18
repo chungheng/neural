@@ -264,7 +264,6 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
         self.sympy_dct = {}
         self.latex_src = None
         self.compile_sympy()
-
         self.to_latex()
 
     @property

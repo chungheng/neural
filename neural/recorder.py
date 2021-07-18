@@ -15,6 +15,7 @@ from .logger import NeuralRecorderError
 from . import config
 from . import types as tpe
 
+
 class Recorder(object):
     """
     Base recorder module.
@@ -51,7 +52,7 @@ class Recorder(object):
         self.obj = obj
         self.total_steps = steps
         self.rate = rate
-        self.steps = len(np.arange(steps)[::self.rate])
+        self.steps = len(np.arange(steps)[:: self.rate])
 
         self.dct = {key: None for key in attrs}
         self.spike_vars = tuple([key for key in attrs if "spike" in key.lower()])
@@ -100,7 +101,6 @@ class Recorder(object):
             else:
                 self.dct[key][..., d_index] = getattr(self.obj, key)
 
-
     def __iter__(self):
         for i in range(self.total_steps):
             self.update(i)
@@ -131,6 +131,7 @@ class ScalarRecorder(Recorder):
                     "needs to be a Number."
                 )
             self.dct[key] = np.zeros(self.steps, dtype=type(src))
+
 
 class NumpyRecorder(Recorder):
     """
@@ -173,9 +174,7 @@ class CUDARecorder(Recorder):
         callback=False,
         gpu_buffer: tp.Union[str, bool, int] = False,
     ):
-        super().__init__(
-            obj, attrs, steps, rate=rate, callback=callback
-        )
+        super().__init__(obj, attrs, steps, rate=rate, callback=callback)
 
         # initialize gpu_dct
         self.gpu_dct = {}
@@ -199,7 +198,7 @@ class CUDARecorder(Recorder):
                     "needs to be a PyCuda GPUArray."
                 )
             shape = (src.size, self.steps)
-            self.dct[key] = cuda.pagelocked_zeros(shape, order="C", dtype=src.dtype)
+            self.dct[key] = cuda.pagelocked_zeros(shape, order="F", dtype=src.dtype)
 
     def update(self, index: int):
         d_index = int(index / self.rate)  # downsample index
@@ -250,7 +249,7 @@ class CUDARecorder(Recorder):
     def _py3_get_buffer(self, key, index):
         mem_view = memoryview(self.dct[key].T)
         beg = int(index / self.buffer_length) * self.buffer_length
-        return mv[beg : index + 1]
+        return mem_view[beg : index + 1]
 
 
 class CuPyRecorder(Recorder):
@@ -316,7 +315,6 @@ class CuPyRecorder(Recorder):
         else:
             self.dct[..., d_index] = getattr(self.obj, key).get()
 
-
     def _get_buffer_length(self, gpu_buffer):
         if gpu_buffer in ["full", "whole", True]:
             return self.steps
@@ -326,4 +324,4 @@ class CuPyRecorder(Recorder):
     def _py3_get_buffer(self, key, index):
         mem_view = memoryview(self.dct[key].T)
         beg = int(index / self.buffer_length) * self.buffer_length
-        return mv[beg : index + 1]
+        return mem_view[beg : index + 1]

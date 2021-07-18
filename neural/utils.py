@@ -175,7 +175,11 @@ def generate_stimulus(
 
 
 def generate_spike_from_psth(
-    d_t: float, psth: np.ndarray, psth_t: np.ndarray = None, num: int = 1
+    d_t: float,
+    psth: np.ndarray,
+    psth_t: np.ndarray = None,
+    num: int = 1,
+    seed: int = None,
 ) -> tp.Tuple[np.ndarray, np.ndarray]:
     """
     Generate spike sequeces from a PSTH.
@@ -187,6 +191,7 @@ def generate_spike_from_psth(
     Keyword Arguments:
         psth_t: time-stamps of the psth, optional. See Notes for behavior
         num: number of trials to generate
+        seed: seed for random number generator
 
     Returns:
         A tuple of (time, spikes).
@@ -212,6 +217,11 @@ def generate_spike_from_psth(
         >>> tt, spikes = utils.generate_spike_from_psth(dt, psth, psth_t)
         >>> plot.plot_spikes(spikes, t=tt)
     """
+    if isinstance(seed, np.random.RandomState):
+        rng = seed
+    else:
+        rng = np.random.RandomState(seed)
+
     if psth.ndim > 1:
         psth = np.squeeze(psth)
         if psth.ndim > 1:
@@ -232,10 +242,10 @@ def generate_spike_from_psth(
 
     if num > 1:
         rate = np.repeat(psth[:, None], num, axis=-1)
-        spikes = np.random.rand(len(t), num) < d_t * rate
+        spikes = rng.rand(len(t), num) < d_t * rate
     else:
         spikes = (
-            np.random.rand(
+            rng.rand(
                 len(t),
             )
             < d_t * rate
@@ -383,6 +393,7 @@ def random_signal(
         rng = seed
     else:
         rng = np.random.RandomState(seed)
+    from scipy.signal import butter, lfilter
 
     wn = rng.randn(num, len(t))
     if bw is None:

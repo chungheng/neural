@@ -28,9 +28,9 @@ except ImportError:
     FuncGenerator = None
 
 try:
-    from .codegen.optimizer import NumpyKernelGenerator
+    from .codegen.optimizer import NumpyGenerator
 except ImportError:
-    NumpyKernelGenerator = None
+    NumpyGenerator = None
 
 try:
     import pycuda
@@ -89,7 +89,7 @@ class Backend(object):
                     raise NeuralBackendError("PyCodegen is not installed.")
                 return super(Backend, cls).__new__(ScalarBackend)
             elif backend == "numpy":
-                if NumpyKernelGenerator is None:
+                if NumpyGenerator is None:
                     raise NeuralBackendError("PyCodegen is not installed.")
                 return super(Backend, cls).__new__(NumpyBackend)
             elif backend == "cuda":
@@ -98,8 +98,7 @@ class Backend(object):
                         "Either PyCUDA or PyCodegen is not installed."
                     )
                 return super(Backend, cls).__new__(CUDABackend)
-            else:
-                raise NeuralBackendError(f"Unexpected backend '{backend}'")
+            raise NeuralBackendError(f"Unexpected backend '{backend}'")
         return super(Backend, cls).__new__(cls)
 
     def compile(self):
@@ -187,13 +186,13 @@ class NumpyBackend(ScalarBackend):
         self.num = kwargs.pop("num", None)
 
         ostream = StringIO()
-        code_gen = NumpyKernelGenerator(model, model.ode, offset=4, ostream=ostream)
+        code_gen = NumpyGenerator(model, model.ode, offset=4, ostream=ostream)
         code_gen.generate()
 
         post = model.__class__.post
         for cls in model.__class__.__bases__:
             if cls.__name__ == "Model" and post != cls.post:
-                code_gen = NumpyKernelGenerator(model, post, offset=4, ostream=ostream)
+                code_gen = NumpyGenerator(model, post, offset=4, ostream=ostream)
                 code_gen.generate()
                 break
 
@@ -450,7 +449,7 @@ class CUDABackend(Backend):
             self.init_random_seed = init_random_seed
 
         deviceData = pycuda.tools.DeviceData()
-        maxThreads = int(np.float(deviceData.registers // func.num_regs))
+        maxThreads = int(deviceData.registers // func.num_regs)
         maxThreads = int(2 ** int(np.log(maxThreads) / np.log(2)))
         threadsPerBlock = int(min(256, maxThreads, deviceData.max_threads))
         self.block = (threadsPerBlock, 1, 1)

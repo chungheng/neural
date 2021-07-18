@@ -7,6 +7,7 @@ try:
 
     # pylint:disable=import-error
     from neural.recorder import Recorder, CUDARecorder, NumpyRecorder, ScalarRecorder
+
     # pylint:enable=import-error
 
     CUDA = True
