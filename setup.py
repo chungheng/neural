@@ -65,6 +65,7 @@ if __name__ == "__main__":
         maintainer=MAINTAINER,
         maintainer_email=MAINTAINER_EMAIL,
         packages=PACKAGES,
+        python_requires=">=3.7",
         install_requires=[
             "Jinja2 >= 2.11",
             "matplotlib >= 3.3",
