@@ -176,9 +176,6 @@ class ScalarBackend(Backend):
         for key, val in self.func_globals.items():
             setattr(self.module, key, val)
 
-    def clip(self, value, a_min, a_max):
-        np.clip(value, a_min, a_max, out=value)
-
 
 class NumpyBackend(ScalarBackend):
     def __init__(self, model, **kwargs):

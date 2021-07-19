@@ -56,8 +56,10 @@ def test_model_compilation():
         backend="scalar",
     )
 
+    dum = DummyModel()
     dum.compile(backend="numpy")
 
+    dum = DummyModel()
     dum.compile(backend="cuda", num=1)
     with pytest.raises(logger.NeuralBackendError, match="Unexpected backend .*"):
         dum.compile(backend="wrong")
@@ -73,27 +75,33 @@ def test_default_neurons_cpu(input_signal, Model):
         record[i] = model.v
 
 
+@pytest.mark.parametrize("Backend", ["cuda", "scalar", "numpy"])
 @pytest.mark.parametrize("Model", NEURON_MODELS)
-def test_default_neurons_compiled(input_signal, Model):
+def test_default_neurons_compiled(input_signal, Backend, Model):
     dt, dur, t, waveform = input_signal
     waveform_g = garray.to_gpu(np.ascontiguousarray(waveform))
-    Backends = ["scalar", "numpy", "cuda"]  # scalar and numpy not working
-    record = np.zeros((len(Backends), len(waveform)))
+    record = np.zeros(len(waveform))
 
-    for n, bk in enumerate(Backends):
-        model = Model()
-        if bk == "scalar":
-            model.compile(backend=bk)
-        else:
-            model.compile(backend=bk, num=1)
-        inp = waveform if bk != "cuda" else waveform_g
-        for i, wav in enumerate(inp):
-            model.update(dt, stimulus=wav)
-            record[n, i] = model.v if bk != "cuda" else model.v.get()
+    model = Model()
+    if Backend == "scalar":
+        model.compile(backend=Backend)
+    else:
+        model.compile(backend=Backend, num=1)
+    inp = waveform if Backend != "cuda" else waveform_g
+    for i, wav in enumerate(inp):
+        model.update(dt, stimulus=wav)
+        record[n, i] = model.v if Backend != "cuda" else model.v.get()
     np.testing.assert_almost_equal(record, np.roll(record, 1, axis=0))
 
 
-def test_solvers():
-    from neural.model.neuron import IAF
-
+def test_solvers(input_signal):
+    dt, dur, t, waveform = input_signal
     solvers = list(IAF().solver_alias.values())
+    record = np.zeros((len(solvers), len(waveform)))
+
+    for n, slv in enumerate(solvers):
+        model = IAF(solver=slv)
+        for i, wav in enumerate(waveform):
+            model.update(dt, stimulus=wav)
+            record[n, i] = model.v
+    np.testing.assert_almost_equal(record, np.roll(record, 1, axis=0))
