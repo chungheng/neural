@@ -1,15 +1,19 @@
 import jinja2
 import numpy as np
-import pycuda
-import pycuda.driver as drv
-from pycuda.compiler import SourceModule
-from pycuda.elementwise import ElementwiseKernel
-import pycuda.cumath as cumath
+try:
+    import pycuda
+    import pycuda.driver as drv
+    from pycuda.compiler import SourceModule
+    from pycuda.elementwise import ElementwiseKernel
+    import pycuda.cumath as cumath
 
-import pycuda.gpuarray as garray
-import skcuda
-import skcuda.misc
-import skcuda.linalg
+    import pycuda.gpuarray as garray
+    import skcuda
+    import skcuda.misc
+    import skcuda.linalg
+    CUDA = True
+except:
+    CUDA =  False
 
 cuda_repeat_template = jinja2.Template(
     """

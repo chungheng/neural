@@ -260,7 +260,10 @@ class Network(object):
 
         iterator = range(steps)
         if verbose:
-            iterator = tqdm(iterator)
+            if isinstance(verbose, str):
+                iterator = tqdm(iterator, desc=verbose, dynamic_ncols=True)
+            else:
+                iterator = tqdm(iterator, dynamic_ncols=True)
 
         for i in iterator:
             self.update(dt, i)
@@ -318,8 +321,8 @@ class Network(object):
                 elif isinstance(val, Input):
                     if val.num is not None:
                         if c.num is not None and val.num != c.num:
-                            raise Exception(
-                                "Size mismatches: {} {}".format(c.name, val.name)
+                            warnings.warn(
+                                f"Size mismatches: {c.name}({c.num}) <- {val.name}({val.num})"
                             )
                         dct[key] = np.zeros(val.num)
                     else:
