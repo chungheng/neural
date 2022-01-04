@@ -6,3 +6,4 @@ examples/
 .ipynb_checkpoints
 .vscode/
 .tox/
+docs/_build
