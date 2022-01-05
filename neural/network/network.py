@@ -31,15 +31,7 @@ from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
 from .. import errors as err
-
 # pylint:enable=relative-beyond-top-level
-
-PY2 = sys.version_info[0] == 2
-PY3 = sys.version_info[0] == 3
-
-if PY2:
-    raise err.NeuralNetworkError("neural.network does not support Python 2.")
-
 
 class Symbol(object):
     def __init__(

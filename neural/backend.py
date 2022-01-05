@@ -10,7 +10,6 @@ including (but not limited to):
 3. Updating
 4. Profiling
 """
-from __future__ import print_function
 from itertools import chain
 from numbers import Number
 import sys
@@ -18,9 +17,7 @@ from types import MethodType
 from six import StringIO, get_function_globals
 import numpy as np
 from pycuda.elementwise import ElementwiseKernel
-
-PY2 = sys.version_info[0] == 2
-PY3 = sys.version_info[0] == 3
+import importlib.util
 
 try:
     from .codegen.optimizer import FuncGenerator
@@ -162,16 +159,9 @@ class ScalarBackend(Backend):
             outf.write(source)
             outf.close()
 
-        if PY2:
-            import imp
-
-            self.module = imp.load_source(self.name, cache_path)
-        elif PY3:
-            import importlib.util
-
-            spec = importlib.util.spec_from_file_location(self.name, cache_path)
-            self.module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(self.module)
+        spec = importlib.util.spec_from_file_location(self.name, cache_path)
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
 
         for key, val in self.func_globals.items():
             setattr(self.module, key, val)

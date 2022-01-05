@@ -15,10 +15,6 @@ from . import errors as err
 from . import config
 from . import types as tpe
 
-PY2 = sys.version_info[0] == 2
-PY3 = sys.version_info[0] == 3
-
-
 class Recorder(object):
     """
     Base recorder module.

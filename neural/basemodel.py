@@ -1,7 +1,6 @@
 """
 Base model class for neurons and synapses.
 """
-from __future__ import print_function
 import sys
 from abc import abstractmethod
 import typing as tp
@@ -11,19 +10,8 @@ from scipy.integrate import solve_ivp
 from pycuda.gpuarray import GPUArray
 from .backend import Backend
 from .errors import NeuralModelError, NeuralModelWarning
-
-PY2 = sys.version_info[0] == 3
-PY3 = sys.version_info[0] == 3
-
-if PY2:
-    from inspect import getargspec as _getfullargspec
-
-    varkw = "keywords"
-
-if PY3:
-    from inspect import getfullargspec as _getfullargspec
-
-    varkw = "varkw"
+from inspect import getfullargspec as _getfullargspec
+varkw = "varkw"
 
 
 def _dict_iadd_(dct_a: dict, dct_b: dict) -> dict:
