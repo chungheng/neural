@@ -1,5 +1,6 @@
 import jinja2
 import numpy as np
+
 try:
     import pycuda
     import pycuda.driver as drv
@@ -11,9 +12,10 @@ try:
     import skcuda
     import skcuda.misc
     import skcuda.linalg
+
     CUDA = True
 except:
-    CUDA =  False
+    CUDA = False
 
 cuda_repeat_template = jinja2.Template(
     """

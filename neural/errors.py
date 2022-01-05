@@ -29,6 +29,7 @@ class NeuralUtilityError(NeuralError):
 class NeuralPlotError(NeuralError):
     """Base Neural Plotting Exception"""
 
+
 class NeuralWarning(Warning):
     """Base Neural Warning Class"""
 

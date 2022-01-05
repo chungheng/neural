@@ -31,6 +31,7 @@ from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
 from .. import errors as err
+
 # pylint:enable=relative-beyond-top-level
 
 PY2 = sys.version_info[0] == 2
@@ -508,7 +509,9 @@ class Network(object):
     def record(self, *args: tp.Iterable[Symbol]):
         for arg in args:
             if not isinstance(arg, Symbol):
-                raise err.NeuralNetworkError(f"{arg} needs to be an instance of Symbol.")
+                raise err.NeuralNetworkError(
+                    f"{arg} needs to be an instance of Symbol."
+                )
             arg.container.record(arg.key)
 
     def get_obj(self, name: str) -> tp.Union[Container, Input]:

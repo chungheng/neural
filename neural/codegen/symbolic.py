@@ -13,6 +13,7 @@ from pycodegen.utils import get_func_signature
 
 from .. import errors as err
 
+
 class _Variable(object):
     default = {
         "type": None,

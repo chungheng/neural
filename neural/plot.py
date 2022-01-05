@@ -290,8 +290,10 @@ def plot_mat(
         fig = plt.gcf()
         ax = fig.add_subplot()
 
-    shading = pcolormesh_kwargs.pop('shading', 'auto')
-    cim = ax.pcolormesh(t, y, mat, vmin=vmin, vmax=vmax, shading=shading, **pcolormesh_kwargs)
+    shading = pcolormesh_kwargs.pop("shading", "auto")
+    cim = ax.pcolormesh(
+        t, y, mat, vmin=vmin, vmax=vmax, shading=shading, **pcolormesh_kwargs
+    )
 
     if cax:
         if cbar_kw is None:
