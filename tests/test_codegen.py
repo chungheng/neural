@@ -56,3 +56,4 @@ def test_sympy_gen(model):
     sg = SympyGenerator(model)
     assert sg.sympy_src is not None
     assert sg.latex_src is not None
+    model.compile(backend="cuda" if CUDA else "scalar")

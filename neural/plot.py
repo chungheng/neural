@@ -2,9 +2,18 @@
 Plotting functions.
 """
 import typing as tp
+import matplotlib.pyplot as plt
+from matplotlib import ticker, colors
 import numpy as np
 import matplotlib.pyplot as plt
-from .logger import NeuralPlotError
+from . import errors as err
+
+COLOR_NORMS = tp.Union[
+    "none",
+    "log",
+    "discrete",
+    "power",
+]
 
 
 def plot_multiple(
@@ -160,7 +169,7 @@ def plot_spikes(
             dt = 1.0
         else:
             if not np.isscalar(dt):
-                raise NeuralPlotError("dt must be a scalar value.")
+                raise err.NeuralPlotError("dt must be a scalar value.")
         t = np.arange(spikes.shape[1]) * dt
 
     if ax is None:
@@ -268,7 +277,7 @@ def plot_mat(
 
     if y is not None:
         if len(y) != mat.shape[0]:
-            raise NeuralPlotError(
+            raise err.NeuralPlotError(
                 "Spatial vector 'y' does not have the same shape as the matrix."
                 f" Expected length {mat.shape[0]} but got {len(y)}"
             )
@@ -281,7 +290,8 @@ def plot_mat(
         fig = plt.gcf()
         ax = fig.add_subplot()
 
-    cim = ax.pcolormesh(t, y, mat, vmin=vmin, vmax=vmax, **pcolormesh_kwargs)
+    shading = pcolormesh_kwargs.pop('shading', 'auto')
+    cim = ax.pcolormesh(t, y, mat, vmin=vmin, vmax=vmax, shading=shading, **pcolormesh_kwargs)
 
     if cax:
         if cbar_kw is None:

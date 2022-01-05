@@ -11,8 +11,7 @@ from sympy import *
 from pycodegen.codegen import CodeGenerator
 from pycodegen.utils import get_func_signature
 
-from ..logger import NeuralSymPyCodeGenError, NeuralSymPyCodeGenIdentationError
-
+from .. import errors as err
 
 class _Variable(object):
     default = {
@@ -296,7 +295,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
                 try:
                     exec(line, globals(), self.sympy_dct)
                 except IndentationError as e:
-                    raise NeuralSymPyCodeGenIdentationError(
+                    raise err.NeuralSymPyCodeGenIdentationError(
                         "SymPy Compilation Failed for model"
                         f" '{self.model.__class__.__name__}' on:"
                         f"{lines_str}"
@@ -305,7 +304,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
                         " like '(x>0)*x' in general."
                     ) from e
                 except Exception as e:
-                    raise NeuralSymPyCodeGenError(
+                    raise err.NeuralSymPyCodeGenError(
                         "SymPy Compilation Failed for model"
                         f" '{self.model.__class__.__name__}' on:"
                         f"{lines_str}"
@@ -328,7 +327,7 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             try:
                 tmp = latex(self.sympy_dct[eq], mul_symbol="dot")
             except Exception as e:
-                raise NeuralSymPyCodeGenError(
+                raise err.NeuralSymPyCodeGenError(
                     "Failed to Generate Sympy Code for model"
                     f" {self.model.__class__.__name__}"
                 ) from e
@@ -402,6 +401,12 @@ class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
             indent = " " * (self.space + self.indent)
             prefix = "with evaluate(False):" + self.newline
             self.var[-1] = "{}{}{} = {}".format(prefix, indent, self.equations[-1], eqn)
+        # elif self.variables[key].type == "local":
+        #     eqn = "Eq(%s, %s)" % (key, self.var[-1])
+        #     self.equations.append("eqn_%d" % len(self.equations))
+        #     indent = " " * (self.space + self.indent)
+        #     prefix = "with evaluate(False):" + self.newline
+        #     self.var[-1] = "{}{}{} = {}".format(prefix, indent, self.equations[-1], eqn)
         else:
             self.var[-1] = "{} = {}".format(key, self.var[-1])
 

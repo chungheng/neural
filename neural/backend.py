@@ -46,7 +46,7 @@ try:
 except ImportError:
     CupyKernelGenerator = None
 
-from .logger import NeuralBackendError
+from . import errors as err
 
 # copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
 def _new_md5():
@@ -86,19 +86,19 @@ class Backend(object):
             backend = kwargs.pop("backend", None)
             if backend == "scalar":
                 if FuncGenerator is None:
-                    raise NeuralBackendError("PyCodegen is not installed.")
+                    raise err.NeuralBackendError("PyCodegen is not installed.")
                 return super(Backend, cls).__new__(ScalarBackend)
             elif backend == "numpy":
                 if NumpyGenerator is None:
-                    raise NeuralBackendError("PyCodegen is not installed.")
+                    raise err.NeuralBackendError("PyCodegen is not installed.")
                 return super(Backend, cls).__new__(NumpyBackend)
             elif backend == "cuda":
                 if CudaKernelGenerator is None:
-                    raise NeuralBackendError(
+                    raise err.NeuralBackendError(
                         "Either PyCUDA or PyCodegen is not installed."
                     )
                 return super(Backend, cls).__new__(CUDABackend)
-            raise NeuralBackendError(f"Unexpected backend '{backend}'")
+            raise err.NeuralBackendError(f"Unexpected backend '{backend}'")
         return super(Backend, cls).__new__(cls)
 
     def compile(self):
@@ -216,7 +216,7 @@ class NumpyBackend(ScalarBackend):
             val = kwargs.pop(key, val)
             if hasattr(val, "__len__"):  # params with __len__
                 if self.num != len(val):
-                    raise NeuralBackendError(
+                    raise err.NeuralBackendError(
                         f"Instance has {self.num} units, but '{key}' has {len(val)} entires"
                     )
                 if not isinstance(val, np.ndarray):
@@ -226,14 +226,14 @@ class NumpyBackend(ScalarBackend):
             val = kwargs.pop(key, val)
             if hasattr(val, "__len__"):  # params with __len__
                 if self.num != len(val):
-                    raise NeuralBackendError(
+                    raise err.NeuralBackendError(
                         f"Instance has {self.num} units, but '{key}' has {len(val)} entires"
                     )
                 self.model.states[key] = np.asarray(val, dtype=self.dtype)
             elif isinstance(val, Number):
                 self.model.states[key] = np.full((self.num,), val, dtype=self.dtype)
             else:
-                raise NeuralBackendError(f"Invalid '{key}' variable: {val}")
+                raise err.NeuralBackendError(f"Invalid '{key}' variable: {val}")
 
     def clip(self, value, a_min, a_max):
         np.clip(value, a_min, a_max, out=value)
@@ -293,7 +293,7 @@ class CUDABackend(Backend):
             elif isinstance(val, garray.GPUArray):
                 if key in self.model.params:
                     if val.dtype != self.dtype:
-                        raise NeuralBackendError(
+                        raise err.NeuralBackendError(
                             f"Model Param '{key}' has dtype {val.dtype} but Backend expects {self.dtype}"
                         )
                     self.data[key] = val
@@ -310,7 +310,7 @@ class CUDABackend(Backend):
                     continue
                 self.data[key].fill(val)
             else:
-                raise NeuralBackendError(f"Invalid variable '{key}': {val}")
+                raise err.NeuralBackendError(f"Invalid variable '{key}': {val}")
         return params
 
     def compile(self, **kwargs):
@@ -329,10 +329,12 @@ class CUDABackend(Backend):
                 _num = len(val)
                 self.num = self.num or _num
                 if self.num != _num:
-                    raise NeuralBackendError(f"Mismatch in data size: {key}")
+                    raise err.err.NeuralBackendError(
+                        f"Mismatch in data size for '{key}'. Expect {self.num}, got {_num}."
+                    )
         else:
             if not self.num:
-                raise NeuralBackendError("Please give the number of models to run")
+                raise err.NeuralBackendError("Please give the number of models to run")
 
         # reset gpu data
         params = self.reset(**kwargs)
@@ -341,7 +343,7 @@ class CUDABackend(Backend):
         inputs = kwargs.copy()
         for key in inputs.keys():
             if key not in self.model.Inputs:
-                NeuralBackendError(f"Unexpected input '{key}'")
+                err.NeuralBackendError(f"Unexpected input '{key}'")
 
         # generate cuda kernel, a.k.a self.cuda.kernel
         self.get_cuda_kernel(inputs_gdata=inputs, params_gdata=params)
@@ -367,20 +369,20 @@ class CUDABackend(Backend):
                     val = kwargs[key]
                 if hasattr(val, "__len__"):
                     if dtype != "P":
-                        raise NeuralBackendError(
+                        raise err.NeuralBackendError(
                             f"[{self.model}] Expect GPU array but get a scalar input: {key}"
                         )
                     if val.dtype != self.dtype:
-                        raise NeuralBackendError(
+                        raise err.NeuralBackendError(
                             f"[{self.model}] GPU array float type mismatches: {key}"
                         )
                 else:
                     if dtype == "P":
-                        raise NeuralBackendError(
+                        raise err.NeuralBackendError(
                             f"[{self.model}] Expect GPU array but get a scalar input: {key}"
                         )
             except Exception as e:
-                raise NeuralBackendError(f"{self.model} Error") from e
+                raise err.NeuralBackendError(f"{self.model} Error") from e
 
             args.append(val.gpudata if dtype == "P" else val)
 
@@ -428,7 +430,7 @@ class CUDABackend(Backend):
             num_digits = 1 + int(np.floor(np.log10(len(lines))))
             for index, line in enumerate(lines):
                 print("{: >{}}: {}".format(index, num_digits, line))
-            raise NeuralBackendError("CUDA Kernel Generation Error") from e
+            raise err.NeuralBackendError("CUDA Kernel Generation Error") from e
 
         self.src = code_generator.cuda_src
         self.args = code_generator.args

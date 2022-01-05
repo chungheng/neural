@@ -11,9 +11,12 @@ import cupy as cp
 
 import pycuda.gpuarray as garray
 import pycuda.driver as cuda
-from .logger import NeuralRecorderError
+from . import errors as err
 from . import config
 from . import types as tpe
+
+PY2 = sys.version_info[0] == 2
+PY3 = sys.version_info[0] == 3
 
 
 class Recorder(object):
@@ -34,7 +37,7 @@ class Recorder(object):
                 return super(Recorder, cls).__new__(CUDARecorder)
             elif isinstance(attr, cp.ndarray):
                 return super(Recorder, cls).__new__(CuPyRecorder)
-            raise NeuralRecorderError(
+            raise err.NeuralRecorderError(
                 f"{attr} of type: {type(attr)} not understood. "
                 "Only Number, Numpy NDArray and PyCuda GpuArrays are accepted"
             )
@@ -126,7 +129,7 @@ class ScalarRecorder(Recorder):
         for key in self.dct.keys():
             src = getattr(self.obj, key)
             if not isinstance(src, Number):
-                raise NeuralRecorderError(
+                raise err.NeuralRecorderError(
                     f"ScalarRecorder got src={src} for key={key} of obj={self.obj}, "
                     "needs to be a Number."
                 )
@@ -144,7 +147,7 @@ class NumpyRecorder(Recorder):
         for key in self.dct.keys():
             src = getattr(self.obj, key)
             if not isinstance(src, np.ndarray):
-                raise NeuralRecorderError(
+                raise err.NeuralRecorderError(
                     f"NumpyRecorder got src={src} for key={key} of obj={self.obj}, "
                     "needs to be a Numpy NDArray."
                 )
@@ -193,7 +196,7 @@ class CUDARecorder(Recorder):
         for key in self.dct.keys():
             src = getattr(self.obj, key)
             if not isinstance(src, garray.GPUArray):
-                raise NeuralRecorderError(
+                raise err.NeuralRecorderError(
                     f"CUDARecorder got src={src} for key={key} of obj={self.obj}, "
                     "needs to be a PyCuda GPUArray."
                 )
@@ -283,7 +286,7 @@ class CuPyRecorder(Recorder):
         for key in self.dct.keys():
             src = getattr(self.obj, key)
             if not isinstance(src, cp.ndarray):
-                raise NeuralRecorderError(
+                raise err.NeuralRecorderError(
                     f"CuPyRecorder got src={src} for key={key} of obj={self.obj}, "
                     "needs to be a CuPy NdArray."
                 )
