@@ -19,7 +19,7 @@ import zlib
 import typing as tp
 from binascii import unhexlify
 import numpy as np
-from .logger import NeuralUtilityError, SignalTypeNotFoundError
+from .errors import NeuralUtilityError, SignalTypeNotFoundError
 
 
 def chunk(type, data):

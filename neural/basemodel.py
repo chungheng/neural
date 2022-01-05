@@ -10,7 +10,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from pycuda.gpuarray import GPUArray
 from .backend import Backend
-from .logger import NeuralModelError, NeuralModelWarning
+from .errors import NeuralModelError, NeuralModelWarning
 
 PY2 = sys.version_info[0] == 3
 PY3 = sys.version_info[0] == 3

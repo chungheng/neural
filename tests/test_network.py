@@ -6,7 +6,7 @@ from neural.basemodel import Model
 from neural.recorder import Recorder, CUDARecorder, NumpyRecorder, ScalarRecorder
 from neural.network import Container, Network, Symbol
 from neural import utils
-from neural import logger
+from neural import errors
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def test_container():
     dum.graph_src
 
     with pytest.raises(
-        logger.NeuralContainerError, match="called with value .* not understood"
+        errors.NeuralContainerError, match="called with value .* not understood"
     ):
         dum = Container(DummyModel(), name="Dummy", num=1)
         dum(inp="not_Symbol_or_Input_or_Number")
@@ -65,7 +65,7 @@ def test_network_construction_compilation(single_spike_data):
     assert nn._iscompiled == True
     assert nn.backend == "cuda"
 
-    with pytest.raises(logger.NeuralNetworkError, match="Duplicate container name .*"):
+    with pytest.raises(errors.NeuralNetworkError, match="Duplicate container name .*"):
         nn = Network()
         inp = nn.input(name="Test", num=2)
         dum = nn.add(DummyModel, name="Dummy", num=2)
@@ -73,7 +73,7 @@ def test_network_construction_compilation(single_spike_data):
         dum(inp=inp)
         nn.compile()
 
-    with pytest.warns(logger.NeuralNetworkWarning, match="Size mismatches"):
+    with pytest.warns(errors.NeuralNetworkWarning, match="Size mismatches"):
         nn = Network()
         inp = nn.input(name="Test", num=2)
         dum = nn.add(DummyModel, name="Dummy", num=1)
@@ -81,7 +81,7 @@ def test_network_construction_compilation(single_spike_data):
         nn.compile()
 
     with pytest.raises(
-        logger.NeuralNetworkCompileError,
+        errors.NeuralNetworkCompileError,
         match="Please compile before running the network.",
     ):
         nn = Network()

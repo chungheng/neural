@@ -17,7 +17,7 @@ def test_decorator():
     def this_should_fail():
         pass
 
-    with pytest.raises(neural.logger.NeuralBackendError):
+    with pytest.raises(neural.errors.NeuralBackendError):
         this_should_fail()
     neural.config.init(backend="numpy")
 
@@ -72,7 +72,7 @@ def test_init():
             assert neural.config.INITIALIZED == True
             assert neural.config.BACKEND == "cupy"
 
-    with pytest.raises(neural.logger.NeuralBackendError):
+    with pytest.raises(neural.errors.NeuralBackendError):
         neural.config.init(backend="not_understood")
 
 

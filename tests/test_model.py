@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from neural.config import cuda_available
 from neural.basemodel import Model
-from neural import logger
+from neural import errors
 from neural import utils
 
 if cuda_available():
@@ -61,7 +61,7 @@ def test_model_compilation():
 
     dum = DummyModel()
     dum.compile(backend="cuda", num=1)
-    with pytest.raises(logger.NeuralBackendError, match="Unexpected backend .*"):
+    with pytest.raises(errors.NeuralBackendError, match="Unexpected backend .*"):
         dum.compile(backend="wrong")
 
 

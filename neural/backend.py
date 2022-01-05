@@ -421,7 +421,8 @@ class CUDABackend(Backend):
         try:
             mod = SourceModule(
                 code_generator.cuda_src,
-                options=["--ptxas-options=-v", "--expt-relaxed-constexpr"],
+                # options=["--ptxas-options=-v", "--expt-relaxed-constexpr"],
+                options=["--expt-relaxed-constexpr"],
                 no_extern_c=code_generator.has_random,
             )
             func = mod.get_function(self.model.__class__.__name__)

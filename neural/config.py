@@ -30,7 +30,7 @@ from warnings import warn
 import importlib
 import functools
 from .basemodel import Model
-from .logger import NeuralBackendError, NeuralBackendWarning
+from .errors import NeuralBackendError, NeuralBackendWarning
 from ._pycuda_skcuda import _PyCuda_SkCuda_merge
 
 CUDA = False

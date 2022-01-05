@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import matplotlib.pyplot as plt
 from neural import plot
-import neural.logger as err
+import neural.errors as err
 
 DT = 1e-4
 DUR = 1.0

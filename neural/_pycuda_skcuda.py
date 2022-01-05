@@ -1,7 +1,7 @@
 # pylint: disable=no-member
 import importlib
 import jinja2
-from .logger import NeuralBackendError
+from .errors import NeuralBackendError
 
 cuda_repeat_template = jinja2.Template(
     """
