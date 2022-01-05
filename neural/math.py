@@ -14,12 +14,10 @@ Consumed as follows:
 >>> math.exp()  # = math.exp()
 """
 import sys
-from pep562 import Pep562
 from . import config
-from .logger import NeuralBackendError
+from .errors import NeuralBackendError
 
 PY37 = sys.version_info >= (3, 7)
-
 
 def __getattr__(attr: str):
     try:
@@ -28,10 +26,10 @@ def __getattr__(attr: str):
         pass
         # raise NeuralBackendError(f"Method '{attr}' not found in {config._math_engine}") from e
 
-
 def __dir__():
     return config._math_engine.__dir__()
 
 
 if not PY37:
+    from pep562 import Pep562
     Pep562(__name__)
