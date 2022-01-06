@@ -1,18 +1,14 @@
 """
 Base model class for neurons and synapses.
 """
-import sys
 from abc import abstractmethod
 import typing as tp
-from six import with_metaclass
 import numpy as np
 from scipy.integrate import solve_ivp
 from pycuda.gpuarray import GPUArray
 from .backend import Backend
 from .errors import NeuralModelError, NeuralModelWarning
-from inspect import getfullargspec as _getfullargspec
-varkw = "varkw"
-
+from inspect import getfullargspec
 
 def _dict_iadd_(dct_a: dict, dct_b: dict) -> dict:
     """Add dictionaries inplace"""
@@ -117,7 +113,7 @@ class ModelMetaClass(type):
                 raise NeuralModelError(
                     f"Variable positional argument is not allowed in {clsname}.{key}"
                 )
-            if getattr(argspec, varkw, None) is not None:
+            if getattr(argspec, "varkw", None) is not None:
                 raise NeuralModelError(
                     f"Variable keyword argument is not allowed in {clsname}.{key}"
                 )
@@ -143,7 +139,7 @@ def register_solver(*args) -> tp.Callable:
         return wrapper
 
 
-class Model(with_metaclass(ModelMetaClass, object)):
+class Model(metaclass=ModelMetaClass):
     """Base Model Class
 
     This class overrides :code:`__getattr__` and :code:`__setattr__`, and hence allows

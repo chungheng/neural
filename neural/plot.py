@@ -154,13 +154,13 @@ def plot_spikes(
     """
     spikes = np.atleast_2d(spikes)
     if spikes.ndim != 2:
-        raise NeuralPlotError(
+        raise err.NeuralPlotError(
             f"matrix need to be of ndim 2, (channels x time), got ndim={spikes.ndim}"
         )
 
     if t is not None:
         if len(t) != spikes.shape[1]:
-            raise NeuralPlotError(
+            raise err.NeuralPlotError(
                 "Time vector 't' does not have the same shape as the matrix."
                 f" Expected length {spikes.shape[1]} but got {len(t)}"
             )
@@ -181,15 +181,15 @@ def plot_spikes(
     try:
         ax.plot(t[t_idx], neu_idx, "|", c=color, markersize=markersize)
     except ValueError as e:
-        raise NeuralPlotError(
+        raise err.NeuralPlotError(
             "Raster plot failed, likely an issue with color or markersize setting"
         ) from e
     except IndexError as e:
-        raise NeuralPlotError(
+        raise err.NeuralPlotError(
             "Raster plot failed, likely an issue with spikes and time vector mismatch"
         ) from e
     except Exception as e:
-        raise NeuralPlotError("Raster plot failed due to unknown error") from e
+        raise err.NeuralPlotError("Raster plot failed due to unknown error") from e
     ax.set_xlim([t.min(), t.max()])
     return ax
 
@@ -266,7 +266,7 @@ def plot_mat(
         )
     if t is not None:
         if len(t) != mat.shape[1]:
-            raise NeuralPlotError(
+            raise err.NeuralPlotError(
                 "Time vector 't' does not have the same shape as the matrix."
                 f" Expected length {mat.shape[1]} but got {len(t)}"
             )

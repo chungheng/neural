@@ -468,12 +468,13 @@ class Network(object):
                         if c.num is not None and val.num != c.num:
                             # raise Exception("Size mismatches: [{}: {}] vs. [{}: {}]".format(
                             #     c.name, c.num, val.name, val.num))
-                            err = err.NeuralNetworkWarning(
+                            warn((
                                 f"Size mismatches: [{c.name}:{c.num}] vs. [{val.name}: "
                                 f"{val.num}]. Unless you are connecting Input object "
                                 "directly to a Project container, this is likely a bug."
+                                ), 
+                                err.NeuralNetworkWarning
                             )
-                            warn(err)
                         dct[key] = np.zeros(val.num)
                     else:
                         dct[key] = dtype(0.0)
