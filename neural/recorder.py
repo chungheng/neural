@@ -12,7 +12,6 @@ import cupy as cp
 import pycuda.gpuarray as garray
 import pycuda.driver as cuda
 from . import errors as err
-from . import config
 from . import types as tpe
 
 class Recorder(object):

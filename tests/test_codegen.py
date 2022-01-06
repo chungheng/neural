@@ -10,7 +10,7 @@ except:
     CUDA = False
 
 # pylint:disable=import-error
-from neural import Model
+from neural.basemodel import Model
 from neural.codegen.symbolic import SympyGenerator
 # pylint:enable=import-error
 

@@ -6,7 +6,11 @@ from neural.recorder import Recorder, CUDARecorder, NumpyRecorder, ScalarRecorde
 from neural.network import Container, Network, Symbol
 from neural import utils
 from neural import errors
-
+try:
+    import pycuda.autoinit
+    CUDA = True
+except:
+    CUDA = False
 
 @pytest.fixture
 def single_spike_data():
@@ -146,7 +150,7 @@ def test_recorder(single_spike_data, multi_spike_data):
     # np.testing.assert_equal(rec.x, spikes)
 
 
-@pytest.mark.skipif(not cuda_available(), reason="requires CUDA")
+@pytest.mark.skipif(not CUDA, reason="requires CUDA")
 def test_cuda_recorder(single_spike_data):
     dt, dur, start, stop, amp, spike = single_spike_data
     spikes_g = garray.to_gpu(spike)
