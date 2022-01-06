@@ -1,13 +1,11 @@
 import pytest
 import numpy as np
-from neural.config import cuda_available
 from neural.basemodel import Model
 from neural import errors
 from neural import utils
+import pycuda.autoinit
+import pycuda.gpuarray as garray
 
-if cuda_available():
-    import pycuda.autoinit
-    import pycuda.gpuarray as garray
 from neural.model.neuron import (
     IAF,
     LeakyIAF,
@@ -18,7 +16,7 @@ from neural.model.neuron import (
 )
 
 NEURON_MODELS = [IAF, LeakyIAF, HodgkinHuxley, Wilson, Rinzel, ConnorStevens]
-
+BACKENDS = ["cuda", "scalar", "numpy"]
 
 @pytest.fixture
 def input_signal():
@@ -74,23 +72,22 @@ def test_default_neurons_cpu(input_signal, Model):
         model.update(dt, stimulus=wav)
         record[i] = model.v
 
-
-@pytest.mark.parametrize("Backend", ["cuda", "scalar", "numpy"])
 @pytest.mark.parametrize("Model", NEURON_MODELS)
-def test_default_neurons_compiled(input_signal, Backend, Model):
+def test_default_neurons_compiled(input_signal, Model):
     dt, dur, t, waveform = input_signal
     waveform_g = garray.to_gpu(np.ascontiguousarray(waveform))
-    record = np.zeros(len(waveform))
+    record = np.zeros((len(BACKENDS),len(waveform)))
 
-    model = Model()
-    if Backend == "scalar":
-        model.compile(backend=Backend)
-    else:
-        model.compile(backend=Backend, num=1)
-    inp = waveform if Backend != "cuda" else waveform_g
-    for i, wav in enumerate(inp):
-        model.update(dt, stimulus=wav)
-        record[n, i] = model.v if Backend != "cuda" else model.v.get()
+    for n, Backend in enumerate(BACKENDS):
+        model = Model()
+        if Backend == "scalar":
+            model.compile(backend=Backend)
+        else:
+            model.compile(backend=Backend, num=1)
+        inp = waveform if Backend != "cuda" else waveform_g
+        for i, wav in enumerate(inp):
+            model.update(dt, stimulus=wav)
+            record[n, i] = model.v if Backend != "cuda" else model.v.get()
     np.testing.assert_almost_equal(record, np.roll(record, 1, axis=0))
 
 

@@ -6,6 +6,7 @@ Development Lead
 ----------------
 
 * Chung-Heng Yeh <chungheng.yeh@gmail.com>
+* Tingkai Liu <tingkai.liu@columbia.edu>
 
 Contributors
 ------------

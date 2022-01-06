@@ -111,8 +111,8 @@ Tips
 
 To run a subset of tests::
 
+$ pytest tests.test_neural
 
-    $ python -m unittest tests.test_neural
 
 Deploying
 ---------

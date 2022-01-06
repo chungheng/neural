@@ -1,7 +1,6 @@
 import pytest
 import pycuda.gpuarray as garray
 import numpy as np
-from neural.config import cuda_available
 from neural.basemodel import Model
 from neural.recorder import Recorder, CUDARecorder, NumpyRecorder, ScalarRecorder
 from neural.network import Container, Network, Symbol
