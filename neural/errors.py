@@ -34,10 +34,6 @@ class NeuralWarning(Warning):
     """Base Neural Warning Class"""
 
 
-class NeuralError(Exception):
-    """Base Neural Exception Class"""
-
-
 class NeuralModelError(NeuralError):
     """Neural Exception for Model Module"""
 
@@ -53,9 +49,6 @@ class NeuralRecorderError(NeuralError):
 class NeuralRecorderWarning(NeuralWarning):
     """Neural Warning for Recorder Module"""
 
-
-class NeuralBackendError(NeuralError):
-    """Backend Exception"""
 
 
 class NeuralBackendWarning(NeuralWarning):
@@ -82,15 +75,6 @@ class NeuralNetworkUpdateError(NeuralNetworkError):
     """Container's Update Faield in Neural Network"""
 
 
-class NeuralUtilityError(NeuralError):
-    """Neural Error for Utility Functions
-
-    Includes:
-
-        1. `utils.py`
-        2. `plot.py`
-    """
-
 
 class SignalTypeNotFoundError(NeuralUtilityError):
     """Raised for when generating an unknown stimulus"""
@@ -108,23 +92,3 @@ class NeuralUtilityWarning(NeuralWarning):
 
 class NeuralNetworkWarning(NeuralWarning):
     """Neural Error for Network Module unctions"""
-
-
-class NeuralCodeGenError(NeuralError):
-    """Base Neural CodeGen Exception"""
-
-
-class NeuralSymPyCodeGenError(NeuralCodeGenError):
-    """Neural SymPy CodeGen Exception"""
-
-
-class NeuralSymPyCodeGenIdentationError(NeuralSymPyCodeGenError):
-    """Neural SymPy CodeGen Indentation Error - Likely caused by elif not understood"""
-
-
-class NeuralOptimizerError(NeuralError):
-    """Base Error for neural.optimize module"""
-
-
-class NeuralPlotError(NeuralError):
-    """Base Neural Plotting Exception"""
