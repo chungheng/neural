@@ -106,7 +106,7 @@ class ModelMetaClass(type):
         inputs = dict()
         func_list = [x for x in ["ode", "post"] if x in dct]
         for key in func_list:
-            argspec = _getfullargspec(dct[key])
+            argspec = getfullargspec(dct[key])
             if argspec.defaults is None:
                 continue
             if argspec.varargs is not None:
