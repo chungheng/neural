@@ -72,7 +72,7 @@ def _get_per_user_string():
         return "uid%d" % getuid()
 
 
-class Backend(object):
+class Backend:
     """Backend Base Class"""
 
     def __new__(cls, model, **kwargs):
@@ -99,6 +99,7 @@ class Backend(object):
         return super(Backend, cls).__new__(cls)
 
     def compile(self):
+        """Compile Model ODE"""
         pass
 
     def clip(self, value, a_min, a_max) -> None:
@@ -106,6 +107,7 @@ class Backend(object):
 
 
 class ScalarBackend(Backend):
+    """Scalar Backend"""
     def __init__(self, model, **kwargs):
         ostream = StringIO()
         code_gen = FuncGenerator(model, model.ode, offset=4, ostream=ostream)
@@ -168,6 +170,7 @@ class ScalarBackend(Backend):
 
 
 class NumpyBackend(ScalarBackend):
+    """CPU Backend for vectorized models"""
     def __init__(self, model, **kwargs):
         self.num = kwargs.pop("num", None)
 

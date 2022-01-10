@@ -3,12 +3,13 @@ Base model class for neurons and synapses.
 """
 from abc import abstractmethod
 import typing as tp
+from inspect import getfullargspec
 import numpy as np
 from scipy.integrate import solve_ivp
 from pycuda.gpuarray import GPUArray
 from .backend import Backend
-from .errors import NeuralModelError, NeuralModelWarning
-from inspect import getfullargspec
+from . import types as tpe
+from . import errors as err
 
 def _dict_iadd_(dct_a: dict, dct_b: dict) -> dict:
     """Add dictionaries inplace"""
@@ -61,7 +62,7 @@ class ModelMetaClass(type):
             for key, val in dct["Default_States"].items():
                 if hasattr(val, "__len__"):
                     if len(val) != 3:
-                        raise NeuralModelError(
+                        raise err.NeuralModelError(
                             f"Variable {key} should be a scalar of a iterable "
                             "of 3 elements (initial value, upper bound, lower bound) "
                             f"but {val} is given."
@@ -110,11 +111,11 @@ class ModelMetaClass(type):
             if argspec.defaults is None:
                 continue
             if argspec.varargs is not None:
-                raise NeuralModelError(
+                raise err.NeuralModelError(
                     f"Variable positional argument is not allowed in {clsname}.{key}"
                 )
             if getattr(argspec, "varkw", None) is not None:
-                raise NeuralModelError(
+                raise err.NeuralModelError(
                     f"Variable keyword argument is not allowed in {clsname}.{key}"
                 )
             for val, key in zip(argspec.defaults[::-1], argspec.args[::-1]):
@@ -215,7 +216,7 @@ class Model(metaclass=ModelMetaClass):
             elif key in self.params:
                 self.params[key] = val
             else:
-                raise NeuralModelError(f"Unexpected state/variable '{key}'")
+                raise err.NeuralModelError(f"Unexpected state/variable '{key}'")
 
         self.initial_states = self.states.copy()
         self.gstates = {key: 0.0 for key in self.Derivates}
@@ -232,7 +233,7 @@ class Model(metaclass=ModelMetaClass):
             if solver in self.solver_alias:
                 solver = self.solver_alias[solver]
             else:
-                raise NeuralModelError(f"Unexpected Solver '{solver}'")
+                raise err.NeuralModelError(f"Unexpected Solver '{solver}'")
         self.solver = getattr(self, solver)
 
         self._update = self._scalar_update
@@ -244,16 +245,18 @@ class Model(metaclass=ModelMetaClass):
         if optimize:
             self.compile(backend="scalar")
 
-    def compile(self, **kwargs) -> None:
+    def compile(self, backend: tpe.SupportedBackend = None, **kwargs) -> None:
         """
-        compile the cuda kernel.
+        compile the ODE kernel and create aliases of backend methods for model
 
         Keyword Arguments:
-            num (int): The number of units for CUDA kernel excution.
-            dtype (type): The default type of floating point for CUDA.
+            backend: backend to use
+            num: The number of units for CUDA kernel excution.
+            dtype: The default type of floating point for CUDA.
         """
-        self.backend = Backend(model=self, **kwargs)
+        self.backend = Backend(model=self, backend=backend, **kwargs)
 
+        # create alias of backend methods in model 
         for attr in ("ode", "post"):
             if hasattr(self.backend, attr):
                 setattr(self, attr, getattr(self.backend, attr))
@@ -262,15 +265,13 @@ class Model(metaclass=ModelMetaClass):
             if hasattr(self.backend, attr):
                 setattr(self, "_" + attr, getattr(self.backend, attr))
 
-    def add_callback(self, callbacks) -> None:
+    def add_callback(self, callbacks: tp.Iterable[tp.Callable]) -> None:
         """Add callback to Model's `callbacks` list"""
         if not hasattr(callbacks, "__len__"):
-            callbacks = [
-                callbacks,
-            ]
+            callbacks = [ callbacks, ]
         for func in callbacks:
             if not callable(func):
-                raise NeuralModelError(
+                raise err.NeuralModelError(
                     f"Function {func} is not callable but should be."
                 )
             self.callbacks.append(func)
@@ -373,7 +374,7 @@ class Model(metaclass=ModelMetaClass):
             except AttributeError:
                 states.update({key: np.clip(states[key], val[0], val[1])})
             except Exception as e:
-                raise NeuralModelError(
+                raise err.NeuralModelError(
                     f"Model {self} clip state '{key}' unknown error"
                 ) from e
 
@@ -389,9 +390,9 @@ class Model(metaclass=ModelMetaClass):
         try:
             from .codegen.symbolic import VariableAnalyzer
         except ImportError as e:
-            raise NeuralModelError("'to_graph' requires 'pycodegen'") from e
+            raise err.NeuralModelError("'to_graph' requires 'pycodegen'") from e
         except Exception as e:
-            raise NeuralModelError("Unknown Error to 'Model.to_graph' call") from e
+            raise err.NeuralModelError("Unknown Error to 'Model.to_graph' call") from e
         return VariableAnalyzer(cls).to_graph(local=local)
 
     @classmethod
@@ -403,9 +404,9 @@ class Model(metaclass=ModelMetaClass):
         try:
             from .codegen.symbolic import SympyGenerator
         except ImportError as e:
-            raise NeuralModelError("'to_latex' requires 'pycodegen'") from e
+            raise err.NeuralModelError("'to_latex' requires 'pycodegen'") from e
         except Exception as e:
-            raise NeuralModelError("Unknown Error to 'Model.to_latex' call") from e
+            raise err.NeuralModelError("Unknown Error to 'Model.to_latex' call") from e
         return SympyGenerator(cls).latex_src
 
     def _increment(
@@ -579,7 +580,7 @@ class Model(metaclass=ModelMetaClass):
     def _scalar_reset(self, **kwargs) -> None:
         for key, val in kwargs.items():
             if key not in self.Variables:
-                raise NeuralModelError(
+                raise err.NeuralModelError(
                     f"Attempting to reset key={key} but not in self.Va"
                 )
             attr = self.Variables[key]
@@ -599,14 +600,14 @@ class Model(metaclass=ModelMetaClass):
             return
 
         if key in ["states", "params", "bounds"]:
-            return super(Model, self).__setattr__(key, value)
+            return super().__setattr__(key, value)
 
         for attr in (self.states, self.params):
             if key in attr:
                 attr[key] = value
                 return
 
-        super(Model, self).__setattr__(key, value)
+        super().__setattr__(key, value)
 
     def __getattr__(self, key: str):
         if "_data" in self.__dict__ and key in self._data:
@@ -621,4 +622,4 @@ class Model(metaclass=ModelMetaClass):
             if key in attr:
                 return attr[key]
 
-        return super(Model, self).__getattribute__(key)
+        return super().__getattribute__(key)

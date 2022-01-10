@@ -1,22 +1,24 @@
 """
 Code Generator for optimization of the ode function.
 """
-import types
-
+import typing as tp
+from inspect import formatargspec, getfullargspec
 from pycodegen.codegen import CodeGenerator
-from pycodegen.utils import get_func_signature
+from .. import types as tpe
 
-
-class FuncGenerator(CodeGenerator):
-    def __init__(self, model, func, **kwargs):
+class BaseGenerator(CodeGenerator):
+    """Base Code Generator Class"""
+    def __init__(self, model: tpe.Model, func: tp.Callable, **kwargs):
         self.model = model
         self.func = func
         CodeGenerator.__init__(self, self.func, **kwargs)
-
-        args = get_func_signature(self.func)
-        signature = "def {}({}):\n".format(self.func.__name__, ", ".join(args))
+        signature = "def {}{}:\n".format(
+            self.func.__name__,
+            formatargspec(*getfullargspec(func))
+        )
         self.ostream.write(signature)
 
+class FuncGenerator(BaseGenerator):
     def handle_load_attr(self, ins):
         key = ins.argval
         if self.var[-1] == "self":
@@ -34,15 +36,6 @@ class FuncGenerator(CodeGenerator):
 
 
 class NumpyGenerator(CodeGenerator):
-    def __init__(self, model, func, **kwargs):
-        self.model = model
-        self.func = func
-        CodeGenerator.__init__(self, self.func, **kwargs)
-
-        args = get_func_signature(self.func)
-        signature = "def {}({}):\n".format(self.func.__name__, ", ".join(args))
-        self.ostream.write(signature)
-
     def handle_load_attr(self, ins):
         key = ins.argval
         if self.var[-1] == "self":
