@@ -3,9 +3,10 @@ Base model class for neurons and synapses.
 """
 from abc import abstractmethod
 from inspect import getfullargspec
+from lib2to3.pytree import Base
 import typing as tp
 import numpy as np
-from .backend import BACKENDS, Backend, NumPyBackend
+from .solver import SOLVERS, BaseSolver, Euler
 from tqdm.auto import tqdm
 from . import types as tpe
 from . import errors as err
@@ -14,43 +15,41 @@ from . import errors as err
 class Model:
     """Base Model Class
 
-    This class overrides :code:`__getattr__` and :code:`__setattr__`, and hence allows
-    direct access to the subattributes contained in :code:`states` and :code:`params`,
-    for example::
+    .. note::
 
-        # self.params = {'a': 1., 'b':1.}
-        # self.states = {'s':0., 'x':0.}
-        self.ds = self.a*(1-self.s) -self.b*self.s
+        This class overrides :code:`__getattr__` and :code:`__setattr__`, and hence allows
+        direct access to the subattributes contained in :code:`states` and :code:`params`,
+        for example::
 
-    Methods:
-        ode: a set of ODEs defining the dynamics of the system.
-        update: wrapper function to the numeric solver for each time step.
-        post: computation after calling the numerical solver.
+            # self.params = {'a': 1., 'b':1.}
+            # self.states = {'s':0., 'x':0.}
+            self.ds = self.a*(1-self.s) -self.b*self.s
 
     Class Attributes:
         Default_States (dict): The default value of the state variables.
-            Each items represents the name (`key`) and the default value
-            (`value`) of one state variables. If `value` is a tuple of three
-            numbers, the first number is the default value, and the last two
-            are the lower and the upper bound of the state variables.
+          Each items represents the name (`key`) and the default value
+          (`value`) of one state variables. If `value` is a tuple of three
+          numbers, the first number is the default value, and the last two
+          are the lower and the upper bound of the state variables.
         Default_Params (dict): The default value of the parameters. Each items
-            represents the name (`key`) and the default value (`value`) of one
-            parameters.
-        Variables (dict):
-        Inputs (dict):
+          represents the name (`key`) and the default value (`value`) of one
+          parameters.
+        Variables (dict): mapping of variable str name to type ['state', 'params']
+        Inputs (dict): mapping of input name to default value as defined by 
+          :py:func:`Model.ode`
 
     Attributes:
-        states (dict): the state variables, updated by the ODE.
-        params (dict): parameters of the model, can only be set during
-            contrusction.
-        gstates (dict): the gradient of the state variables.
-        bounds (dict): lower and upper bounds of the state variables.
+        states (np.ndarray): the state variables, updated by the ODE.
+        params (np.ndarray): parameters of the model, can only be set during
+          contrusction.
+        gstates (np.ndarray): the gradient of the state variables.
+        bounds (np.ndarray): lower and upper bounds of the state variables.
     """
 
     Default_States: tp.Dict = None
     Default_Params: tp.Dict = None
     Time_Scale: float = 1.0
-    backend = None
+    solver = Euler
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
@@ -68,6 +67,7 @@ class Model:
             states={var: np.float_ for var in cls.Default_States},
             gstates={var: np.float_ for var in cls.Default_States},
             params={var: np.float_ for var in cls.Default_Params},
+            bounds={var: (np.float_, 2) for var in cls.Default_States},
         )
         # structured dtype for states (states/gstates/bounds) and params
         for key, val in cls.Default_States.items():
@@ -130,14 +130,25 @@ class Model:
         cls.Inputs = inputs
 
         # create structured dtypes
-        cls.dtypes = {attr: np.dtype(list(val.items())) for attr, val in dtypes.items()}
-
+        cls.dtypes = {
+            attr: np.dtype(list(val.items()))
+            for attr, val in dtypes.items()
+        }
+        cls.dtypes["bounds"] = np.dtype(
+            [
+                (var, cls.dtypes["bounds"][var])
+                for var in bounds
+            ]
+        )
         # cast default states/params as numpy structured array
         cls.Default_States = np.asarray(
-            [tuple(states.values())], dtype=cls.dtypes["states"]
+            tuple(states.values()), dtype=cls.dtypes["states"]
+        )
+        cls.Default_Bounds = np.asarray(
+            tuple(bounds.values()), dtype=cls.dtypes["bounds"]
         )
         cls.Default_Params = np.asarray(
-            [tuple(cls.Default_Params.values())], dtype=cls.dtypes["params"]
+            tuple(cls.Default_Params.values()), dtype=cls.dtypes["params"]
         )
 
         # validate class ode definition
@@ -164,8 +175,7 @@ class Model:
         cls.dtypes["gstates"] = np.dtype(
             [
                 (var, cls.dtypes["gstates"][var])
-                for var in cls.dtypes["gstates"].names
-                if var in cls.Derivates
+                for var in cls.Derivates
             ]
         )
 
@@ -173,7 +183,7 @@ class Model:
         self,
         num: int = 1,
         callback: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
-        backend=NumPyBackend,
+        solver=Euler,
         **kwargs,
     ):
         """
@@ -210,7 +220,7 @@ class Model:
         self.callbacks = []
         callback = [] if callback is None else callback
         self.add_callback(callback)
-        self.set_backend(backend)
+        self.set_solver(solver)
 
     def _check_dimensions(self) -> None:
         """Ensure consistent dimensions for all parameters and states"""
@@ -219,13 +229,14 @@ class Model:
             # make sure vector-valued parameters have the same shape as the number
             # of components in the model
             arr = getattr(self, attr)
-            assert len(arr) in [1, self.num], err.NeuralModelError(
-                f"{attr.capitalize()} should be length 1 or num ({self.num}), "
-                f"got {len(arr)} instead."
-            )
+            assert arr.size in [1, self.num] and arr.ndim in [0, 1], \
+                err.NeuralModelError(
+                    f"{attr.capitalize()} should be 0D/1D array of length 1 or num "
+                    f"({self.num}), got {len(arr)} instead."
+                )
             if attr == "params":
                 continue
-            if len(arr) == 1:
+            if arr.size == 1:
                 setattr(self, attr, np.repeat(arr, self.num))
 
     def __setattr__(self, key: str, value: tp.Any):
@@ -279,10 +290,6 @@ class Model:
         """
         raise NotImplementedError
 
-    @property
-    def Solvers(self):
-        return self.backend.Solvers
-
     def update(self, d_t: float, **input_args) -> None:
         """Update model value
 
@@ -291,31 +298,54 @@ class Model:
             input_args (dict): Arguments for input(s), must match
               call signature of :py:func:`Model.ode`.
         """
-        self.backend.step(d_t, **input_args)
+        self.solver.step(d_t, **input_args)
         self.post()
-        self.backend.clip()
+        self.solver.clip()
         for func in self.callbacks:
             func(self)
 
-    def set_backend(self, new_backend: tp.Union[str, Backend]):
-        if isinstance(new_backend, str):
-            try:
-                new_backend = getattr(BACKENDS, new_backend)
-            except AttributeError as e:
-                raise err.NeuralModelError(
-                    f"Backend {new_backend} not supported."
-                ) from e
-        else:
-            assert issubclass(new_backend, Backend), err.err.NeuralModelError(
-                "new_backend must either by a str or a subclass of "
-                "neural.backend.BaseBackendMixIn"
-            )
-        if new_backend == self.backend:
+    def reset(self) -> None:
+        """Reset state values.
+        
+        Sets states to initial values, and sets gstates to 0.
+        """
+        if callable(reset:= getattr(self.solver, "reset", None)):
+            reset()
             return
-        self.backend = new_backend
-        self.update = new_backend.update
-        self.set_solver = new_backend.set_solver
-        self.reset = new_backend.reset
+        for key, val in self.model.initial_states.items():
+            if np.isscalar(val):
+                self.model.states[key] = val
+            else:
+                self.model.states[key].fill(val)
+        for key, val in self.model.gstates.items():
+            if np.isscalar(val):
+                self.model.gstates[key] = 0.0
+            else:
+                self.model.gstates[key].fill(0.0)
+
+    def clip(self, states: dict = None) -> None:
+        """Clip the State Variables
+
+        Clip the state variables in-place after calling the numerical solver.
+
+        The state variables are usually bounded, for example, binding
+        variables are bounded between 0 and 1. However, numerical sovlers
+        might cause the value of state variables exceed its bounds. A hard
+        clip is forced here to ensure the state variables remain in the
+        given bounds.
+        """
+        states = self.model.states if states is None else states
+        if callable(clip:= getattr(self.solver, "clip", None)):
+            clip(states=states)
+            return
+        for var, (lb, ub) in self.model.bounds.items():
+            states[var].clip(lb, ub, out=states[var])
+
+    def set_solver(self, new_solver: BaseSolver) -> None:
+        if new_solver == self.solver:
+            return
+        self.solver = new_solver
+        new_solver.recast_arrays(self)
 
     def add_callback(self, callbacks: tp.Iterable[tp.Callable]) -> None:
         """Add callback to Model's `callbacks` list"""
@@ -351,8 +381,6 @@ class Model:
               the value will be set to the description of the progress bar.
             extra_callbacks: functions of the signature :code:`function(self)` that is
               executed at every step.
-            solver_kws: a dictionary containingarguments to be passed into the ode
-              solvers if the solver accepts arguments.
 
         Keyword Arguments:
             input_args: Key value pair of input arguments that matches the signature
