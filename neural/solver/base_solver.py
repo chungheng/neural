@@ -8,33 +8,17 @@ import typing as tp
 import numpy as np
 from tqdm.auto import tqdm
 
-from neural.basemodel import Model
 from .. import errors as err
-
-# class Backend:
-# def set_solver(self, solver: str, **solver_options):
-#     assert solver in self.Solvers, err.NeuralBackendError(
-#         f"Solver '{solver}' not supported"
-#     )
-#     self.solver = self.Solvers[solver](**solver_options)
-
-# @classmethod
-# def with_solver(cls, name, SolverCls):
-#     def decorator(func):
-#         if cls.Solvers is None:
-#             cls.Solvers = {name: SolverCls}
-#         else:
-#             cls.Solvers[name] = SolverCls
-#         @wraps(func)
-#         def wrapped(*args, **kwargs):
-#             return func(*args, **kwargs)
-#         return wrapped
-#     return decorator
-
+from .. import types as tpe
 
 class BaseSolver:
-    def __init__(self, model: Model, **solver_options) -> None:
+
+    def __init__(self, model: tpe.Model, **solver_options) -> None:
         self.model = weakref.proxy(model)
+
+    @classmethod
+    def recast_arrays(cls, model: tpe.Model) -> None:
+        """Recast states/gstates/params/bounds into ndarray modules compatible with the solver"""
 
     def clip(self, states: dict = None) -> None:
         """Clip the State Variables
