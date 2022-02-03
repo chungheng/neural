@@ -6,17 +6,19 @@ from inspect import formatargspec, getfullargspec
 from pycodegen.codegen import CodeGenerator
 from .. import types as tpe
 
+
 class BaseGenerator(CodeGenerator):
     """Base Code Generator Class"""
+
     def __init__(self, model: tpe.Model, func: tp.Callable, **kwargs):
         self.model = model
         self.func = func
         CodeGenerator.__init__(self, self.func, **kwargs)
         signature = "def {}{}:\n".format(
-            self.func.__name__,
-            formatargspec(*getfullargspec(func))
+            self.func.__name__, formatargspec(*getfullargspec(func))
         )
         self.ostream.write(signature)
+
 
 class FuncGenerator(BaseGenerator):
     def handle_load_attr(self, ins):

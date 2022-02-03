@@ -35,29 +35,23 @@ class AlignedEquationPrinter(LatexPrinter):
         items = []
         for _exp in expr:
             line = self._print(_exp)
-            if '&=' not in line:
-                line = '&' + line
+            if "&=" not in line:
+                line = "&" + line
                 items.append(line)
         return r"\begin{aligned} %s \end{aligned}" % r" \\ ".join(items)
 
     def _print_Equality(self, d) -> str:
         return r"{} &= {}".format(self._print(d.lhs), self._print(d.rhs))
-    
-    def _print_Symbol(self, expr, style='plain'):
-        if expr.name.startswith('local_'): # internal variables
-            res = super()._print_Symbol(
-                sp.Symbol(expr.name[6:]), 
-                style=style
-            )
+
+    def _print_Symbol(self, expr, style="plain"):
+        if expr.name.startswith("local_"):  # internal variables
+            res = super()._print_Symbol(sp.Symbol(expr.name[6:]), style=style)
         else:
             res = super()._print_Symbol(expr, style=style)
-        res = re.sub(
-            r'((?:infty|inf|infinity))',
-            r'\\infty',
-            res
-        )
+        res = re.sub(r"((?:infty|inf|infinity))", r"\\infty", res)
 
         return res
+
 
 def print_system_of_equations(list_of_expressions, local_dict=None) -> str:
     """Print system of equations compactly"""
@@ -72,25 +66,25 @@ def print_system_of_equations(list_of_expressions, local_dict=None) -> str:
 
 class RerouteGetattrSetattr:
     """A context to reroute BaseModel.__getattr__ to return sympy symbols"""
+
     def __init__(self, parsedmodel):
         self.model = parsedmodel
 
     def __enter__(self):
         self.old_getattr = self.model.model.__class__.__getattr__
         self.old_setattr = self.model.model.__class__.__setattr__
+
         def temp_getattr(_self, key):
             if key[:2] == "d_":
                 return self.model.gstates[key[2:]].sym
 
             if key in _self.states:
                 return self.model.states[key].sym
-            
+
             if key in _self.params:
                 return self.model.params[key].sym
 
-            raise KeyError(
-                f"Attribute {key} not found model gstates/states/params."
-            )
+            raise KeyError(f"Attribute {key} not found model gstates/states/params.")
 
         def temp_setattr(_self, key, val):
             self.model._local_dict[key] = val
@@ -98,23 +92,24 @@ class RerouteGetattrSetattr:
         self.model.model.__class__.__getattr__ = temp_getattr
         self.model.model.__class__.__setattr__ = temp_setattr
         return self.model.model
-    
+
     def __exit__(self, exc_type, exc_value, traceback):
         self.model.model.__class__.__getattr__ = self.old_getattr
         self.model.model.__class__.__setattr__ = self.old_setattr
-    
+
+
 @dataclass(repr=False)
 class Symbol:
-    name: str        # original string name in the model
-    sym: sp.Symbol   # sympy symbol
-    value: sp.Symbol = None # numerical value
-    default: Number = None # default numerical value
+    name: str  # original string name in the model
+    sym: sp.Symbol  # sympy symbol
+    value: sp.Symbol = None  # numerical value
+    default: Number = None  # default numerical value
 
     def __repr__(self):
         return self.sym.__repr__()
 
-class ParsedModel:
 
+class ParsedModel:
     def __init__(self, model: tpe.Model):
         """Parsed Model Specification
 
@@ -124,7 +119,7 @@ class ParsedModel:
 
         Parameters:
             model: instance or subclass or `BaseModel`.
-        
+
         Attributes:
             model: reference to neural.BaseModel instance
             states: a dictionary mapping Model.Default_States variable names to sympy symbols
@@ -136,16 +131,16 @@ class ParsedModel:
             disp_exprs: a list of sympy expressions corresponding to every line in Model.ode.
               - This list of expressions is used for code generation and display
             gradients: a dictionary mapping state variables d_state to gradients after evaluating
-              the entire Model.ode symbolically. 
+              the entire Model.ode symbolically.
               -  This dictionary of expressions can be used for computing jacobian
-        
+
         Methods:
             F(**sub_vars): return the right hand side of dx/dt = F(x) as a column vector. sub_vars
               correspond to substitutions of variables (states, g_states, params, inputs) into
               the expression
-            jacobian(**sub_vars): Jacobian of the ode in each variable. sub_vars are used by 
+            jacobian(**sub_vars): Jacobian of the ode in each variable. sub_vars are used by
               F(**sub_vars) to first create the gradient vector.
-            pprint(gradients=False): pretty print the expressions. If gradients=True, the self.gradients 
+            pprint(gradients=False): pretty print the expressions. If gradients=True, the self.gradients
               are printed. Otherwise the self.disp_exprs is printed in the condensed form.
               - Only supported in IPython kernels (IPython, Jupyter Notebook, JupyterLab)
         """
@@ -154,16 +149,16 @@ class ParsedModel:
         self.model = model
 
         # create sympy variables
-        _self = inspect.getfullargspec(model.ode).args[0] # get the str name of `self` in case it's different
+        _self = inspect.getfullargspec(model.ode).args[
+            0
+        ]  # get the str name of `self` in case it's different
         func_args = inspect.signature(model.ode)
         self.inputs = {}
         for n, arg in enumerate(func_args.parameters.values()):
             if arg.default == inspect.Parameter.empty:
                 raise ValueError(f"Only keyword arguments are supported: '{arg}'")
             self.inputs[arg.name] = Symbol(
-                name=arg.name, 
-                sym=sp.Symbol(arg.name), 
-                default=arg.default
+                name=arg.name, sym=sp.Symbol(arg.name), default=arg.default
             )
         self.t_sym = sp.Symbol("t")
         self.states = {  # map model state name to sympy function
@@ -171,7 +166,7 @@ class ParsedModel:
                 name=key,
                 sym=sp.Function(key)(self.t_sym),
                 default=default,
-                value=model.states[key]
+                value=model.states[key],
             )
             for key, default in model.Default_States.items()
         }
@@ -179,26 +174,19 @@ class ParsedModel:
             key: Symbol(
                 name=key,
                 sym=sp.Derivative(self.states[key].sym, self.t_sym),
-                value=value
+                value=value,
             )
             for key, value in model.gstates.items()
         }
         self.params = {
             key: Symbol(
-                name=key, 
-                sym=sp.Symbol(key),
-                default=default,
-                value=model.params[key]
+                name=key, sym=sp.Symbol(key), default=default, value=model.params[key]
             )
             for key, default in model.Default_Params.items()
         }
         self.internals = dict()  # internal variables to be populated during parsing
         self.bounds = {  # map model state name to sympy function
-            key: Symbol(
-                name=key,
-                sym=self.states[key].sym,
-                value=value
-            )
+            key: Symbol(name=key, sym=self.states[key].sym, value=value)
             for key, value in model.bounds.items()
         }
 
@@ -229,30 +217,32 @@ class ParsedModel:
                 if tgt not in self.Variables:
                     self.internals[tgt] = Symbol(
                         name=tgt,
-                        sym=sp.Symbol(f"local_{tgt}") # prefix with iota to avoid duplicate name
+                        sym=sp.Symbol(
+                            f"local_{tgt}"
+                        ),  # prefix with iota to avoid duplicate name
                     )
                 self.raw_exprs.append((tgt, src))
             else:
                 self.raw_exprs.append((None, src))
-        
+
         # reroute getattr of model to return sympy symbols defined above
-        self.ode = []      # display expressions of the type sympy.Eq(target, source) for each equation
-        self._local_dict = dict() # evaluate expressions
+        self.ode = (
+            []
+        )  # display expressions of the type sympy.Eq(target, source) for each equation
+        self._local_dict = dict()  # evaluate expressions
         # with self._reroute_getattr_setattr() as model:
         with RerouteGetattrSetattr(self) as model:
             variable_dict = {
-                **model.ode.__globals__, 
-                **{var: val.sym for var,val in self.inputs.items()},
-                **{var: val.sym for var,val in self.internals.items()},
-                **{_self: model, "sympy": sympy, "Assignment": Assignment}
+                **model.ode.__globals__,
+                **{var: val.sym for var, val in self.inputs.items()},
+                **{var: val.sym for var, val in self.internals.items()},
+                **{_self: model, "sympy": sympy, "Assignment": Assignment},
             }
             for n, (tgt, src) in enumerate(self.raw_exprs):
                 _expr = f"sympy.Eq({tgt}, {src})" if tgt is not None else src
                 _exec_expr = f"{tgt} = {src}" if tgt is not None else src
                 try:
-                    self.ode.append(
-                        eval(_expr, variable_dict)
-                    )
+                    self.ode.append(eval(_expr, variable_dict))
                 except Exception as e:
                     raise err.NeuralCodeGenError(
                         f"Evaluating Display Expression Failed:\n\t{_expr}"
@@ -265,51 +255,52 @@ class ParsedModel:
                         f"Evaluating Evaluated Expression Failed:\n\t{_exec_expr}"
                     ) from e
 
-        self.gradients = {
-            var:self._local_dict[f"d_{var}"]
-            for var in self.gstates
-        }
+        self.gradients = {var: self._local_dict[f"d_{var}"] for var in self.gstates}
 
     @property
     def Variables(self):
         return {
-            **{key: 'states' for key in self.states},
-            **{f"d_{key}": 'gstates' for key in self.gstates},
-            **{key: 'params' for key in self.params},
-            **{key: 'inputs' for key in self.inputs}
+            **{key: "states" for key in self.states},
+            **{f"d_{key}": "gstates" for key in self.gstates},
+            **{key: "params" for key in self.params},
+            **{key: "inputs" for key in self.inputs},
         }
-
 
     def F(self, **sub_vars) -> "sympy.Matrix":
         """Evaluate the RHS of ODE dx/dt = F(x)"""
         variable_dict = {
-            **{key:val.sym for key, val in self.states.items()},
-            **{f"d_{key}":val.sym for key, val in self.gstates.items()},
-            **{key:val.sym for key, val in self.params.items()},
-            **{key:val.sym for key, val in self.inputs.items()},
+            **{key: val.sym for key, val in self.states.items()},
+            **{f"d_{key}": val.sym for key, val in self.gstates.items()},
+            **{key: val.sym for key, val in self.params.items()},
+            **{key: val.sym for key, val in self.inputs.items()},
         }
         sub_vars_sp = [
-            (variable_dict[str_varname], val)
-            for str_varname, val
-            in sub_vars.items()
+            (variable_dict[str_varname], val) for str_varname, val in sub_vars.items()
         ]
         return sp.Matrix(list(self.gradients.values())).subs(sub_vars_sp)
 
     def pprint(self, gradients=False) -> str:
         """Pretty Print Model in IPython Environments"""
         from IPython.display import Math  # pylint:disable=import-outside-toplevel
+
         if gradients:
-            return Math("=".join([
-                sp.latex(sp.Matrix([
-                    symbol.sym for symbol in self.gstates.values()
-                ])),
-                sp.latex(self.F())
-            ]))
+            return Math(
+                "=".join(
+                    [
+                        sp.latex(
+                            sp.Matrix([symbol.sym for symbol in self.gstates.values()])
+                        ),
+                        sp.latex(self.F()),
+                    ]
+                )
+            )
         return Math(print_system_of_equations(self.ode))
 
     def jacobian(self, **sub_vars):
         """Compute Jacobian of the Model"""
-        jacc = self.F(**sub_vars).jacobian([symbol.sym for symbol in self.states.values()])
+        jacc = self.F(**sub_vars).jacobian(
+            [symbol.sym for symbol in self.states.values()]
+        )
         return jacc
 
     def __repr__(self):
@@ -320,7 +311,7 @@ class ParsedModel:
         """A context to reroute BaseModel.__getattr__ to return sympy symbols"""
         old_getattr = self.model.__class__.__getattr__
         old_setattr = self.model.__class__.__setattr__
-        
+
         def temp_getattr(_self, key):
             try:
                 if key[:2] == "d_":
@@ -328,7 +319,7 @@ class ParsedModel:
 
                 if key in _self.states:
                     return self.states[key].sym
-                
+
                 if key in _self.params:
                     return self.params[key].sym
 
@@ -336,9 +327,9 @@ class ParsedModel:
                     f"Attribute {key} not found model gstates/states/params."
                 )
             except Exception as e:
-                # put back old getattr before raising 
+                # put back old getattr before raising
                 self.model.__class__.__getattr__ = old_getattr
-                raise e        
+                raise e
 
         def temp_setattr(_self, key, val):
             try:
@@ -348,6 +339,7 @@ class ParsedModel:
                 # put back old getattr before raising
                 self.model.__class__.__setattr__ = old_setattr
                 raise e
+
         self.model.__class__.__getattr__ = temp_getattr
         self.model.__class__.__setattr__ = temp_setattr
         yield self.model

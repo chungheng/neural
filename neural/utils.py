@@ -401,7 +401,7 @@ def random_signal(
     fs = 1 / (t[1] - t[0])
     b, a = butter(5, bw, btype="low", analog=False, fs=fs)
     sig = lfilter(b, a, wn, axis=-1)
-    pow = np.mean(sig ** 2, axis=-1)
+    pow = np.mean(sig**2, axis=-1)
     sig /= np.sqrt(pow)[:, None]  # RMS power normalization
     return sig
 

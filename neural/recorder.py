@@ -14,6 +14,7 @@ import pycuda.driver as cuda
 from . import errors as err
 from . import types as tpe
 
+
 class Recorder(object):
     """
     Base recorder module.

@@ -50,7 +50,6 @@ class NeuralRecorderWarning(NeuralWarning):
     """Neural Warning for Recorder Module"""
 
 
-
 class NeuralBackendWarning(NeuralWarning):
     """Backend Warning"""
 
@@ -73,7 +72,6 @@ class NeuralNetworkInputError(NeuralNetworkError):
 
 class NeuralNetworkUpdateError(NeuralNetworkError):
     """Container's Update Faield in Neural Network"""
-
 
 
 class SignalTypeNotFoundError(NeuralUtilityError):

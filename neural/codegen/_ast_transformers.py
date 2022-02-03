@@ -46,6 +46,7 @@ class NumPy2SymPy(ast.NodeTransformer):
     Arguments:
 
     """
+
     _rng_ctr = 0
     _globals = dict()
 
@@ -90,7 +91,7 @@ class NumPy2SymPy(ast.NodeTransformer):
     def visit_Compare(self, node):
         self.generic_visit(node)
         return ast.Call(
-            func=ast.parse('sympy.Piecewise').body[0].value,
+            func=ast.parse("sympy.Piecewise").body[0].value,
             args=[
                 ast.Tuple(elts=[ast.Constant(value=1), node]),
                 ast.Tuple(
@@ -108,7 +109,7 @@ class NumPy2SymPy(ast.NodeTransformer):
         self.generic_visit(node)
         if isinstance(node.value, Number):
             return ast.Call(
-                func=ast.parse('sympy.UnevaluatedExpr').body[0].value,
+                func=ast.parse("sympy.UnevaluatedExpr").body[0].value,
                 args=[node],
                 keywords=[],
             )
@@ -140,18 +141,22 @@ class NumPy2SymPy(ast.NodeTransformer):
             return node
         if func_module == math:
             if func not in MATH_FUNCTIONS.MAPPING:
-                raise err.NeuralCodeGenError((
-                    f"Function {func} not supported, "
-                    f"use one of {MATH_FUNCTIONS.SUPPORTED}"
-                ))
+                raise err.NeuralCodeGenError(
+                    (
+                        f"Function {func} not supported, "
+                        f"use one of {MATH_FUNCTIONS.SUPPORTED}"
+                    )
+                )
             node.func = ast.parse(MATH_FUNCTIONS.MAPPING[func]).body[0].value
             return node
         if func_module == random:  # random number generators
             if func not in RANDOM_FUNCTIONS.MAPPING:
-                raise err.NeuralCodeGenError((
-                    f"Function {func} not supported, "
-                    f"use one of {RANDOM_FUNCTIONS.SUPPORTED}"
-                ))
+                raise err.NeuralCodeGenError(
+                    (
+                        f"Function {func} not supported, "
+                        f"use one of {RANDOM_FUNCTIONS.SUPPORTED}"
+                    )
+                )
             _random_args = RANDOM_FUNCTIONS.MAPPING[func]["random_params"]
             _sympy_args = RANDOM_FUNCTIONS.MAPPING[func]["sympy_params"]
             for kwarg in node.keywords:
@@ -189,7 +194,7 @@ class NumPy2SymPy(ast.NodeTransformer):
                 ast.Tuple(elts=[node.orelse, ast.Constant(value=True)], ctx=ast.Load())
             )
         return ast.Call(
-            func=ast.parse('sympy.Piecewise').body[0].value,
+            func=ast.parse("sympy.Piecewise").body[0].value,
             args=self._ifexp_cases,
             keywords=[],
         )
