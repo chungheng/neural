@@ -163,27 +163,26 @@ class Model:
         try:
             obj.ode()
         except Exception as e:
-            raise err.NeuralModelError(f"{cls}.ode() failed to execute") from e
+            raise err.NeuralModelError(f"{cls}.ode failed to execute") from e
 
         # store state variables with gradients
         cls.Derivates = [
             var
             for var in states
-            if hasattr(obj, f"d_{var}") and np.isfinite(getattr(obj, f"d_{var}"))
+            if hasattr(obj, f"d_{var}") 
+            and np.isfinite(getattr(obj, f"d_{var}"))
         ]
         # cleanup gstates types to only include states with gradient defined
-        cls.dtypes["gstates"] = np.dtype(
-            [
-                (var, cls.dtypes["gstates"][var])
-                for var in cls.Derivates
-            ]
-        )
+        cls.dtypes["gstates"] = np.dtype([
+            (var, cls.dtypes["gstates"][var])
+            for var in cls.Derivates
+        ])
 
     def __init__(
         self,
         num: int = 1,
         callback: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
-        solver=Euler,
+        solver: BaseSolver = Euler,
         **kwargs,
     ):
         """
@@ -206,9 +205,9 @@ class Model:
         self.bounds = self.Default_Bounds.copy()
         # set additional variables
         for key, val in kwargs.items():
-            if key in self.states:
+            if key in self.states.dtype.names:
                 self.states[key] = val
-            elif key in self.params:
+            elif key in self.params.dtype.names:
                 self.params[key] = val
             else:
                 raise err.NeuralModelError(f"Unexpected state/variable '{key}'")
@@ -234,7 +233,7 @@ class Model:
                     f"{attr.capitalize()} should be 0D/1D array of length 1 or num "
                     f"({self.num}), got {len(arr)} instead."
                 )
-            if attr == "params":
+            if attr == "params" or attr == "initial_states":
                 continue
             if arr.size == 1:
                 setattr(self, attr, np.repeat(arr, self.num))
@@ -248,15 +247,13 @@ class Model:
         if key in ["states", "params", "bounds"]:
             return super().__setattr__(key, value)
 
-        if hasattr(self, "states"):
-            if key in self.states.dtype.names:
-                self.states[key] = value
-                return
+        if hasattr(self, "states") and key in self.states.dtype.names:
+            self.states[key] = value
+            return
 
-        if hasattr(self, "params"):
-            if key in self.params.dtype.names:
-                self.params[key] = value
-                return
+        if hasattr(self, "params") and key in self.params.dtype.names:
+            self.params[key] = value
+            return
 
         super().__setattr__(key, value)
 
@@ -288,7 +285,6 @@ class Model:
         Another usage of this function could be the spike detection for
         conductance-based models.
         """
-        raise NotImplementedError
 
     def update(self, d_t: float, **input_args) -> None:
         """Update model value
@@ -300,7 +296,7 @@ class Model:
         """
         self.solver.step(d_t, **input_args)
         self.post()
-        self.solver.clip()
+        self.clip()
         for func in self.callbacks:
             func(self)
 
@@ -312,16 +308,8 @@ class Model:
         if callable(reset:= getattr(self.solver, "reset", None)):
             reset()
             return
-        for key, val in self.model.initial_states.items():
-            if np.isscalar(val):
-                self.model.states[key] = val
-            else:
-                self.model.states[key].fill(val)
-        for key, val in self.model.gstates.items():
-            if np.isscalar(val):
-                self.model.gstates[key] = 0.0
-            else:
-                self.model.gstates[key].fill(0.0)
+        self.states.fill(self.initial_states)
+        self.gstates.fill(0.)
 
     def clip(self, states: dict = None) -> None:
         """Clip the State Variables
@@ -334,17 +322,15 @@ class Model:
         clip is forced here to ensure the state variables remain in the
         given bounds.
         """
-        states = self.model.states if states is None else states
+        states = self.states if states is None else states
         if callable(clip:= getattr(self.solver, "clip", None)):
             clip(states=states)
             return
-        for var, (lb, ub) in self.model.bounds.items():
-            states[var].clip(lb, ub, out=states[var])
+        for var in self.bounds.dtype.names:
+            states[var].clip(*self.bounds[var], out=states[var])
 
-    def set_solver(self, new_solver: BaseSolver) -> None:
-        if new_solver == self.solver:
-            return
-        self.solver = new_solver
+    def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
+        self.solver = new_solver(self, **solver_options)
         new_solver.recast_arrays(self)
 
     def add_callback(self, callbacks: tp.Iterable[tp.Callable]) -> None:
@@ -393,25 +379,26 @@ class Model:
         # whether to reset initial state to `self.initial_states`
         if reset:
             self.reset()
-
-        # rescale time axis appropriately
-        t_long = t * self.Time_Scale
-        d_t = t_long[1] - t_long[0]
+        d_t = t[1] - t[0]
 
         # check external current dimension. It has to be either 1D array the
         # same shape as `t`, or a 2D array of shape `(len(t), self.num)`
         for var_name, stim in input_args.items():
             if var_name not in self.Inputs:
-                continue
+                raise err.NeuralModelError(f"Extraneous input argument '{var_name}'")
             if np.isscalar(stim):
                 continue
             stim = np.squeeze(stim)
-            assert (stim.ndim == 1 and len(stim) == len(t)) or (
-                stim.ndim == 2 and stim.shape == (len(t), self.num)
-            ), err.NeuralBackendError(
-                f"Stimulus '{var_name}' must be scalar or 1D/2D array of "
-                "same length as t and num in the second dimension"
-            )
+            if not (
+                (stim.ndim == 1 and len(stim) == len(t)) 
+                or 
+                (stim.ndim == 2 and stim.shape == (len(t), self.num))
+            ):
+                raise err.NeuralModelError(
+                    f"Stimulus '{var_name}' must be scalar or 1D/2D array of "
+                    f"same length as t ({len(t)}) and num ({self.num}) "
+                    f"in the second dimension, got {stim.shape} instead."
+                )
             input_args[var_name] = stim
 
         # create stimuli generator
@@ -421,7 +408,7 @@ class Model:
                 for var, val in input_args.items()
                 if var in self.Inputs
             }
-            for tt in range(len(t))
+            for tt in range(len(t)-1)
         )
         # Register callback that is executed after every euler step.
         extra_callbacks = (
@@ -432,13 +419,14 @@ class Model:
                 raise err.NeuralBackendError("Callback is not callable\n" f"{f}")
 
         # Solve
-        res = np.zeros((len(t_long), self.num), dtype=self.dtypes["states"])
+        res = np.zeros((len(t), self.num), dtype=self.dtypes["states"])
+        res[0] = self.initial_states
         # run loop
-        iters = enumerate(zip(t_long, stimuli))
+        iters = enumerate(zip(t[:-1], stimuli), start=1)
         if verbose:
             iters = tqdm(
                 iters,
-                total=len(t_long),
+                total=len(t),
                 desc=verbose if isinstance(verbose, str) else "",
                 dynamic_ncols=True,
             )
@@ -448,4 +436,4 @@ class Model:
             for _func in extra_callbacks:
                 _func(self)
             res[tt][:] = self.states
-        return res
+        return res.T
