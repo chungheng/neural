@@ -14,20 +14,22 @@ Methods:
         as :code:`nextpow2` in MATLAB.
 """
 
+from numbers import Number
 import struct
 import zlib
 import typing as tp
 from binascii import unhexlify
 import numpy as np
-from .errors import NeuralUtilityError, SignalTypeNotFoundError
+import numpy.typing as npt
+from ..errors import NeuralUtilityError, SignalTypeNotFoundError
 
 
-def chunk(type, data):
+def chunk(tipe, data):
     return (
         struct.pack(">I", len(data))
-        + type
+        + tipe
         + data
-        + struct.pack(">I", zlib.crc32(type + data))
+        + struct.pack(">I", zlib.crc32(tipe + data))
     )
 
 
@@ -38,6 +40,12 @@ MINIMUM_PNG = (
     + chunk(b"IEND", b"")
 )
 
+#pylint:disable=no-member
+def create_rng(seed: tp.Union[int, np.random.RandomState]):
+    if isinstance(seed, np.random.RandomState): 
+        return seed
+    return np.random.RandomState(seed)
+#pylint:enable=no-member
 
 def generate_stimulus(
     mode: str,
@@ -46,7 +54,7 @@ def generate_stimulus(
     support: tp.Tuple[float, float],
     amplitude: tp.Union[float, np.ndarray],
     sigma: float = None,
-    dtype: "dtype" = np.float64,
+    dtype: npt.DTypeLike = np.float64,
     **kwargs,
 ) -> np.ndarray:
     """
@@ -69,8 +77,7 @@ def generate_stimulus(
         waveforms: np.ndarray,
         d_t: float,
         support: tp.Iterable[float],
-        amplitude: float,
-        **kwargs,
+        amplitude: float
     ) -> None:
         """
         Generate a set of step stimuli.
@@ -88,7 +95,7 @@ def generate_stimulus(
         d_t: float,
         support: tp.Iterable[float],
         amplitude: float,
-        **kwargs,
+        ratio: float = 0.9
     ) -> None:
         """
         Generate a set of ramp stimuli.
@@ -97,8 +104,6 @@ def generate_stimulus(
             ratio (float): a real number between 0 and 1. The point between
                 `start` and `stop` where the stimulus reachs its peak.
         """
-        ratio = kwargs.pop("ratio", 0.9)
-
         start = int((support[0] + d_t / 2) // d_t)
         stop = int((support[1] + d_t / 2) // d_t)
         peak = int((1.0 - ratio) * start + ratio * stop)
@@ -112,7 +117,7 @@ def generate_stimulus(
         d_t: float,
         support: tp.Iterable[float],
         amplitude: float,
-        **kwargs,
+        ratio: float = 0.95
     ) -> None:
         """
         Generate a set of parabolic stimuli.
@@ -121,8 +126,6 @@ def generate_stimulus(
             ratio (float): a real number between 0 and 1. The point between
                 `start` and `stop` where the stimulus reachs its peak.
         """
-        ratio = kwargs.pop("ratio", 0.95)
-
         start = int((support[0] + d_t / 2) // d_t)
         stop = int((support[1] + d_t / 2) // d_t)
         peak = int((1.0 - ratio) * start + ratio * stop)
@@ -135,8 +138,7 @@ def generate_stimulus(
         waveforms: np.ndarray,
         d_t: float,
         support: tp.Iterable[float],
-        amplitude: float,
-        **kwargs,
+        amplitude: float
     ) -> None:
         """
         Generate a set of poisson spikes.
@@ -158,8 +160,7 @@ def generate_stimulus(
     waveforms = np.zeros(shape, dtype=dtype)
 
     if isinstance(mode, str):
-        tmp = "_generate_%s" % mode
-        if tmp not in locals():
+        if (tmp := f"_generate_{mode}") not in locals():
             msg = f"Stimulus type {mode} is not supported."
             raise SignalTypeNotFoundError(msg)
         generator = locals()[tmp]
@@ -203,7 +204,8 @@ def generate_spike_from_psth(
     Notes:
         1. If `psth_t` is specified:
             - it needs to have the same dimensionality as `psth`.
-            - In this case, `d_t` is the desired time-step instead of the time-step of the `psth` array.
+            - In this case, `d_t` is the desired time-step instead of the time-step of 
+              the `psth` array.
             - `Nt` is given as `np.arange(psth_t.min(), psth_t.max(), dt)`
         2. If `psth_t` is not specified:
             - `d_t` is the time-step of the `psth` array
@@ -217,10 +219,7 @@ def generate_spike_from_psth(
         >>> tt, spikes = utils.generate_spike_from_psth(dt, psth, psth_t)
         >>> plot.plot_spikes(spikes, t=tt)
     """
-    if isinstance(seed, np.random.RandomState):
-        rng = seed
-    else:
-        rng = np.random.RandomState(seed)
+    rng = create_rng(seed)
 
     if psth.ndim > 1:
         psth = np.squeeze(psth)
@@ -353,7 +352,7 @@ class PSTH:
 
 
 def snr(u: np.ndarray, u_rec: np.ndarray) -> np.ndarray:
-    """Compute Signal to Noise Ratio
+    r"""Compute Signal to Noise Ratio
 
     Computes the SNR according to the formula
     :math:`SNR[u, u_{rec}] = 10\log_{10} \frac{u^2}{(u-u_{rec})^2}`
@@ -389,27 +388,22 @@ def random_signal(
         A float ndarray of shape :code:`(num, len(t))` that is of bandwidth
         :code:`bw`.
     """
-    if isinstance(seed, np.random.RandomState):
-        rng = seed
-    else:
-        rng = np.random.RandomState(seed)
     from scipy.signal import butter, lfilter
-
+    rng = create_rng(seed)
     wn = rng.randn(num, len(t))
     if bw is None:
         return wn
     fs = 1 / (t[1] - t[0])
     b, a = butter(5, bw, btype="low", analog=False, fs=fs)
     sig = lfilter(b, a, wn, axis=-1)
-    pow = np.mean(sig**2, axis=-1)
-    sig /= np.sqrt(pow)[:, None]  # RMS power normalization
+    power = np.mean(sig**2, axis=-1)
+    sig /= np.sqrt(power)[:, None]  # RMS power normalization
     return sig
 
 
-def nextpow2(n: "Number") -> float:
+def nextpow2(n: Number) -> float:
     """Find Minimum Power 2 Exponent"""
     return np.ceil(np.log2(n))
-
 
 def fft(
     signal: np.ndarray,
