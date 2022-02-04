@@ -1,15 +1,17 @@
 """
 Base model class for neurons and synapses.
 """
+import copy
 from abc import abstractmethod
+from warnings import warn
 from inspect import getfullargspec
-from lib2to3.pytree import Base
 import typing as tp
 import numpy as np
-from .solver import SOLVERS, BaseSolver, Euler
+from .solver import BaseSolver, Euler
 from tqdm.auto import tqdm
 from . import types as tpe
 from . import errors as err
+from .codegen.parsedmodel import ParsedModel
 
 
 class Model:
@@ -53,6 +55,7 @@ class Model:
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
+        cls.Time_Scale = np.float_(cls.Time_Scale)
 
         bounds = dict()
         states = dict()
@@ -63,25 +66,10 @@ class Model:
         if cls.Default_States is None:
             cls.Default_States = dict()
 
-        dtypes = dict(
-            states={var: np.float_ for var in cls.Default_States},
-            gstates={var: np.float_ for var in cls.Default_States},
-            params={var: np.float_ for var in cls.Default_Params},
-            bounds={var: (np.float_, 2) for var in cls.Default_States},
-        )
         # structured dtype for states (states/gstates/bounds) and params
         for key, val in cls.Default_States.items():
-            states[key] = val if np.isscalar(val) else val[0]
-
-            # handle custom dtypes
-            # use numpy dtype if is numpy specific.
-            # NOTE: if user wants to use integer type for a state, you must
-            # specify it explicitly as Default_States=dict(var=np.int_(intial_value))
-            if isinstance(states[key], np.generic):
-                dtypes["states"][key] = val.dtype
-                dtypes["gstates"][key] = val.dtype
-            else:
-                states[key] = dtypes["states"][key](states[key])
+            dtype = val.dtype if isinstance(val, np.generic) else np.float_
+            states[key] = dtype(val) if np.isscalar(val) else dtype(val[0])
 
             if not np.isscalar(val):
                 if len(val) != 3:
@@ -90,23 +78,19 @@ class Model:
                         "of 3 elements (initial value, upper bound, lower bound) "
                         f"but {val} is given."
                     )
-                bounds[key] = (
-                    dtypes["states"][key](val[1]),
-                    dtypes["states"][key](val[2]),
-                )
+                bounds[key] = np.asarray(val[1:], dtype=dtype)
             variables[key] = "states"
+        cls.Default_States = states
         cls.Default_Bounds = bounds
 
         # parse params
         for key, val in cls.Default_Params.items():
+            dtype = val.dtype if isinstance(val, np.generic) else np.float_
+            cls.Default_Params[key] = dtype(val)
             if key in cls.Default_States:
                 raise err.NeuralModelError(
                     f"Parameters cannot have the same name as the States: '{key}'"
                 )
-            if isinstance(val, np.generic):
-                dtypes["params"][key] = val.dtype
-            else:
-                cls.Default_Params[key] = dtypes["params"][key](val)
         variables.update({key: "params" for key in cls.Default_Params})
 
         # store variables
@@ -127,31 +111,10 @@ class Model:
                     f"Variable keyword argument is not allowed in {func}"
                 )
             for val, key in zip(argspec.defaults[::-1], argspec.args[::-1]):
-                inputs[key] = val
+                dtype = val.dtype if isinstance(val, np.generic) else np.float_
+                inputs[key] = dtype(val)
 
         cls.Inputs = inputs
-
-        # create structured dtypes
-        cls.dtypes = {
-            attr: np.dtype(list(val.items()))
-            for attr, val in dtypes.items()
-        }
-        cls.dtypes["bounds"] = np.dtype(
-            [
-                (var, cls.dtypes["bounds"][var])
-                for var in bounds
-            ]
-        )
-        # cast default states/params as numpy structured array
-        cls.Default_States = np.asarray(
-            tuple(states.values()), dtype=cls.dtypes["states"]
-        )
-        cls.Default_Bounds = np.asarray(
-            tuple(bounds.values()), dtype=cls.dtypes["bounds"]
-        )
-        cls.Default_Params = np.asarray(
-            tuple(cls.Default_Params.values()), dtype=cls.dtypes["params"]
-        )
 
         # validate class ode definition
         cls.Derivates = [
@@ -172,19 +135,15 @@ class Model:
             var
             for var in states
             if hasattr(obj, f"d_{var}") 
-            and np.isfinite(getattr(obj, f"d_{var}"))
+            and getattr(obj, f"d_{var}") is not None
         ]
-        # cleanup gstates types to only include states with gradient defined
-        cls.dtypes["gstates"] = np.dtype([
-            (var, cls.dtypes["gstates"][var])
-            for var in cls.Derivates
-        ])
 
     def __init__(
         self,
         num: int = 1,
         callback: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
         solver: BaseSolver = Euler,
+        solver_kws: dict = None,
         **kwargs,
     ):
         """
@@ -202,26 +161,31 @@ class Model:
         self.num = num
 
         # set state variables and parameters
-        self.params = self.Default_Params.copy()
-        self.states = self.Default_States.copy()
-        self.bounds = self.Default_Bounds.copy()
+        self.params = copy.deepcopy(self.Default_Params)
+        self.states = copy.deepcopy(self.Default_States)
+        self.bounds = copy.deepcopy(self.Default_Bounds)
         # set additional variables
         for key, val in kwargs.items():
-            if key in self.states.dtype.names:
+            if key in self.states:
                 self.states[key] = val
-            elif key in self.params.dtype.names:
+            elif key in self.params:
                 self.params[key] = val
             else:
                 raise err.NeuralModelError(f"Unexpected state/variable '{key}'")
 
-        self.initial_states = self.states.copy()
-        self.gstates = np.zeros(self.num, dtype=self.dtypes["gstates"])
+        self.initial_states = copy.deepcopy(self.states)
+        self.gstates = {
+            var:np.zeros_like(arr) 
+            for var, arr in self.states.items()
+            if var in self.Derivates
+        }
         self._check_dimensions()
 
         self.callbacks = []
         callback = [] if callback is None else callback
         self.add_callback(callback)
-        self.set_solver(solver)
+        solver_kws = solver_kws or {}
+        self.set_solver(solver, **solver_kws)
 
     def _check_dimensions(self) -> None:
         """Ensure consistent dimensions for all parameters and states"""
@@ -229,20 +193,23 @@ class Model:
         for attr in ["params", "states", "gstates", "initial_states"]:
             # make sure vector-valued parameters have the same shape as the number
             # of components in the model
-            arr = getattr(self, attr)
-            if not (arr.size in [1, self.num] and arr.ndim in [0, 1]):
-                raise err.NeuralModelError(
-                    f"{attr.capitalize()} should be 0D/1D array of length 1 or num "
-                    f"({self.num}), got {len(arr)} instead."
-                )
-            if attr == "params" or attr == "initial_states":
-                continue
-            if arr.size == 1:
-                setattr(self, attr, np.repeat(arr, self.num))
+            for key,arr in (dct := getattr(self, attr)).items():
+                if np.isscalar(arr) and attr in ["params", "initial_states"]:
+                    continue
+                arr = np.asarray(arr)
+                if not (arr.size in [1, self.num] and arr.ndim in [0, 1]):
+                    raise err.NeuralModelError(
+                        f"{attr.capitalize()}['{key}'] should be 0D/1D array of length 1 or num "
+                        f"({self.num}), got {len(arr)} instead: {arr}"
+                    )
+                if attr in ["params", "initial_states"]:
+                    continue
+                if arr.size == 1:
+                    dct[key] = np.repeat(arr, self.num)
 
     def __setattr__(self, key: str, value: tp.Any):
         if key.startswith("d_"):
-            if key[2:] not in self.gstates.dtype.names:
+            if key[2:] not in self.gstates:
                 raise AttributeError(
                     f"Attribute {key} assumed to be gradient, but not found in Model.gstates"
                 )
@@ -252,11 +219,11 @@ class Model:
         if key in ["states", "params", "bounds"]:
             return super().__setattr__(key, value)
 
-        if hasattr(self, "states") and key in self.states.dtype.names:
+        if hasattr(self, "states") and key in self.states:
             self.states[key] = value
             return
 
-        if hasattr(self, "params") and key in self.params.dtype.names:
+        if hasattr(self, "params") and key in self.params:
             self.params[key] = value
             return
 
@@ -270,7 +237,7 @@ class Model:
             return super().__getattribute__(key)
 
         for attr in (self.states, self.params):
-            if key in attr.dtype.names:
+            if key in attr:
                 return attr[key]
 
         return super().__getattribute__(key)
@@ -313,8 +280,10 @@ class Model:
         if callable(reset:= getattr(self.solver, "reset", None)):
             reset()
             return
-        self.states.fill(self.initial_states)
-        self.gstates.fill(0.)
+        for var in self.states:
+            self.states[var].fill(self.initial_states[var])
+        for var in self.gstates:
+            self.gstates[var].fill(0.)
 
     def clip(self, states: dict = None) -> None:
         """Clip the State Variables
@@ -331,8 +300,8 @@ class Model:
         if callable(clip:= getattr(self.solver, "clip", None)):
             clip(states=states)
             return
-        for var in self.bounds.dtype.names:
-            states[var].clip(*self.bounds[var], out=states[var])
+        for var, bds in self.bounds.items():
+            states[var].clip(*bds, out=states[var])
 
     def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
         self.solver = new_solver(self, **solver_options)
@@ -390,7 +359,10 @@ class Model:
         # same shape as `t`, or a 2D array of shape `(len(t), self.num)`
         for var_name, stim in input_args.items():
             if var_name not in self.Inputs:
-                raise err.NeuralModelError(f"Extraneous input argument '{var_name}'")
+                raise err.NeuralModelError(
+                    f"Extraneous input argument '{var_name}', "
+                    f"support arguments are {self.Inputs.keys()}."
+                )
             if np.isscalar(stim):
                 continue
             stim = np.squeeze(stim)
@@ -424,8 +396,10 @@ class Model:
                 raise err.NeuralBackendError("Callback is not callable\n" f"{f}")
 
         # Solve
-        res = np.zeros((len(t), self.num), dtype=self.dtypes["states"])
-        res[0] = self.initial_states
+        res = {var: np.zeros((len(t), self.num)) for var in self.states}
+        for var, val in self.initial_states.items():
+            res[var][0] = val
+
         # run loop
         iters = enumerate(zip(t[:-1], stimuli), start=1)
         if verbose:
@@ -440,5 +414,73 @@ class Model:
             self.update(d_t, **_stim)
             for _func in extra_callbacks:
                 _func(self)
-            res[tt][:] = self.states
-        return res.T
+            for var, val in self.states.items():
+                res[var][tt][:] = val
+        return {var: val.T for var,val in res.items()}
+
+    def get_jacobian(self) -> tp.Callable:
+        """Compute Jacobian of Model
+
+        .. note::
+
+            Differing from :py:func:`Model.jacobian`, this function will always
+            `re-compute` jacobian, including re-parsing the model. This is
+            provided in case the model parameter has been changed in-place
+            and the jacobian needs to be updated.
+
+        Returns:
+            A callable :code:`jacc_f(t, states, I_ext)` that returns a 2D numpy
+            array corresponding to the jacobian of the model. For model that does
+            not require `I_ext` input, the callable's call signature is
+            :code:`jacc_f(t, states, I_ext)`.
+        """
+        jacc_f = None
+
+        try:
+            from sympy import lambdify
+
+            self._parsed_model = ParsedModel(self)
+            jacc = self._parsed_model.jacobian()
+            arguments = [
+                val
+                if name != "states"
+                else tuple(self._parsed_model.states.values())
+                for name, val in self._parsed_model.inputs.items()
+            ]
+            jacc_f = lambdify(arguments, jacc)
+
+        except Exception as e:
+            pass
+            # warn(
+            #     (
+            #         f"Model parser failed for '{self.__class__.__name__}', "
+            #         "this will disable automatic jacobian support. Traceback:\n"
+            #         f"{repr(e)}"
+            #     ),
+            #     err.NeuralModelWarning,
+            # )
+
+        # set the jacobian for model
+        self._jacobian = jacc_f
+        return jacc_f
+
+    @property
+    def jacobian(self) -> tp.Callable:
+        """Compute or return cached jacobian of the model
+
+        .. note::
+
+            You can override jacobian definition in child classes to enforce
+            a jacobian
+
+        .. seealso:: :py:func:`compNeuro.BaseModel.compute_jacobian`
+
+        Returns:
+            A callable :code:`jacc_f(t, states, I_ext)` that returns a 2D numpy
+            array corresponding to the jacobian of the model. For model that does
+            not require `I_ext` input, the callable's call signature is
+            :code:`jacc_f(t, states, I_ext)`.
+        """
+        if self._jacobian is not None:
+            return self._jacobian
+        return self.compute_jacobian()

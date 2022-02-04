@@ -1,3 +1,4 @@
+from copy import deepcopy
 import pytest
 import numpy as np
 from scipy.integrate import cumtrapz
@@ -18,10 +19,8 @@ class LeakyIAF(Model):
         self.d_v = 1.0 / self.c * (-self.v / self.r + stimulus)
 
     def post(self):
-        if self.v > self.vt:
-            self.v = self.vr
-            self.spike = 1.0
-
+        self.spike = np.piecewise(self.v, [self.v > self.vt, ], [1., 0.])
+        self.v = np.piecewise(self.v, [self.v > self.vt, ], [self.vr, self.v])
 
 def test_model():
     model = LeakyIAF()
@@ -97,9 +96,8 @@ def test_model_init(Model):
     assert model.states["x2"] == np.array([1.0])
     assert model.bounds["x2"][0] == 0.0
     assert model.bounds["x2"][1] == 10.0
-    with pytest.raises(ValueError):
+    with pytest.raises(KeyError):
         model.bounds["x1"]
-    np.testing.assert_equal(model.states, np.array([(0., 1.)], dtype=model.dtypes['states']))
 
     model = Model(a=10.0, num=10)
     assert model.params["a"] == 10.0
@@ -107,37 +105,21 @@ def test_model_init(Model):
     np.testing.assert_equal(model.states["x2"], np.full((10,), 1.0))
     assert model.bounds["x2"][0] == 0.0
     assert model.bounds["x2"][1] == 10.0
-    with pytest.raises(ValueError):
+    with pytest.raises(KeyError):
         model.bounds["x1"]
-    np.testing.assert_equal(
-        model.states,
-        np.array(
-            list(zip(
-                np.full((10,), 0.0),
-                np.full((10,), 1.0),
-            )), 
-            dtype=model.dtypes['states']
-        )
-    )
 
 def test_model_ode():
     model = DummyModel(a=10.0, x1=10.0)
     model.ode(I_ext=0.0)
-    grad = model.gstates
-    ref_grad = np.empty_like(grad)
-    ref_grad['x1'] = -model.states['x1'] * 10.
-    ref_grad['x2'] = 0
-    np.testing.assert_equal(grad, ref_grad)
+    assert model.gstates['x1'] == - model.states['x1'] * 10.
+    assert model.gstates['x2'] == 0
 
 
 def test_model_ode_multi_input():
     model = DummyModelMultiInputs(a=10.0, x1=10.0)
     model.ode(I_ext=0.0, Input2=2.0)
-    grad = model.gstates
-    ref_grad = np.empty_like(grad)
-    ref_grad['x1'] = -model.states['x1'] * 10.
-    ref_grad['x2'] = -2.
-    np.testing.assert_equal(grad, ref_grad)
+    assert model.gstates['x1'] == -model.states['x1'] * 10.
+    assert model.gstates['x2'] == -2.
 
 
 def test_model_solve():
