@@ -84,11 +84,12 @@ class Model:
                 states[key] = dtypes["states"][key](states[key])
 
             if not np.isscalar(val):
-                assert len(val) == 3, err.NeuralModelError(
-                    f"Variable {key} should be a scalar of a iterable "
-                    "of 3 elements (initial value, upper bound, lower bound) "
-                    f"but {val} is given."
-                )
+                if len(val) != 3:
+                    raise err.NeuralModelError(
+                        f"Variable {key} should be a scalar of a iterable "
+                        "of 3 elements (initial value, upper bound, lower bound) "
+                        f"but {val} is given."
+                    )
                 bounds[key] = (
                     dtypes["states"][key](val[1]),
                     dtypes["states"][key](val[2]),
@@ -98,9 +99,10 @@ class Model:
 
         # parse params
         for key, val in cls.Default_Params.items():
-            assert key not in cls.Default_States, err.NeuralModelError(
-                f"Parameters cannot have the same name as the States: '{key}'"
-            )
+            if key in cls.Default_States:
+                raise err.NeuralModelError(
+                    f"Parameters cannot have the same name as the States: '{key}'"
+                )
             if isinstance(val, np.generic):
                 dtypes["params"][key] = val.dtype
             else:
@@ -228,8 +230,8 @@ class Model:
             # make sure vector-valued parameters have the same shape as the number
             # of components in the model
             arr = getattr(self, attr)
-            assert arr.size in [1, self.num] and arr.ndim in [0, 1], \
-                err.NeuralModelError(
+            if not (arr.size in [1, self.num] and arr.ndim in [0, 1]):
+                raise err.NeuralModelError(
                     f"{attr.capitalize()} should be 0D/1D array of length 1 or num "
                     f"({self.num}), got {len(arr)} instead."
                 )
@@ -239,8 +241,11 @@ class Model:
                 setattr(self, attr, np.repeat(arr, self.num))
 
     def __setattr__(self, key: str, value: tp.Any):
-        if key[:2] == "d_":
-            assert key[2:] in self.gstates.dtype.names
+        if key.startswith("d_"):
+            if key[2:] not in self.gstates.dtype.names:
+                raise AttributeError(
+                    f"Attribute {key} assumed to be gradient, but not found in Model.gstates"
+                )
             self.gstates[key[2:]] = value
             return
 
@@ -258,7 +263,7 @@ class Model:
         super().__setattr__(key, value)
 
     def __getattr__(self, key: str):
-        if key[:2] == "d_":
+        if key.startswith("d_"):
             return self.gstates[key[2:]]
 
         if key in ["states", "params", "bounds"]:
