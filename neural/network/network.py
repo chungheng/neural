@@ -142,7 +142,7 @@ class Container(object):
         num: int,
         name: str = "",
     ):
-        self.obj = weakref.proxy(obj)
+        self.obj = obj
         self.num = num
         self.name = name
         self.vars = dict()
@@ -302,7 +302,7 @@ class Network:
                     f"Solver not found in supported solvers: '{solver}'"
                 )
         else:
-            if not issubclass(BaseSolver):
+            if not issubclass(solver, BaseSolver):
                 raise err.NeuralNetworkError(
                     "Solver must be a subclass of neural.solver.BaseSolver"
                 )
@@ -329,7 +329,7 @@ class Network:
 
         if (name := name or f"obj{len(self.containers)}") in self.containers:
             raise err.NeuralNetworkError(
-                f"Duplicate container name is not allowed: '{name}'"
+                f"Duplicate container name: '{name}'"
             )
 
         if isinstance(module, Model):
