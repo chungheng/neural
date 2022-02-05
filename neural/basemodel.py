@@ -132,31 +132,8 @@ class Model:
         except Exception as e:
             raise err.NeuralModelError(f"{cls.__name__}.post failed to execute") from e
 
-        for var, val in obj.states.items():
-            if not isinstance(val, np.ndarray):
-                raise err.NeuralModelError(
-                    f"state {var} should be a numpy array after running ode() and post()"
-                )
-            if val.shape != (obj.num,):
-                raise err.NeuralModelError(
-                    f"state {var} have the wrong shape after running ode() and post()"
-                )
-
         # store state variables with gradients
         cls.Derivates = [var for var,val in obj.gstates.items() if val is not None]
-
-        for var in cls.Derivates:
-            if not (np.isscalar(obj.gstates[var]) or isinstance(obj.gstates[var], np.ndarray)):
-                raise err.NeuralModelError(
-                    f"gstate {var} should be a numpy array or scalar after running ode() "
-                    f"and post(), got {type(val)} instead."
-                )
-            
-            if not np.isscalar(obj.gstates[var]) and obj.gstates[var].size != obj.num:
-                raise err.NeuralModelError(
-                    f"gstate {var} have the wrong shape after running ode() "
-                    f"and post(), got {obj.gstates[var].shape}."
-                )
 
     def __init__(
         self,
@@ -330,6 +307,12 @@ class Model:
             states[var].clip(*bds, out=states[var])
 
     def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
+        if (
+            new_solver == self.solver.__class__ 
+            and 
+            self.solver.solver_options == solver_options
+        ): 
+            return # no-op
         self.solver = new_solver(self, **solver_options)
         new_solver.recast_arrays(self)
 
