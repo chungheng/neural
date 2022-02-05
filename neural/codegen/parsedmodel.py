@@ -1,6 +1,7 @@
 """Parse BaseModel
 """
 import re
+import typing as tp
 from dataclasses import dataclass
 from numbers import Number
 import contextlib
@@ -19,7 +20,6 @@ from sympy.printing.latex import LatexPrinter
 from .. import types as tpe
 from .. import errors as err
 from ._ast_transformers import NumPy2SymPy
-from ..basemodel import Model as NeuralBaseModel
 
 
 if sys.version_info < (3, 9):
@@ -69,6 +69,8 @@ class RerouteGetattrSetattr:
 
     def __init__(self, parsedmodel):
         self.model = parsedmodel
+        self.old_getattr = None
+        self.old_setattr = None
 
     def __enter__(self):
         self.old_getattr = self.model.model.__class__.__getattr__
@@ -128,7 +130,7 @@ class ParsedModel:
             locals: a dictionary mapping local variables in Model.ode to sympy symbols
             raw_exprs: a list of tuple of str specifying (lhs, rhs) of each equality in Model.ode.
               If expression is not an equality in Model.ode, the entry is (None, expr)
-            disp_exprs: a list of sympy expressions corresponding to every line in Model.ode.
+            ode: a list of sympy expressions corresponding to every line in Model.ode.
               - This list of expressions is used for code generation and display
             gradients: a dictionary mapping state variables d_state to gradients after evaluating
               the entire Model.ode symbolically.
@@ -149,9 +151,8 @@ class ParsedModel:
         self.model = model
 
         # create sympy variables
-        _self = inspect.getfullargspec(model.ode).args[
-            0
-        ]  # get the str name of `self` in case it's different
+        # get the str name of `self` in case it's different
+        _self = inspect.getfullargspec(model.ode).args[0]  
         func_args = inspect.signature(model.ode)
         self.inputs = {}
         for n, arg in enumerate(func_args.parameters.values()):
@@ -164,7 +165,7 @@ class ParsedModel:
         self.states = {  # map model state name to sympy function
             key: Symbol(
                 name=key,
-                sym=sp.Function(key)(self.t_sym),
+                sym=sp.Function(key)(self.t_sym),  #pylint:disable=not-callable
                 default=default,
                 value=model.states[key],
             )
@@ -219,16 +220,14 @@ class ParsedModel:
                         name=tgt,
                         sym=sp.Symbol(
                             f"local_{tgt}"
-                        ),  # prefix with iota to avoid duplicate name
+                        ),  # prefix with local to avoid duplicate name
                     )
                 self.raw_exprs.append((tgt, src))
             else:
                 self.raw_exprs.append((None, src))
 
         # reroute getattr of model to return sympy symbols defined above
-        self.ode = (
-            []
-        )  # display expressions of the type sympy.Eq(target, source) for each equation
+        self.ode = [] # display expressions sympy.Eq(target, source)
         self._local_dict = dict()  # evaluate expressions
         # with self._reroute_getattr_setattr() as model:
         with RerouteGetattrSetattr(self) as model:
@@ -279,7 +278,7 @@ class ParsedModel:
         ]
         return sp.Matrix(list(self.gradients.values())).subs(sub_vars_sp)
 
-    def pprint(self, gradients=False) -> str:
+    def pprint(self, gradients=False):
         """Pretty Print Model in IPython Environments"""
         from IPython.display import Math  # pylint:disable=import-outside-toplevel
 
@@ -302,6 +301,17 @@ class ParsedModel:
             [symbol.sym for symbol in self.states.values()]
         )
         return jacc
+
+    def get_lambidified_jacobian(self) -> tp.Callable:
+        arguments = [
+            val
+            if name != "states"
+            else tuple(self.states.values())
+            for name, val in self.inputs.items()
+        ]
+        jacc_f = sp.lambdify(arguments, self.jacobian())
+        return jacc_f
+
 
     def __repr__(self):
         return f"Parsed Model of {self.model.__class__.__name__}"
