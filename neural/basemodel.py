@@ -117,26 +117,46 @@ class Model:
         cls.Inputs = inputs
 
         # validate class ode definition
-        cls.Derivates = [
-            key for key in states
-        ]  # temporarily set Derivates for all states
+        # temporarily set Derivates for all states
+        cls.Derivates = [ key for key in states]  
         obj = cls()
-        for key in states:
-            setattr(obj, key, 0.0)
-            setattr(obj, "d_" + key, None)
+        # set all gstates to None to filter out which gstates are actually set
+        obj.gstates = {var: None for var in obj.gstates}
         # call ode method, pass obj into argument as `self`
         try:
             obj.ode()
         except Exception as e:
-            raise err.NeuralModelError(f"{cls}.ode failed to execute") from e
+            raise err.NeuralModelError(f"{cls.__name__}.ode failed to execute") from e
+        try:
+            obj.post()
+        except Exception as e:
+            raise err.NeuralModelError(f"{cls.__name__}.post failed to execute") from e
+
+        for var, val in obj.states.items():
+            if not isinstance(val, np.ndarray):
+                raise err.NeuralModelError(
+                    f"state {var} should be a numpy array after running ode() and post()"
+                )
+            if val.shape != (obj.num,):
+                raise err.NeuralModelError(
+                    f"state {var} have the wrong shape after running ode() and post()"
+                )
 
         # store state variables with gradients
-        cls.Derivates = [
-            var
-            for var in states
-            if hasattr(obj, f"d_{var}") 
-            and getattr(obj, f"d_{var}") is not None
-        ]
+        cls.Derivates = [var for var,val in obj.gstates.items() if val is not None]
+
+        for var in cls.Derivates:
+            if not (np.isscalar(obj.gstates[var]) or isinstance(obj.gstates[var], np.ndarray)):
+                raise err.NeuralModelError(
+                    f"gstate {var} should be a numpy array or scalar after running ode() "
+                    f"and post(), got {type(val)} instead."
+                )
+            
+            if not np.isscalar(obj.gstates[var]) and obj.gstates[var].size != obj.num:
+                raise err.NeuralModelError(
+                    f"gstate {var} have the wrong shape after running ode() "
+                    f"and post(), got {obj.gstates[var].shape}."
+                )
 
     def __init__(
         self,
@@ -186,6 +206,12 @@ class Model:
         self.add_callback(callback)
         solver_kws = solver_kws or {}
         self.set_solver(solver, **solver_kws)
+
+        # create symbolic model
+        try:
+            self.symbolic = ParsedModel(self)
+        except Exception as e:
+            self.symbolic = None
 
     def _check_dimensions(self) -> None:
         """Ensure consistent dimensions for all parameters and states"""
@@ -429,40 +455,14 @@ class Model:
             and the jacobian needs to be updated.
 
         Returns:
-            A callable :code:`jacc_f(t, states, I_ext)` that returns a 2D numpy
-            array corresponding to the jacobian of the model. For model that does
-            not require `I_ext` input, the callable's call signature is
-            :code:`jacc_f(t, states, I_ext)`.
+            A callable :code:`jacc_f(t, states, **input_args)` that returns a 2D numpy
+            array corresponding to the jacobian of the model.
         """
-        jacc_f = None
-
-        try:
-            from sympy import lambdify
-
-            self._parsed_model = ParsedModel(self)
-            jacc = self._parsed_model.jacobian()
-            arguments = [
-                val
-                if name != "states"
-                else tuple(self._parsed_model.states.values())
-                for name, val in self._parsed_model.inputs.items()
-            ]
-            jacc_f = lambdify(arguments, jacc)
-
-        except Exception as e:
-            pass
-            # warn(
-            #     (
-            #         f"Model parser failed for '{self.__class__.__name__}', "
-            #         "this will disable automatic jacobian support. Traceback:\n"
-            #         f"{repr(e)}"
-            #     ),
-            #     err.NeuralModelWarning,
-            # )
-
+        if self.symbolic is None:
+            return None
         # set the jacobian for model
-        self._jacobian = jacc_f
-        return jacc_f
+        self._jacobian = self.symbolic.get_lambidified_jacobian()
+        return self._jacobian
 
     @property
     def jacobian(self) -> tp.Callable:
