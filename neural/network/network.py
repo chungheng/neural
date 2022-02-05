@@ -13,33 +13,37 @@ Examples:
     >>> nn.compile(dtype=dtype)
     >>> nn.run(dt, s=numpy.random.rand(10000))
 """
-import sys
-import warnings
-from collections import OrderedDict
+import inspect
+import weakref
 from functools import reduce
 from numbers import Number
-from inspect import isclass
 from warnings import warn
 import typing as tp
 import numpy as np
-import pycuda.gpuarray as garray
+import numpy.typing as npt
 from tqdm.auto import tqdm
 
 # pylint:disable=relative-beyond-top-level
 from ..basemodel import Model
 from ..recorder import Recorder
-from ..codegen.symbolic import SympyGenerator
-from ..utils import MINIMUM_PNG
+# from ..codegen.symbolic import SympyGenerator
 from .. import errors as err
-
+from .. import types as tpe
+from .. import utils
+from ..solver import SOLVERS, BaseSolver, Euler
 # pylint:enable=relative-beyond-top-level
 
+def _isarray(data) -> bool:
+    return hasattr(data, "__array_interface__") or hasattr(data, "__cuda_array_interface__")
+
+def _isiterator(data) -> bool:
+    return hasattr(data, "__next__") or hasattr(data, "__iter__")
 
 class Symbol(object):
     def __init__(
         self,
-        container: tp.Any,
-        key: str,  # DEBUG: container should be Container Type but it's only declared later
+        container: tpe.Container,
+        key: str
     ):
         self.container = container
         self.key = key
@@ -49,7 +53,7 @@ class Symbol(object):
         return attr.__getitem__(given)
 
 
-class Input(object):
+class Input:
     """Input Object for Neural Network
 
     Note:
@@ -60,70 +64,61 @@ class Input(object):
 
         The latter method is useful if an input object's value is to be read by
         multiple containers.
+    
+    FIXME: If num = 1, the output is broadcasted
     """
 
-    def __init__(self, num: int = None, name: str = None):
+    def __init__(self, num: int = 1, name: str = None):
         self.num = num
         self.name = name
         self.data = None
         self.steps = 0
         self.iter = None
         self.latex_src = "External stimulus"
-        self.graph_src = MINIMUM_PNG
+        self.graph_src = utils.model.MINIMUM_PNG
         self.value = None
 
-    def __call__(self, data):
-        if data.ndim == 1:
-            if self.num != 1 and self.num is not None:
-                raise err.NeuralNetworkInputError(
-                    f"Input '{self.name}' is specified with num={self.num} but was "
-                    f"given data of shape={data.shape}"
-                )
-        elif data.ndim == 2:
-            if self.num != data.shape[1]:
-                raise err.NeuralNetworkInputError(
-                    f"Input '{self.name}' is specified with num={self.num} but was "
-                    f"given data of shape={data.shape}"
-                )
-        else:
+    def __call__(self, data: tp.Union[npt.ArrayLike, tp.Iterable]):
+        if not _isarray(data) and not _isiterator(data):
             raise err.NeuralNetworkInputError(
-                f"Input '{self.name}' is given data of shape={data.shape}, only up-to "
-                "2D data is supported currently."
-            )
-        self.data = data
-        self.steps = len(data) if hasattr(data, "__len__") else 0
-        self.iter = iter(self.data)
-        if hasattr(data, "__iter__"):
-            self.iter = iter(self.data)
-        elif isinstance(data, garray.GPUArray):
-            self.iter = (x for x in self.data)
-        else:
-            raise TypeError()
+                    f"Input '{self.name}' data must be either array or iterator, "
+                    f"got {type(data)} instead."
+                )
 
+        steps = len(data) if _isarray(data) else 0
+        if _isarray(data):
+            if not data.flags.c_contiguous:
+                raise err.NeuralNetworkInputError(
+                    f"Input '{self.name}' ndarray must be c-contiguous"
+                )
+            if data.ndim not in [1,2]:
+                raise err.NeuralNetworkInputError(
+                    f"Input '{self.name}' is given data of shape={data.shape}, only up-to "
+                    "2D data is supported currently."
+                )
+            if data.ndim == 2 and self.num != data.shape[1]:
+                raise err.NeuralNetworkInputError(
+                    f"Input '{self.name}' is specified with num={self.num} but was "
+                    f"given data of shape={data.shape}"
+                )
+            steps = len(data)
+
+        self.data = data
+        self.steps = steps
+        self.reset()
         return self
 
-    def step(self):
+    def step(self) -> tpe.ScalarOrArray:
         self.value = next(self)
 
-    def __next__(self):
+    def __next__(self) -> tpe.ScalarOrArray:
         return next(self.iter)
 
     def reset(self) -> None:
         if hasattr(self.data, "__iter__"):
             self.iter = iter(self.data)
-        elif isinstance(self.data, garray.GPUArray):
-            if not self.data.flags.c_contiguous:
-                raise err.NeuralNetworkInputError(
-                    f"Input {self.name} has non-contiguous pyCuda GPUArray as data, "
-                    "need to be C-contiguous"
-                )
-            self.iter = (x for x in self.data)
         else:
-            raise err.NeuralNetworkInputError(
-                f"type of data {self.data} for input {self.name} not understood, "
-                "need to be iterable or PyCuda.GPUArray"
-            )
-
+            self.iter = (x for x in self.data)
 
 class Container(object):
     """
@@ -138,32 +133,32 @@ class Container(object):
     """
 
     def __init__(
-        self, obj: tp.Union[Model, Symbol, Number, Input], num: int, name: str = None
+        self, obj: tp.Union[tpe.Model, tpe.Symbol, Number, tpe.Input], num: int, name: str = ""
     ):
-        self.obj = obj
+        self.obj = weakref.proxy(obj)
         self.num = num
-        self.name = name or ""
+        self.name = name
         self.vars = dict()
-        self.inputs = dict()
+        self.inputs = weakref.WeakKeyDictionary()
         self.recorder = None
         self._rec = []
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Container[{self.obj}] - num {self.num}"
 
-    def __call__(self, **kwargs):
+    def __call__(self, **kwargs) -> tpe.Container:
         """Setup input connection to Container
-        Notes:
-            Calling a container has the following behaviors:
-                1. If container wraps a `Model` module, then:
-                    1. If called with a key that is part of the container variable,
-                        the value of that variable is set to the corresponding value
-                    2. If called with a key that is part of the input,
-                        check if the value is an acceptable type. Set the input if
-                        acceptable, else raise an error.
-                    3. If neither, then an error is raised.
-                2. If container does not wrap a `Model` instance, then assume that
-                    the value is an input
+
+        Calling a container has the following behaviors:
+          1. If container wraps a `Model` module, then:
+            1. If called with a key that is part of the container variable,
+              the value of that variable is set to the corresponding value
+            2. If called with a key that is part of the input,
+              check if the value is an acceptable type. Set the input if
+              acceptable, else raise an error.
+            3. If neither, then an error is raised.
+          2. If container does not wrap a `Model` instance, then assume that
+            the value is an input
         """
         for key, val in kwargs.items():
             if isinstance(self.obj, Model):
@@ -222,7 +217,7 @@ class Container(object):
             try:
                 _ = getattr(self.obj, arg)
             except AttributeError:
-                msg = NeuralRecorderWarning(
+                msg = err.NeuralRecorderWarning(
                     f"Attribute {arg} not found in {self.obj}, skipping"
                 )
                 warn(msg)
@@ -253,126 +248,148 @@ class Container(object):
 
     def _get_latex(self) -> str:
         latex_src = f"{self.obj.__class__.__name__}:<br><br>"
-        if isinstance(self.obj, Model):
-            sg = SympyGenerator(self.obj)
-            latex_src += sg.latex_src
-            variables = [f"\({x}\)" for x in sg.signature]
-            latex_src += "<br>Input: " + ", ".join(variables)
-            variables = []
-            for _k, _v in sg.variables.items():
-                if (_v.type in ["state", "intermediate"]) and _v.integral == None:
-                    variables.append(f"\({_k}\)")
-            latex_src += "<br>Variables: " + ", ".join(variables)
+        # FIXME: use updated API
+
+        # if isinstance(self.obj, Model):
+        #     sg = SympyGenerator(self.obj)
+        #     latex_src += sg.latex_src
+        #     variables = [rf"\({x}\)" for x in sg.signature]
+        #     latex_src += "<br>Input: " + ", ".join(variables)
+        #     variables = []
+        #     for _k, _v in sg.variables.items():
+        #         if (_v.type in ["state", "intermediate"]) and _v.integral == None:
+        #             variables.append(rf"\({_k}\)")
+        #     latex_src += "<br>Variables: " + ", ".join(variables)
 
         return latex_src
 
-    def _get_graph(self):
+    def _get_graph(self) -> bytes:
         if isinstance(self.obj, Model):
-            return self.obj.to_graph()
-        return MINIMUM_PNG
+            return utils.model.to_graph(self.obj)
+        return utils.model.MINIMUM_PNG
 
     @classmethod
     def isacceptable(cls, module_or_obj) -> bool:
-        """Check if a custom module or object is acceptable as Container"""
+        """Check if a custom module or object is acceptable as Container
+
+        Modules are accepted if they have an update method.
+        """
         return hasattr(module_or_obj, "update") and callable(module_or_obj.update)
 
-
-class Network(object):
+class Network:
     """Neural Network Object"""
 
-    def __init__(self, solver: str = "euler", backend: str = "cuda"):
-        self.containers = OrderedDict()
-        self.inputs = OrderedDict()
-        self.solver = solver
-        self.backend = backend
+    def __init__(self, solver: tpe.Solver = Euler):
+        self.containers = weakref.WeakKeyDictionary()
+        self.inputs = weakref.WeakKeyDictionary()
+        self.solver = self.validate_solver(solver)
         self._iscompiled = False
 
-    def input(self, num: int = None, name: str = None) -> Input:
+    @classmethod
+    def validate_solver(cls, solver: tp.Union[str, BaseSolver]) -> BaseSolver:
+        """Validate solver """
+        if isinstance(solver, str):
+            if (solver := getattr(SOLVERS, solver, None)) is None:
+                raise err.NeuralNetworkError(
+                    f"Solver not found in supported solvers: '{solver}'"
+                )
+        else:
+            if not issubclass(BaseSolver):
+                raise err.NeuralNetworkError(
+                    "Solver must be a subclass of neural.solver.BaseSolver"
+                )
+        return solver
+
+    def input(self, num: int = 1, name: str = None) -> Input:
         """Create input object"""
         name = name or f"input{len(self.inputs)}"
-        inp = Input(num=num, name=name)
-        self.inputs[name] = inp
+        self.inputs[name] = inp = Input(num=num, name=name)
         self._iscompiled = False
         return inp
 
     def add(
         self,
-        module,
+        module: tpe.Model,
         num: int = None,
         name: str = None,
-        record=None,
-        solver=None,
-        **kwargs,
-    ):
-        # backend = backend or self.backend
-        solver = solver or self.solver
-        name = name or f"obj{len(self.containers)}"
-        if name in self.containers:
+        record: tp.Iterable[str] = None,
+        solver: tpe.Solver = None,
+        **module_args,
+    ) -> Container:
+        solver_kws = module_args.pop('solver_kws', {})
+        solver = self.validate_solver(solver or self.solver)
+
+        if (name := name or f"obj{len(self.containers)}") in self.containers:
             raise err.NeuralNetworkError(
                 f"Duplicate container name is not allowed: '{name}'"
             )
 
-        record = record or []
         if isinstance(module, Model):
+            module.set_solver(solver, **solver_kws)
             obj = module
         elif issubclass(module, Model):
-            obj = module(solver=solver, **kwargs)
-        elif isclass(module):
+            obj = module(solver=solver, solver_kws=solver_kws, **module_args)
+        elif inspect.isclass(module):
             if not Container.isacceptable(module):
                 raise err.NeuralNetworkError(
-                    f"{module} is not an acceptable Container type"
+                    f"{module} is not an acceptable module type for Container"
                 )
-            kwargs["size"] = num
-            obj = module(**kwargs)  # , backend=backend)
+            module_args["size"] = num
+            obj = module(**module_args)
         else:
             raise err.NeuralNetworkError(
-                f"{module} is not a submodule nor an instance of {Model}"
+                f"{module} is not accepted as module for Container. "
+                "Must be instance of, subclass of or supports update() "
+                "API of neural.basemodel.Model."
             )
 
-        container = Container(obj, num, name)
+        self.containers[name] = container = Container(obj, num=num, name=name)
         if record is not None:
-            if isinstance(record, (tuple, list)):
-                container.record(*record)
-            else:
-                container.record(record)
+            container.record(*list(record))
 
-        self.containers[name] = container
         self._iscompiled = False
         return container
 
     def run(
         self,
-        dt: float,
+        d_t: float,
         steps: int = 0,
         rate: int = 1,
         verbose: str = None,
+        solver: tp.Union[str, BaseSolver] = None,
+        gpu_bufsize: int = 500,
         **kwargs,
     ) -> None:
         """Run Network
 
         Keyword Arguments:
-            dt: step size in second
+            d_t: step size in second
             steps: number of steps to run, inferred from input if not specified
-            rate: frequency of recording output
+            rate: frequency of recording output, default to recording every step
             verbose: Content to show for progressbar, set to `None`(default) to disable.
+            solver: solver to use
+            gpu_bufsize: gpu buffer size for recorder before transfering to cpu. only applicable
+              for solvers that use gpu
         """
         if not self._iscompiled:
             raise err.NeuralNetworkCompileError(
                 "Please compile before running the network."
             )
 
-        solver = kwargs.pop("solver", self.solver)
-        gpu_buffer = kwargs.pop("gpu_buffer", 500)
+        if solver is not None:
+            solver = self.validate_solver(solver)
+            for name, cont in self.containers.items():
+                cont.obj.set_solver(solver)
 
         # calculate number of steps
         steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
         for name, val in self.inputs.items():
             if val.steps == 0:
-                warnings.warn(f"Input '{name}' has 0 steps", UserWarning)
+                warn(f"Input '{name}' has 0 steps", err.NeuralNetworkWarning)
 
         # create recorders
         for c in self.containers.values():
-            recorder = c.set_recorder(steps, rate, gpu_buffer=gpu_buffer)
+            recorder = c.set_recorder(steps, rate, gpu_buffer=gpu_bufsize)
 
         # reset everything
         self.reset()
@@ -386,7 +403,7 @@ class Network(object):
                 iterator = tqdm(iterator, total=steps, dynamic_ncols=True)
 
         for i in iterator:
-            self.update(dt, i)
+            self.update(d_t, i)
 
     def reset(self) -> None:
         """Reset everything"""
@@ -397,14 +414,14 @@ class Network(object):
 
         # reset Model variables
         for c in self.containers.values():
-            if isinstance(c.obj, Model):
+            if hasattr(c.obj, 'reset') and callable(c.obj.reset):
                 c.obj.reset()
 
         # reset inputs
         for input in self.inputs.values():
             input.reset()
 
-    def update(self, dt: float, idx: int) -> None:
+    def update(self, d_t: float, idx: int) -> None: # FIXME: idx should not be part of the argument
         """Update Network and all components
 
         Arguments:
@@ -432,7 +449,7 @@ class Network(object):
 
             if isinstance(c.obj, Model):
                 try:
-                    c.obj.update(dt, **args)
+                    c.obj.update(d_t, **args)
                 except Exception as e:
                     raise err.NeuralNetworkUpdateError(
                         f"Update Failed for Model [{c.obj}]"
@@ -450,10 +467,8 @@ class Network(object):
                 c.recorder.update(idx)
 
     def compile(
-        self, dtype: tp.Any = None, debug: bool = False, backend: str = "cuda"
+        self, dtype: npt.DTypeLike = np.float_, debug: bool = False
     ) -> None:
-        backend = backend or self.backend
-        dtype = dtype or np.float64
         for c in self.containers.values():
             dct = {}
             for key, val in c.inputs.items():
@@ -492,7 +507,7 @@ class Network(object):
             if hasattr(c.obj, "compile"):
                 try:
                     if isinstance(c.obj, Model):
-                        c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
+                        c.obj.compile(dtype=dtype, num=c.num, **dct)
                     else:
                         c.obj.compile(**dct)
                 except Exception as e:
