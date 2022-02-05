@@ -1,3 +1,4 @@
+#pylint:disable=arguments-differ
 from copy import deepcopy
 import pytest
 import numpy as np
@@ -19,8 +20,8 @@ class LeakyIAF(Model):
         self.d_v = 1.0 / self.c * (-self.v / self.r + stimulus)
 
     def post(self):
-        self.spike = np.piecewise(self.v, [self.v > self.vt, ], [1., 0.])
-        self.v = np.piecewise(self.v, [self.v > self.vt, ], [self.vr, self.v])
+        self.spike = np.where(self.v > self.vt, 1., 0.)  #pylint:disable=access-member-before-definition
+        self.v = np.where(self.v > self.vt, self.vr, self.v)
 
 def test_model():
     model = LeakyIAF()

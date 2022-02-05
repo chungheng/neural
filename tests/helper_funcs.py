@@ -4,7 +4,7 @@
 
 import pytest
 import numpy as np
-from neural.utils.signal import average_snr
+from neural.utils.signal import average_snr  #pylint:disable=no-name-in-module
 from scipy import signal
 
 

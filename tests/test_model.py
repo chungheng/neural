@@ -18,6 +18,7 @@ from neural.model.neuron import (
 NEURON_MODELS = [IAF, LeakyIAF, HodgkinHuxley, Wilson, Rinzel, ConnorStevens]
 BACKENDS = ["cuda", "scalar", "numpy"]
 
+
 @pytest.fixture
 def input_signal():
     dt, dur = 1e-5, 0.2
@@ -72,11 +73,12 @@ def test_default_neurons_cpu(input_signal, Model):
         model.update(dt, stimulus=wav)
         record[i] = model.v
 
+
 @pytest.mark.parametrize("Model", NEURON_MODELS)
 def test_default_neurons_compiled(input_signal, Model):
     dt, dur, t, waveform = input_signal
     waveform_g = garray.to_gpu(np.ascontiguousarray(waveform))
-    record = np.zeros((len(BACKENDS),len(waveform)))
+    record = np.zeros((len(BACKENDS), len(waveform)))
 
     for n, Backend in enumerate(BACKENDS):
         model = Model()

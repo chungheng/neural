@@ -122,7 +122,7 @@ def test_random_signal(data):
     assert sig.shape == (num, len(t))
 
     # test Power
-    for v in np.mean(sig ** 2, axis=-1):
+    for v in np.mean(sig**2, axis=-1):
         assert np.abs(v - 1) < 1e-10
 
     # test Bandwidth
