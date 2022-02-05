@@ -2,8 +2,14 @@
 """
 import collections
 from .base_solver import BaseSolver, Euler
-from ._scipy import SciPySolver
+from ._scipy import (
+    RK45Solver,
+    RK23Solver,
+    DOP853Solver,
+    RadauSolver,
+    LSODASolver,
+)
 
 SOLVERS = collections.namedtuple(
-    "Solvers", "euler scipy"
-)(Euler, SciPySolver)
+    "Solvers", "euler RK45 RK23 DOP853 Radau LSODA"
+)(Euler, RK45Solver, RK23Solver, DOP853Solver, RadauSolver, LSODASolver,)

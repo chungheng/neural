@@ -12,6 +12,7 @@ from .. import errors as err
 
 class SciPySolver(BaseSolver):
     """SciPy OdeSolvers
+
     .. warning::
 
         Because this solver uses :py:module:`scipy.integrate.OdeSolver`
@@ -29,7 +30,7 @@ class SciPySolver(BaseSolver):
             solver_options['t_bound'] = np.inf
         super().__init__(model, **solver_options)
 
-        self._ode = self.get_wrapped_ode()
+        self.ode = self.get_wrapped_ode()
         self._t = 0
         self.set_initial_value(
             t0=self._t,
@@ -38,7 +39,7 @@ class SciPySolver(BaseSolver):
         self._dense_output = None
         self.jac = self.model.jacobian
 
-    def set_initial_value(self, t0=0, **initial_states):
+    def set_initial_value(self, t0:float = 0, **initial_states):
         """Change initial value of solver
 
         .. note::
@@ -56,12 +57,12 @@ class SciPySolver(BaseSolver):
                 **initial_states
                 }.items()
         })
-        self._solver = self.SolverCls(self._ode, t0, y0, **self.solver_options)
+        self._solver = self.SolverCls(self.ode, t0, y0, **self.solver_options)
 
     def _states_to_vec(self, states: dict) -> None:
         return np.vstack(list(states.values())).ravel()
     
-    def _vec_to_states(self, vec: np.ndarray, ref_state=None) -> dict:
+    def _vec_to_states(self, vec: np.ndarray, ref_state: dict = None) -> dict:
         return {
             var: arr
             for var, arr
