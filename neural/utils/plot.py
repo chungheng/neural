@@ -6,14 +6,9 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker, colors
 import numpy as np
 import matplotlib.pyplot as plt
-from . import errors as err
+from .. import errors as err
 
-COLOR_NORMS = tp.Union[
-    "none",
-    "log",
-    "discrete",
-    "power",
-]
+COLOR_NORMS = tp.Literal["none", "log", "discrete", "power"]
 
 
 def plot_multiple(

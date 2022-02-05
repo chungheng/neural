@@ -6,3 +6,5 @@ from .signal import (
     nextpow2, fft, spike_detect, spike_detect_local,
     convolve
 )
+
+from . import plot
