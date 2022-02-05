@@ -4,7 +4,7 @@ Basic random point process.
 import random
 import numpy as np
 
-from .basemodel import Model
+from ..basemodel import Model
 
 
 class PoissonProcess(Model):

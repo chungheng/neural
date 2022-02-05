@@ -117,7 +117,7 @@ class Square(Operator):
                 "square",
             )
         else:
-            self._update = lambda x: x ** 2
+            self._update = lambda x: x**2
 
 
 class Sqrt(Operator):

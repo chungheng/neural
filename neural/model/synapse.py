@@ -58,8 +58,8 @@ class GABAB(Model):
             self.r += self.ar * (1.0 - self.r)
 
     def get_conductance(self):
-        temp = self.s ** self.n
-        half = self.kd ** self.n
+        temp = self.s**self.n
+        half = self.kd**self.n
         return self.gmax * temp / (temp + half)
 
 
