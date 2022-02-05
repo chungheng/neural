@@ -6,6 +6,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from .. import types as tpe
 
+
 def _dict_iadd_(dct_a: dict, dct_b: dict) -> dict:
     """Add dictionaries inplace"""
     for key in dct_a.keys():

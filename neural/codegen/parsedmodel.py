@@ -152,7 +152,7 @@ class ParsedModel:
 
         # create sympy variables
         # get the str name of `self` in case it's different
-        _self = inspect.getfullargspec(model.ode).args[0]  
+        _self = inspect.getfullargspec(model.ode).args[0]
         func_args = inspect.signature(model.ode)
         self.inputs = {}
         for n, arg in enumerate(func_args.parameters.values()):
@@ -165,7 +165,7 @@ class ParsedModel:
         self.states = {  # map model state name to sympy function
             key: Symbol(
                 name=key,
-                sym=sp.Function(key)(self.t_sym),  #pylint:disable=not-callable
+                sym=sp.Function(key)(self.t_sym),  # pylint:disable=not-callable
                 default=default,
                 value=model.states[key],
             )
@@ -227,7 +227,7 @@ class ParsedModel:
                 self.raw_exprs.append((None, src))
 
         # reroute getattr of model to return sympy symbols defined above
-        self.ode = [] # display expressions sympy.Eq(target, source)
+        self.ode = []  # display expressions sympy.Eq(target, source)
         self._local_dict = dict()  # evaluate expressions
         # with self._reroute_getattr_setattr() as model:
         with RerouteGetattrSetattr(self) as model:
@@ -304,14 +304,11 @@ class ParsedModel:
 
     def get_lambidified_jacobian(self) -> tp.Callable:
         arguments = [
-            val
-            if name != "states"
-            else tuple(self.states.values())
+            val if name != "states" else tuple(self.states.values())
             for name, val in self.inputs.items()
         ]
         jacc_f = sp.lambdify(arguments, self.jacobian())
         return jacc_f
-
 
     def __repr__(self):
         return f"Parsed Model of {self.model.__class__.__name__}"

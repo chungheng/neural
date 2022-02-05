@@ -37,7 +37,7 @@ class Model:
           represents the name (`key`) and the default value (`value`) of one
           parameters.
         Variables (dict): mapping of variable str name to type ['state', 'params']
-        Inputs (dict): mapping of input name to default value as defined by 
+        Inputs (dict): mapping of input name to default value as defined by
           :py:func:`Model.ode`
 
     Attributes:
@@ -118,7 +118,7 @@ class Model:
 
         # validate class ode definition
         # temporarily set Derivates for all states
-        cls.Derivates = [ key for key in states]  
+        cls.Derivates = [key for key in states]
         obj = cls()
         # set all gstates to None to filter out which gstates are actually set
         obj.gstates = {var: None for var in obj.gstates}
@@ -133,7 +133,7 @@ class Model:
             raise err.NeuralModelError(f"{cls.__name__}.post failed to execute") from e
 
         # store state variables with gradients
-        cls.Derivates = [var for var,val in obj.gstates.items() if val is not None]
+        cls.Derivates = [var for var, val in obj.gstates.items() if val is not None]
 
     def __init__(
         self,
@@ -172,7 +172,7 @@ class Model:
 
         self.initial_states = copy.deepcopy(self.states)
         self.gstates = {
-            var:np.zeros_like(arr) 
+            var: np.zeros_like(arr)
             for var, arr in self.states.items()
             if var in self.Derivates
         }
@@ -196,7 +196,7 @@ class Model:
         for attr in ["params", "states", "gstates", "initial_states"]:
             # make sure vector-valued parameters have the same shape as the number
             # of components in the model
-            for key,arr in (dct := getattr(self, attr)).items():
+            for key, arr in (dct := getattr(self, attr)).items():
                 if np.isscalar(arr) and attr in ["params", "initial_states"]:
                     continue
                 arr = np.asarray(arr)
@@ -277,16 +277,16 @@ class Model:
 
     def reset(self) -> None:
         """Reset state values.
-        
+
         Sets states to initial values, and sets gstates to 0.
         """
-        if callable(reset:= getattr(self.solver, "reset", None)):
+        if callable(reset := getattr(self.solver, "reset", None)):
             reset()
             return
         for var in self.states:
             self.states[var].fill(self.initial_states[var])
         for var in self.gstates:
-            self.gstates[var].fill(0.)
+            self.gstates[var].fill(0.0)
 
     def clip(self, states: dict = None) -> None:
         """Clip the State Variables
@@ -300,7 +300,7 @@ class Model:
         given bounds.
         """
         states = self.states if states is None else states
-        if callable(clip:= getattr(self.solver, "clip", None)):
+        if callable(clip := getattr(self.solver, "clip", None)):
             clip(states=states)
             return
         for var, bds in self.bounds.items():
@@ -308,11 +308,10 @@ class Model:
 
     def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
         if (
-            new_solver == self.solver.__class__ 
-            and 
-            self.solver.solver_options == solver_options
-        ): 
-            return # no-op
+            new_solver == self.solver.__class__
+            and self.solver.solver_options == solver_options
+        ):
+            return  # no-op
         self.solver = new_solver(self, **solver_options)
         new_solver.recast_arrays(self)
 
@@ -376,9 +375,8 @@ class Model:
                 continue
             stim = np.squeeze(stim)
             if not (
-                (stim.ndim == 1 and len(stim) == len(t)) 
-                or 
-                (stim.ndim == 2 and stim.shape == (len(t), self.num))
+                (stim.ndim == 1 and len(stim) == len(t))
+                or (stim.ndim == 2 and stim.shape == (len(t), self.num))
             ):
                 raise err.NeuralModelError(
                     f"Stimulus '{var_name}' must be scalar or 1D/2D array of "
@@ -394,7 +392,7 @@ class Model:
                 for var, val in input_args.items()
                 if var in self.Inputs
             }
-            for tt in range(len(t)-1)
+            for tt in range(len(t) - 1)
         )
         # Register callback that is executed after every euler step.
         extra_callbacks = (
@@ -425,7 +423,7 @@ class Model:
                 _func(self)
             for var, val in self.states.items():
                 res[var][tt][:] = val
-        return {var: val.T for var,val in res.items()}
+        return {var: val.T for var, val in res.items()}
 
     def get_jacobian(self) -> tp.Callable:
         """Compute Jacobian of Model

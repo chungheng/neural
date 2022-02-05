@@ -26,25 +26,28 @@ from tqdm.auto import tqdm
 # pylint:disable=relative-beyond-top-level
 from ..basemodel import Model
 from ..recorder import Recorder
+
 # from ..codegen.symbolic import SympyGenerator
 from .. import errors as err
 from .. import types as tpe
 from .. import utils
 from ..solver import SOLVERS, BaseSolver, Euler
+
 # pylint:enable=relative-beyond-top-level
 
+
 def _isarray(data) -> bool:
-    return hasattr(data, "__array_interface__") or hasattr(data, "__cuda_array_interface__")
+    return hasattr(data, "__array_interface__") or hasattr(
+        data, "__cuda_array_interface__"
+    )
+
 
 def _isiterator(data) -> bool:
     return hasattr(data, "__next__") or hasattr(data, "__iter__")
 
+
 class Symbol(object):
-    def __init__(
-        self,
-        container: tpe.Container,
-        key: str
-    ):
+    def __init__(self, container: tpe.Container, key: str):
         self.container = container
         self.key = key
 
@@ -64,7 +67,7 @@ class Input:
 
         The latter method is useful if an input object's value is to be read by
         multiple containers.
-    
+
     FIXME: If num = 1, the output is broadcasted
     """
 
@@ -81,9 +84,9 @@ class Input:
     def __call__(self, data: tp.Union[npt.ArrayLike, tp.Iterable]):
         if not _isarray(data) and not _isiterator(data):
             raise err.NeuralNetworkInputError(
-                    f"Input '{self.name}' data must be either array or iterator, "
-                    f"got {type(data)} instead."
-                )
+                f"Input '{self.name}' data must be either array or iterator, "
+                f"got {type(data)} instead."
+            )
 
         steps = len(data) if _isarray(data) else 0
         if _isarray(data):
@@ -91,7 +94,7 @@ class Input:
                 raise err.NeuralNetworkInputError(
                     f"Input '{self.name}' ndarray must be c-contiguous"
                 )
-            if data.ndim not in [1,2]:
+            if data.ndim not in [1, 2]:
                 raise err.NeuralNetworkInputError(
                     f"Input '{self.name}' is given data of shape={data.shape}, only up-to "
                     "2D data is supported currently."
@@ -120,6 +123,7 @@ class Input:
         else:
             self.iter = (x for x in self.data)
 
+
 class Container(object):
     """
     A wrapper holds an Model instance with symbolic reference to its variables.
@@ -133,7 +137,10 @@ class Container(object):
     """
 
     def __init__(
-        self, obj: tp.Union[tpe.Model, tpe.Symbol, Number, tpe.Input], num: int, name: str = ""
+        self,
+        obj: tp.Union[tpe.Model, tpe.Symbol, Number, tpe.Input],
+        num: int,
+        name: str = "",
     ):
         self.obj = weakref.proxy(obj)
         self.num = num
@@ -276,6 +283,7 @@ class Container(object):
         """
         return hasattr(module_or_obj, "update") and callable(module_or_obj.update)
 
+
 class Network:
     """Neural Network Object"""
 
@@ -287,7 +295,7 @@ class Network:
 
     @classmethod
     def validate_solver(cls, solver: tp.Union[str, BaseSolver]) -> BaseSolver:
-        """Validate solver """
+        """Validate solver"""
         if isinstance(solver, str):
             if (solver := getattr(SOLVERS, solver, None)) is None:
                 raise err.NeuralNetworkError(
@@ -316,7 +324,7 @@ class Network:
         solver: tpe.Solver = None,
         **module_args,
     ) -> Container:
-        solver_kws = module_args.pop('solver_kws', {})
+        solver_kws = module_args.pop("solver_kws", {})
         solver = self.validate_solver(solver or self.solver)
 
         if (name := name or f"obj{len(self.containers)}") in self.containers:
@@ -414,14 +422,16 @@ class Network:
 
         # reset Model variables
         for c in self.containers.values():
-            if hasattr(c.obj, 'reset') and callable(c.obj.reset):
+            if hasattr(c.obj, "reset") and callable(c.obj.reset):
                 c.obj.reset()
 
         # reset inputs
         for input in self.inputs.values():
             input.reset()
 
-    def update(self, d_t: float, idx: int) -> None: # FIXME: idx should not be part of the argument
+    def update(
+        self, d_t: float, idx: int
+    ) -> None:  # FIXME: idx should not be part of the argument
         """Update Network and all components
 
         Arguments:
@@ -466,9 +476,7 @@ class Network:
             if c.recorder is not None:
                 c.recorder.update(idx)
 
-    def compile(
-        self, dtype: npt.DTypeLike = np.float_, debug: bool = False
-    ) -> None:
+    def compile(self, dtype: npt.DTypeLike = np.float_, debug: bool = False) -> None:
         for c in self.containers.values():
             dct = {}
             for key, val in c.inputs.items():

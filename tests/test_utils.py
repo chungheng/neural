@@ -1,4 +1,4 @@
-#pylint:disable=no-member
+# pylint:disable=no-member
 """Test Utility Module of CompNeuro
 
 Tests:
@@ -17,6 +17,7 @@ from neural import utils  # pylint:disable=import-error
 DT = 1e-4
 DUR = 1.0
 T = np.arange(0, DUR, DT)
+
 
 @pytest.fixture
 def data():
@@ -39,6 +40,7 @@ def test_stimuli(data):
     step_ref[np.logical_and(t >= start, t < stop)] = amp
     print(np.sum(step), np.sum(step_ref))
     np.testing.assert_allclose(step, step_ref)
+
 
 @pytest.fixture
 def spikes(data):
@@ -122,6 +124,7 @@ def test_random_signal(data):
     np.testing.assert_equal(sig1_2, sig2_2)
     np.testing.assert_equal(sig1_3, sig2_3)
 
+
 @pytest.fixture
 def signal_data():
     dt = 1e-4
@@ -152,6 +155,7 @@ def matrix_data():
 def spike_data():
     spikes = np.random.rand(100, len(T)) < 0.5
     return spikes.astype(float)
+
 
 def test_spikes_detect():
     volt = np.array([0.0, 1.0, 0.0, 0.0, 5.0, 2.0, 0.0])

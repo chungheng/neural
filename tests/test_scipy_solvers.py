@@ -16,7 +16,6 @@ from neural.model.neuron import (
 )
 
 
-
 MIN_SNR = 25
 DECIMAL = 0
 
@@ -75,11 +74,11 @@ class Exp(Model):
     Default_Params = dict(a=1.0)
     Default_States = dict(y=0.0)
 
-    def ode(self, I_ext=0.):
-        self.d_y = - self.a * self.y
+    def ode(self, I_ext=0.0):
+        self.d_y = -self.a * self.y
 
     def jacobian(self, t, states):
-        d_y = - self.a * states
+        d_y = -self.a * states
         return np.diag(d_y)
 
 
@@ -87,7 +86,7 @@ class ExpInp(Model):
     Default_Params = dict(a=1.0)
     Default_States = dict(y=0.0)
 
-    def ode(self, I_ext=0.):
+    def ode(self, I_ext=0.0):
         self.d_y = -self.a * self.y + I_ext
 
     # You can override the Jacobian method by providing your own callable
@@ -109,7 +108,7 @@ def test_ivp_solver(data, solver):
         t_eval=t,
         args=(a,),
         method=solver,
-        max_step=t[1]-t[0]
+        max_step=t[1] - t[0],
     ).y
     # assert_snr(exact_sol, np.squeeze(ivp_sol), MIN_SNR)
     np.testing.assert_almost_equal(exact_sol, np.squeeze(ivp_sol), decimal=DECIMAL)
@@ -124,11 +123,13 @@ def test_neural_solver(data, solver):
     # neural_sol = neu.solve(t, solver=solver, verbose=False)["y"]
     # assert_snr(exact_sol, np.squeeze(neural_sol), MIN_SNR)
 
-    neu = Exp(num=10, a=a, y=y0, solver=solver, solver_kws=dict(max_step=t[1]-t[0]))
+    neu = Exp(num=10, a=a, y=y0, solver=solver, solver_kws=dict(max_step=t[1] - t[0]))
     neural_sol = neu.solve(t, verbose=False)["y"]
     assert len(neural_sol) == 10 == neu.num
     # assert_snr(exact_sol, np.squeeze(neural_sol)[0], MIN_SNR)
-    np.testing.assert_almost_equal(exact_sol, np.squeeze(neural_sol)[0], decimal=DECIMAL)
+    np.testing.assert_almost_equal(
+        exact_sol, np.squeeze(neural_sol)[0], decimal=DECIMAL
+    )
 
 
 @pytest.mark.parametrize("solver", ["vode", "lsoda", "dopri5", "dop853"])
@@ -163,26 +164,32 @@ def test_ivp_solver_inp(data, solver):
         t_eval=t,
         args=(a,),
         method=solver,
-        max_step=(t[1] - t[0])
+        max_step=(t[1] - t[0]),
     ).y
     # assert_snr(exact_sol, np.squeeze(ivp_sol), MIN_SNR)
     np.testing.assert_almost_equal(exact_sol, np.squeeze(ivp_sol), decimal=DECIMAL)
+
 
 @pytest.mark.parametrize("solver", SOLVERS)
 def test_neural_solver_inp(data, solver):
     t, a, y0, u = data
     exact_sol = exact_solution_inp(t, a, y0, u)
 
-    neu = ExpInp(a=a, y=y0, solver=solver, solver_kws=dict(max_step=t[1]-t[0]))
+    neu = ExpInp(a=a, y=y0, solver=solver, solver_kws=dict(max_step=t[1] - t[0]))
     neural_sol = neu.solve(t, I_ext=u, verbose=False)["y"]
     # assert_snr(exact_sol, np.squeeze(neural_sol), MIN_SNR)
     np.testing.assert_almost_equal(exact_sol, np.squeeze(neural_sol), decimal=DECIMAL)
 
-    neu = ExpInp(num=10, a=a, y=y0, solver=solver, solver_kws=dict(max_step=t[1]-t[0]))
+    neu = ExpInp(
+        num=10, a=a, y=y0, solver=solver, solver_kws=dict(max_step=t[1] - t[0])
+    )
     neural_sol = neu.solve(t, I_ext=u, verbose=False)["y"]
     assert len(neural_sol) == 10 == neu.num
     # assert_snr(exact_sol, np.squeeze(neural_sol)[0], MIN_SNR)
-    np.testing.assert_almost_equal(exact_sol, np.squeeze(neural_sol)[0], decimal=DECIMAL)
+    np.testing.assert_almost_equal(
+        exact_sol, np.squeeze(neural_sol)[0], decimal=DECIMAL
+    )
+
 
 @pytest.mark.parametrize("solver", ["vode", "lsoda", "dopri5", "dop853"])
 def test_ode_solver_inp(data, solver):
@@ -192,7 +199,7 @@ def test_ode_solver_inp(data, solver):
 
     ode_sol = np.zeros_like(t)
     ode_sol[0] = y0
-    ode_solver = ode(exp_inp_f).set_integrator(solver, max_step=t[1]-t[0])
+    ode_solver = ode(exp_inp_f).set_integrator(solver, max_step=t[1] - t[0])
     ode_solver.set_initial_value([y0], t.min()).set_f_params(a)
 
     tt = 0
@@ -206,7 +213,14 @@ def test_ode_solver_inp(data, solver):
 
 @pytest.mark.parametrize(
     "Model",
-    [IAF, LeakyIAF, Rinzel, Wilson, ConnorStevens, HodgkinHuxley,]
+    [
+        IAF,
+        LeakyIAF,
+        Rinzel,
+        Wilson,
+        ConnorStevens,
+        HodgkinHuxley,
+    ],
 )
 def test_model_solver(neuron_data, Model):
     t, a, u, interp_f = neuron_data

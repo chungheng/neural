@@ -1,4 +1,4 @@
-#pylint:disable=arguments-differ
+# pylint:disable=arguments-differ
 from copy import deepcopy
 import pytest
 import numpy as np
@@ -20,8 +20,11 @@ class LeakyIAF(Model):
         self.d_v = 1.0 / self.c * (-self.v / self.r + stimulus)
 
     def post(self):
-        self.spike = np.where(self.v > self.vt, 1., 0.)  #pylint:disable=access-member-before-definition
+        self.spike = np.where(
+            self.v > self.vt, 1.0, 0.0
+        )  # pylint:disable=access-member-before-definition
         self.v = np.where(self.v > self.vt, self.vr, self.v)
+
 
 def test_model():
     model = LeakyIAF()
@@ -109,18 +112,19 @@ def test_model_init(Model):
     with pytest.raises(KeyError):
         model.bounds["x1"]
 
+
 def test_model_ode():
     model = DummyModel(a=10.0, x1=10.0)
     model.ode(I_ext=0.0)
-    assert model.gstates['x1'] == - model.states['x1'] * 10.
-    assert model.gstates['x2'] == 0
+    assert model.gstates["x1"] == -model.states["x1"] * 10.0
+    assert model.gstates["x2"] == 0
 
 
 def test_model_ode_multi_input():
     model = DummyModelMultiInputs(a=10.0, x1=10.0)
     model.ode(I_ext=0.0, Input2=2.0)
-    assert model.gstates['x1'] == -model.states['x1'] * 10.
-    assert model.gstates['x2'] == -2.
+    assert model.gstates["x1"] == -model.states["x1"] * 10.0
+    assert model.gstates["x2"] == -2.0
 
 
 def test_model_solve():
@@ -200,7 +204,10 @@ def test_model_solve_multi():
     # 3. If I_ext is 2D, it must have the right shape
     I_ext = np.random.randn(len(t), num + 1)
     Input2 = np.random.randn(len(t), num + 1)
-    with pytest.raises(NeuralModelError, match=r".* must be scalar or 1D/2D array of same length as t .*"):
+    with pytest.raises(
+        NeuralModelError,
+        match=r".* must be scalar or 1D/2D array of same length as t .*",
+    ):
         model.solve(t, I_ext=I_ext, Input2=Input2)
     # 4. If I_ext is not 1 or 2D, it will error
     I_ext = np.random.randn(len(t), 2, num + 1)

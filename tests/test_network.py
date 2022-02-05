@@ -6,11 +6,14 @@ from neural.recorder import Recorder, CUDARecorder, NumpyRecorder, ScalarRecorde
 from neural.network import Container, Network, Symbol
 from neural import utils
 from neural import errors
+
 try:
     import pycuda.autoinit
+
     CUDA = True
 except:
     CUDA = False
+
 
 @pytest.fixture
 def single_spike_data():

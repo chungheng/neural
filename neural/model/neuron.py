@@ -22,8 +22,8 @@ class IAF(Model):
         self.d_v = 1.0 / self.c * (stimulus + self.bias)
 
     def post(self):
-        self.spike = np.where(self.v > self.vt, 1., 0.)
-        self.v = np.where(self.v > self.vt, 0., self.v)
+        self.spike = np.where(self.v > self.vt, 1.0, 0.0)
+        self.v = np.where(self.v > self.vt, 0.0, self.v)
 
 
 class LeakyIAF(Model):
@@ -39,7 +39,7 @@ class LeakyIAF(Model):
         self.d_v = 1.0 / self.c * (-self.v / self.r + stimulus)
 
     def post(self):
-        self.spike = np.where(self.v > self.vt, 1., 0.)
+        self.spike = np.where(self.v > self.vt, 1.0, 0.0)
         self.v = np.where(self.v > self.vt, self.vr, self.v)
 
 
@@ -65,7 +65,7 @@ class Rinzel(Model):
 
         alpha = np.exp(-(self.v + 55.0) / 10.0) - 1.0
         beta = 0.125 * np.exp(-(self.v + 65.0) / 80.0)
-        alpha = np.where(np.abs(alpha)<=1e-7, 0.1, -0.01 * (self.v + 55.0) / alpha)
+        alpha = np.where(np.abs(alpha) <= 1e-7, 0.1, -0.01 * (self.v + 55.0) / alpha)
         n_infty = alpha / (alpha + beta)
 
         alpha = np.exp(-(self.v + 40.0) / 10.0) - 1.0
@@ -153,13 +153,17 @@ class ConnorStevens(Model):
     def ode(self, stimulus=0.0):
 
         alpha = np.exp(-(self.v + 50.0 + self.ns) / 10.0) - 1.0
-        alpha = np.where(np.abs(alpha) <= 1e-7, 0.1, -0.01 * (self.v + 50.0 + self.ns) / alpha)
+        alpha = np.where(
+            np.abs(alpha) <= 1e-7, 0.1, -0.01 * (self.v + 50.0 + self.ns) / alpha
+        )
         beta = 0.125 * np.exp(-(self.v + 60.0 + self.ns) / 80.0)
         n_inf = alpha / (alpha + beta)
         tau_n = 2.0 / (3.8 * (alpha + beta))
 
         alpha = np.exp(-(self.v + 35.0 + self.ms) / 10.0) - 1.0
-        alpha = np.where(np.abs(alpha) <= 1e-7, 1.0, -0.1 * (self.v + 35.0 + self.ms) / alpha)
+        alpha = np.where(
+            np.abs(alpha) <= 1e-7, 1.0, -0.1 * (self.v + 35.0 + self.ms) / alpha
+        )
         beta = 4.0 * np.exp(-(self.v + 60.0 + self.ms) / 18.0)
         m_inf = alpha / (alpha + beta)
         tau_m = 1.0 / (3.8 * (alpha + beta))
@@ -212,7 +216,7 @@ class HodgkinHuxley(Model):
         self.d_n = np.where(
             np.abs(alpha) <= 1e-7,
             0.1 * (1.0 - self.n) - beta * self.n,
-            (-0.01 * (self.v + 55.0) / alpha) * (1.0 - self.n) - beta * self.n
+            (-0.01 * (self.v + 55.0) / alpha) * (1.0 - self.n) - beta * self.n,
         )
 
         alpha = np.exp(-(self.v + 40.0) / 10.0) - 1.0
@@ -221,7 +225,7 @@ class HodgkinHuxley(Model):
         self.d_m = np.where(
             np.abs(alpha) <= 1e-7,
             (1.0 - self.m) - beta * self.m,
-            (-0.1 * (self.v + 40.0) / alpha) * (1.0 - self.m) - beta * self.m
+            (-0.1 * (self.v + 40.0) / alpha) * (1.0 - self.m) - beta * self.m,
         )
 
         alpha = 0.07 * np.exp(-(self.v + 65.0) / 20.0)

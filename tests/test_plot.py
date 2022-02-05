@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import matplotlib.pyplot as plt
-from neural import plot
+from neural.utils import plot
 import neural.errors as err
 
 DT = 1e-4

@@ -28,12 +28,14 @@ import numpy as np
 import numpy.typing as npt
 from .. import errors as err
 
-#pylint:disable=no-member
+# pylint:disable=no-member
 def create_rng(seed: tp.Union[int, np.random.RandomState]):
-    if isinstance(seed, np.random.RandomState): 
+    if isinstance(seed, np.random.RandomState):
         return seed
     return np.random.RandomState(seed)
-#pylint:enable=no-member
+
+
+# pylint:enable=no-member
 
 
 def generate_stimulus(
@@ -246,8 +248,8 @@ def average_snr(u: np.ndarray, u_rec: np.ndarray, err_bias: float = 0.0) -> floa
     .. seealso:: :func:`snr`
     """
     _err = u - u_rec
-    _err_pow = np.mean(_err ** 2)
-    _sig_pow = np.mean(u ** 2)
+    _err_pow = np.mean(_err**2)
+    _sig_pow = np.mean(u**2)
     return 10 * np.log10(_sig_pow / (err_bias + _err_pow))
 
 
@@ -279,7 +281,7 @@ def random_signal(
     fs = 1 / (t[1] - t[0])
     b, a = butter(5, bw, btype="low", analog=False, fs=fs)
     sig = lfilter(b, a, wn, axis=-1)
-    sig_pow = np.mean(sig ** 2, axis=-1)
+    sig_pow = np.mean(sig**2, axis=-1)
     sig /= np.sqrt(sig_pow)[:, None]  # RMS power normalization
     return sig
 

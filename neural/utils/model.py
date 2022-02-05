@@ -3,6 +3,7 @@ import zlib
 from binascii import unhexlify
 from .. import types as tpe
 
+
 def chunk(tipe, data):
     return (
         struct.pack(">I", len(data))
@@ -36,6 +37,7 @@ def to_graph(model: tpe.Model, local: bool = False):
     # except Exception as e:
     #     raise err.NeuralModelError("Unknown Error to 'Model.to_graph' call") from e
     # return VariableAnalyzer(cls).to_graph(local=local)
+
 
 def to_latex(model: tpe.Model):
     """Convert Circuit Equation to Latex

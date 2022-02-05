@@ -12,19 +12,20 @@ from tqdm.auto import tqdm
 from .. import errors as err
 from .. import types as tpe
 
+
 class BaseSolver:
     def __init__(self, model: tpe.Model, **solver_options) -> None:
         self.model = weakref.proxy(model)
 
-        # cache options in case reinstantiation is 
+        # cache options in case reinstantiation is
         # required for initial value setting
         self.solver_options = solver_options or {}
 
     @classmethod
     def recast_arrays(cls, model: tpe.Model) -> None:
         """Recast states/gstates/params/bounds into ndarray modules compatible with the solver"""
-        for attr in ['states', 'gstates', 'bounds', 'params']:
-            for key,arr in (dct := getattr(model, attr)).items():
+        for attr in ["states", "gstates", "bounds", "params"]:
+            for key, arr in (dct := getattr(model, attr)).items():
                 dct[key] = np.asarray(arr)
 
     @abstractmethod
