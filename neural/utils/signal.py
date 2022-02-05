@@ -23,29 +23,10 @@ import numpy as np
 from scipy.signal import butter, lfilter, find_peaks
 from scipy.signal import convolve as scipy_convolve
 from numbers import Number
-import struct
-import zlib
 import typing as tp
-from binascii import unhexlify
 import numpy as np
 import numpy.typing as npt
 from .. import errors as err
-
-def chunk(tipe, data):
-    return (
-        struct.pack(">I", len(data))
-        + tipe
-        + data
-        + struct.pack(">I", zlib.crc32(tipe + data))
-    )
-
-
-MINIMUM_PNG = (
-    b"\x89PNG\r\n\x1A\n"
-    + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0))
-    + chunk(b"IDAT", unhexlify(b"789c6300010000050001"))
-    + chunk(b"IEND", b"")
-)
 
 #pylint:disable=no-member
 def create_rng(seed: tp.Union[int, np.random.RandomState]):
