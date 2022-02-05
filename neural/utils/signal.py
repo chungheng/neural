@@ -37,101 +37,6 @@ def create_rng(seed: tp.Union[int, np.random.RandomState]):
 
 # pylint:enable=no-member
 
-
-def generate_stimulus(
-    mode: str,
-    d_t: float,
-    duration: float,
-    support: tp.Tuple[float, float],
-    amplitude: tp.Union[float, np.ndarray],
-    sigma: float = None,
-    dtype: npt.DTypeLike = np.float64,
-    **kwargs,
-) -> np.ndarray:
-    """
-    Stimuli generator
-
-    Arguments:
-        mode: shape of the waveform.
-        d_t: the sampling interval for the stimuli.
-        duration: the duration of the stimuli.
-        support: two time points at which the stimulus starts and ends.
-        amplitude: the amplitudes of the stimuli.
-        sigma: variance of zero-mean Gaussian noise added to the waveform.
-        ratio: a real number between 0,1 that indicates the point within
-            :code:`support` where stimulus reaches the peak. Only applicable
-            if :code:`mode` is either `"parabola"` or `"ramp"`.
-    """
-
-    def _generate_step(waveforms, d_t, support, amplitude, **kwargs):
-        """
-        Generate a set of step stimuli.
-
-        No extra keyword argument is needed.
-        """
-        start = int(support[0] // d_t)
-        stop = int(support[1] // d_t)
-
-        for wav, amp in zip(waveforms, amplitude):
-            wav[start:stop] = amp
-
-    def _generate_ramp(waveforms, d_t, support, amplitude, **kwargs):
-        """
-        Generate a set of ramp stimuli.
-
-        keyword arguments:
-            ratio (float): a real number between 0 and 1. The point between
-                `start` and `stop` where the stimulus reachs its peak.
-        """
-        ratio = kwargs.pop("ratio", 0.9)
-
-        start = int(support[0] // d_t)
-        stop = int(support[1] // d_t)
-        peak = int((1.0 - ratio) * start + ratio * stop)
-
-        for wav, amp in zip(waveforms, amplitude):
-            wav[start:peak] = np.linspace(0.0, amp, peak - start)
-            wav[peak:stop] = np.linspace(amp, 0.0, stop - peak)
-
-    def _generate_parabola(waveforms, d_t, support, amplitude, **kwargs):
-        """
-        Generate a set of parabolic stimuli.
-
-        keyword arguments:
-            ratio (float): a real number between 0 and 1. The point between
-                `start` and `stop` where the stimulus reachs its peak.
-        """
-        ratio = kwargs.pop("ratio", 0.95)
-
-        start = int(support[0] // d_t)
-        stop = int(support[1] // d_t)
-        peak = int((1.0 - ratio) * start + ratio * stop)
-
-        for wav, amp in zip(waveforms, amplitude):
-            wav[start:peak] = amp * np.linspace(0.0, 1, peak - start) ** 2
-            wav[peak:stop] = amp * np.linspace(1, 0.0, stop - peak) ** 2
-
-    Nt = int((duration + d_t / 2) // d_t)
-
-    shape = (len(amplitude), Nt) if hasattr(amplitude, "__len__") else (Nt,)
-    waveforms = np.zeros(shape, dtype=dtype)
-
-    if isinstance(mode, str):
-        tmp = "_generate_%s" % mode
-        assert tmp in locals(), f"Stimulus type {mode} is not supported..."
-        generator = locals()[tmp]
-
-    # ad-hoc way to deal with amplitude being a scalar or a list
-    if hasattr(amplitude, "__len__"):
-        generator(waveforms, d_t, support, amplitude, **kwargs)
-    else:
-        generator([waveforms], d_t, support, [amplitude], **kwargs)
-
-    if sigma is not None:
-        waveforms += sigma * np.random.rand(*shape)
-    return waveforms
-
-
 def generate_spike_from_psth(
     d_t: float, psth: np.ndarray, num: int = 1, seed: int = None
 ) -> np.ndarray:
@@ -202,6 +107,129 @@ def compute_psth(
     stamps = np.arange(0, len(rates) * interval - d_t, interval)
 
     return rates, stamps
+
+def generate_stimulus(
+    mode: str,
+    d_t: float,
+    duration: float,
+    support: tp.Tuple[float, float],
+    amplitude: tp.Union[float, np.ndarray],
+    sigma: float = None,
+    dtype: npt.DTypeLike = np.float64,
+    **kwargs,
+) -> np.ndarray:
+    """
+    Stimuli generator
+
+    Arguments:
+        mode: shape of the waveform.
+        d_t: the sampling interval for the stimuli.
+        duration: the duration of the stimuli.
+        support: two time points at which the stimulus starts and ends.
+        amplitude: the amplitudes of the stimuli.
+        sigma: variance of zero-mean Gaussian noise added to the waveform.
+    
+    Keyword Arguments:
+        ratio: a real number between 0,1 that indicates the point within
+            :code:`support` where stimulus reaches the peak. 
+            - Only applicable if :code:`mode` is either `"parabola"` or `"ramp"`.
+        psth: a numpy array correspoding to spike rate. 
+            - Only applicable if :code:`mode` is `"spike"`
+        seed: seed for random number generator
+            - Only applicable if :code:`mode` is `"spike"`
+    """
+
+    def _generate_step(waveforms, d_t, support, amplitude, **kwargs):
+        """
+        Generate a set of step stimuli.
+
+        No extra keyword argument is needed.
+        """
+        start = int(support[0] // d_t)
+        stop = int(support[1] // d_t)
+
+        for wav, amp in zip(waveforms, amplitude):
+            wav[start:stop] = amp
+        return waveforms
+
+    def _generate_ramp(waveforms, d_t, support, amplitude, **kwargs):
+        """
+        Generate a set of ramp stimuli.
+
+        keyword arguments:
+            ratio (float): a real number between 0 and 1. The point between
+                `start` and `stop` where the stimulus reachs its peak.
+        """
+        ratio = kwargs.pop("ratio", 0.9)
+
+        start = int(support[0] // d_t)
+        stop = int(support[1] // d_t)
+        peak = int((1.0 - ratio) * start + ratio * stop)
+
+        for wav, amp in zip(waveforms, amplitude):
+            wav[start:peak] = np.linspace(0.0, amp, peak - start)
+            wav[peak:stop] = np.linspace(amp, 0.0, stop - peak)
+        return waveforms
+
+    def _generate_parabola(waveforms, d_t, support, amplitude, **kwargs):
+        """
+        Generate a set of parabolic stimuli.
+
+        keyword arguments:
+            ratio (float): a real number between 0 and 1. The point between
+                `start` and `stop` where the stimulus reachs its peak.
+        """
+        ratio = kwargs.pop("ratio", 0.95)
+
+        start = int(support[0] // d_t)
+        stop = int(support[1] // d_t)
+        peak = int((1.0 - ratio) * start + ratio * stop)
+
+        for wav, amp in zip(waveforms, amplitude):
+            wav[start:peak] = amp * np.linspace(0.0, 1, peak - start) ** 2
+            wav[peak:stop] = amp * np.linspace(1, 0.0, stop - peak) ** 2
+        return waveforms
+
+    def _generate_spike(waveforms, d_t, support, amplitude, **kwargs):
+        """
+        Generate poisson spike train based on PSTH
+
+        Keyword Argumnets:
+            psth: 1D ndarray of PSTH. If not supported, default to
+              step waveform with amplitude
+            seed: random seed of poisson process
+        """
+        psth = np.atleast_2d(kwargs.pop(
+            "psth",
+            _generate_step(waveforms, d_t, support, amplitude)
+        ))
+        seed = kwargs.pop('seed', None)
+        return np.vstack([
+            np.squeeze(generate_spike_from_psth(d_t, _psth, num=1, seed=seed))
+            for _psth in psth
+        ])
+
+    Nt = int((duration + d_t / 2) // d_t)
+
+    shape = (len(amplitude), Nt) if hasattr(amplitude, "__len__") else (Nt,)
+    waveforms = np.zeros(shape, dtype=dtype)
+
+    if isinstance(mode, str):
+        tmp = "_generate_%s" % mode
+        assert tmp in locals(), f"Stimulus type {mode} is not supported..."
+        generator = locals()[tmp]
+
+    waveforms = generator(
+        np.atleast_2d(waveforms),
+        d_t,
+        support,
+        np.atleast_1d(amplitude),
+        **kwargs
+    )
+
+    if sigma is not None:
+        waveforms += sigma * np.random.rand(*shape)
+    return np.squeeze(waveforms)
 
 
 def snr(u: np.ndarray, u_rec: np.ndarray, err_bias: float = 0.0) -> np.ndarray:
