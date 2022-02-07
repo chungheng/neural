@@ -17,3 +17,4 @@ from .signal import (
 
 from . import plot
 from . import model
+from .array import *
