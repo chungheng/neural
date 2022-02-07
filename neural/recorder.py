@@ -67,12 +67,8 @@ class Recorder:
                     else:
                         dtype = np.float_
             elif isarray(src):
-                try:
-                    shape = (len(src), self.steps)
-                    gpu_shape = (len(src), self.gpu_bufsize)
-                except:
-                    shape = (src.size, self.steps)
-                    gpu_shape = (src.size, self.gpu_bufsize)
+                shape = (len(src), self.steps)
+                gpu_shape = (len(src), self.gpu_bufsize)
                 dtype = cudaarray_to_cpu(src).dtype
             else:
                 raise err.NeuralRecorderError(
@@ -87,13 +83,6 @@ class Recorder:
                             dtype=src.dtype,
                             order='F'
                         )
-                except TypeError:
-                    buf = get_array_module(src).zeros(
-                        gpu_shape,
-                        dtype=src.dtype,
-                        device=src.device
-                    )
-                    self.gpu_buf[key] = buf.t().contiguous().t() # make torch array f-contiguous
                 except:
                     warn(
                         "Creating gpu buffer for CUDA array failed, "

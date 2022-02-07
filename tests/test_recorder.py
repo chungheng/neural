@@ -6,7 +6,6 @@ from neural.utils.array import cudaarray_to_cpu
 
 import numpy as np
 import sys
-to_torch = None
 to_cupy = None
 to_gpuarray = None
 try:
@@ -20,12 +19,6 @@ try:
     to_gpuarray = lambda x: gpuarray.to_gpu(x)
 except:
     pass
-try:
-    import torch
-    to_torch = lambda x: torch.from_numpy(x).to(device='cuda') #pylint:disable=no-member
-except:
-    pass
-
 
 class FakeData:
     def __init__(self, steps=100, num=10):
@@ -79,7 +72,7 @@ class FakeData:
 def data():
     return FakeData()
 
-@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray, to_torch])
+@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray])
 def test_construction(data, conversion_f):
     """Test that __new__ generates the correct recorders"""
     data.to_cpu()
@@ -101,7 +94,7 @@ def test_construction(data, conversion_f):
         assert rec.gpu_buf[attr].shape == (data.num, rec.gpu_bufsize)
 
 
-@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray, to_torch])
+@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray])
 def test_continous_recording(data, conversion_f):
     # Continous data in CPU
     rec = Recorder(data, ["attr"], data.steps, rate=1)
@@ -165,7 +158,7 @@ def test_continous_recording(data, conversion_f):
     np.testing.assert_equal(rec.attr, data.arr[::rate].T)
     np.testing.assert_equal(rec.attr, rec2.attr)
 
-@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray, to_torch])
+@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray])
 def test_spike_recording(data, conversion_f):
     # Spiking data in CPU
     rec = Recorder(data, ["attr_spike"], data.steps, rate=1)
