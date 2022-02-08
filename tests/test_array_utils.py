@@ -143,6 +143,5 @@ def test_create_empty(conversion_f, dtype):
                 assert iscontiguous(c, order)
 
                 d = create_empty(shape, dtype=dtype, order=order, like=b)
-                assert c.shape == shape
-                assert c.dtype == b.dtype
-                assert iscontiguous(c, order) == iscontiguous(b, order)
+                assert d.shape == shape
+                assert d.dtype == b.dtype

@@ -57,39 +57,11 @@ def create_empty(
         return get_array_module(like).empty(
             shape,
             dtype=dtype,
-            order='F' if iscontiguous(like, 'F') else 'C' if iscontiguous(like, 'C') else order
+            order='C' if like.flags.c_contiguous else 'F' if like.flags.f_contiguous else order
         )
     if dtype is None:
         raise err.NeuralUtilityError("dtype and like cannot both be None")
-    return get_array_module(like).empty(
-        shape,
-        dtype=dtype,
-        order=order
-    )
-
-def create_zeros(
-    shape,
-    dtype: npt.DTypeLike = None,
-    order: tp.Literal['C', 'F']='C',
-    like: npt.ArrayLike=None
-) -> npt.ArrayLike:
-    if like is not None:
-        if not isarray(like):
-            raise err.NeuralUtilityError("'like' is not an array.")
-        if hasattr(like, 'dtype'):
-            dtype = like.dtype
-        elif isinstance(like, Number):
-            dtype = np.int_ if isinstance(like, int) else np.complex_ if isinstance(like, Complex) else np.float_
-        else:
-            raise err.NeuralUtilityError("Cannot infer dtype from 'like'")
-        return get_array_module(like).zeros(
-            shape,
-            dtype=dtype,
-            order='F' if iscontiguous(like, 'F') else 'C' if iscontiguous(like, 'C') else order
-        )
-    if dtype is None:
-        raise err.NeuralUtilityError("dtype and like cannot both be None")
-    return get_array_module(like).zeros(
+    return np.empty(
         shape,
         dtype=dtype,
         order=order
