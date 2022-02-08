@@ -1,7 +1,7 @@
 #pylint:disable=no-member
 import pytest
 from neural.utils.array import (
-    isarray, iscudaarray, create_empty_like,
+    isarray, iscudaarray, create_empty,
     isiterator, get_array_module, cudaarray_to_cpu,
     iscontiguous
 )
@@ -124,3 +124,25 @@ def test_is_contiguous(conversion_f, dtype):
     for arr in [a_dis, b_dis]:
         assert iscontiguous(arr, 'C') is False
         assert iscontiguous(arr, 'F') is False
+
+
+@pytest.mark.parametrize('conversion_f', [lambda x: x, to_cupy, to_gpuarray])
+@pytest.mark.parametrize('dtype', [np.float_, np.int_, np.float32])
+def test_create_empty(conversion_f, dtype):
+    for a in [
+        np.array(0., dtype=dtype),
+        np.arange(10).astype(dtype),
+        np.random.randn(5, 10).astype(dtype)
+    ]:
+        b = conversion_f(a)
+        for shape in [(1,), (5,), (2,3), (4,5)]:
+            for order in ['C', 'F']:
+                c = create_empty(shape, dtype=dtype, order=order, like=None)
+                assert c.shape == shape
+                assert c.dtype == dtype
+                assert iscontiguous(c, order)
+
+                d = create_empty(shape, dtype=dtype, order=order, like=b)
+                assert c.shape == shape
+                assert c.dtype == b.dtype
+                assert iscontiguous(c, order) == iscontiguous(b, order)

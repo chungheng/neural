@@ -7,13 +7,26 @@ from warnings import warn
 from inspect import getfullargspec
 import typing as tp
 import numpy as np
+import inspect
+import textwrap
+import ast
+import numba
 from .solver import BaseSolver, Euler
 from tqdm.auto import tqdm
 from . import types as tpe
 from . import errors as err
-from .utils.array import isarray
+from .utils.array import create_empty, cudaarray_to_cpu, get_array_module, isarray, iscudaarray
 from .codegen.parsedmodel import ParsedModel
 
+
+def _is_implemented(func: tp.Callable) -> bool:
+    try:
+        func()
+        return True
+    except (NotImplementedError, TypeError):
+        return False
+    finally:
+        return True
 
 class Model:
     """Base Model Class
@@ -52,7 +65,16 @@ class Model:
     Default_States: tp.Dict = None
     Default_Params: tp.Dict = None
     Time_Scale: float = 1.0
-    solver = Euler
+    solver: BaseSolver = Euler
+
+    vectorized: bool = True
+    """Controls if model can be vectorized
+
+    If `False`, then the Model.ode is always executed without vectorization
+    via numba.
+    In this case, :code:`_ode_cuda` method will not be generated and cuda-support
+    is allowed only if :code:`Model._ode_cuda` is explicitly defined in the model.
+    """
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
@@ -117,6 +139,11 @@ class Model:
 
         cls.Inputs = inputs
 
+        # # ode function definition
+        # # 1. _ode_scalar is set to ode if not specified
+        # if _is_implemented(cls._ode_scalar()):
+
+
         # validate class ode definition
         # temporarily set Derivates for all states
         cls.Derivates = [key for key in states]
@@ -170,10 +197,6 @@ class Model:
                 dct = getattr(self, name)
                 if key in dct:
                     ref_dtype = dct[key].dtype
-                    if isarray(val) and len(val) != num:
-                        raise err.NeuralModelError(
-                            f"Value for state {key} has length {len(val)}, expect {num}"
-                        )
                     if hasattr(val, 'dtype') and val.dtype != ref_dtype:
                         warn(
                             (
@@ -183,11 +206,7 @@ class Model:
                             ),
                             err.NeuralModelWarning
                         )
-                        val = val.astype(ref_dtype)
-                    if np.isscalar(val):
-                        val = ref_dtype.type(val)
-                    dct[key] = val
-                    continue
+                    dct[key] = ref_dtype.type(val) if np.isscalar(val) else val.astype(ref_dtype)
 
         self.initial_states = copy.deepcopy(self.states)
         self.gstates = {
@@ -195,7 +214,7 @@ class Model:
             for var, arr in self.states.items()
             if var in self.Derivates
         }
-        self._check_dimensions()
+        self.set_num(num)
 
         self.callbacks = []
         callback = [] if callback is None else callback
@@ -213,25 +232,67 @@ class Model:
         solver_kws = solver_kws or {}
         self.set_solver(solver, **solver_kws)
 
-    def _check_dimensions(self) -> None:
-        """Ensure consistent dimensions for all parameters and states"""
+    def set_num(self, num:int = None, drop:bool=False, keep_idx:int=0) -> None:
+        """Set number of model
 
+        Arguments:
+            num: number of model components
+            drop: whether to force the number change. This is only
+              applicable when the current number is greater than 1
+              and the new number is 1 or None (scalar).
+              If `True`, the :code:`keep_idx` will be saved
+              from the original array. If `False` an Exception
+              will be raised when trying to go from array to scalar
+        """
+        if not (num is None or num >= 1):
+            raise err.NeuralModelError("num must be None or an integer greater than 0.")
+        to_scalar = num in [None, 1]
         for attr in ["params", "states", "gstates", "initial_states"]:
             # make sure vector-valued parameters have the same shape as the number
             # of components in the model
             for key, arr in (dct := getattr(self, attr)).items():
-                if np.isscalar(arr) and attr in ["params", "initial_states"]:
-                    continue
-                arr = np.asarray(arr)
-                if not (arr.size in [1, self.num] and arr.ndim in [0, 1]):
-                    raise err.NeuralModelError(
-                        f"{attr.capitalize()}['{key}'] should be 0D/1D array of length 1 or num "
-                        f"({self.num}), got {len(arr)} instead: {arr}"
-                    )
-                if attr in ["params", "initial_states"]:
-                    continue
-                if arr.size == 1:
-                    dct[key] = np.repeat(arr, self.num)
+                # to scalar
+                if to_scalar:
+                    if np.isscalar(arr) or arr.ndim ==0: # scalar
+                        pass
+                    elif drop: # keep a slice of array
+                        arr = arr[keep_idx]
+                    else:
+                        raise err.NeuralModelError(
+                            f"Changing number from {self.num} to {num} "
+                            f"requires dropping array components for {attr}.{key}."
+                            "If you want to keep only a specific slice of the array, "
+                            "set `drop` and `keep_idx` arguments."
+                        )
+                # to array
+                elif np.isscalar(arr) or arr.ndim == 0: # repeat
+                    if (module := get_array_module(arr)) is None: # scalar
+                        arr = np.full((num,), arr)
+                    try:
+                        arr = module.repeat(arr, num)
+                    except AttributeError:
+                        if iscudaarray(arr):
+                            val = cudaarray_to_cpu(arr).item()
+                        elif isarray(arr):
+                            val = arr.item()
+                        else:
+                            val = arr
+                        new_arr = create_empty((num,), like=arr)
+                        new_arr.fill(val)
+                        arr = new_arr
+                    except Exception as e:
+                        raise err.NeuralModelError(
+                            f"Cannot create array for {attr}.{key}"
+                        ) from e
+                # to array and already array - check dimension
+                else:
+                    if len(arr) != num:
+                        raise err.NeuralModelError(
+                            f"Existing array of {attr}.{key} has length {len(arr)}, "
+                            f"does not match the desired number {num}"
+                        )
+                dct[key] = arr
+        self.num = num
 
     def __setattr__(self, key: str, value: tp.Any):
         if key.startswith("d_"):
@@ -268,11 +329,27 @@ class Model:
 
         return super().__getattribute__(key)
 
-    @abstractmethod
     def ode(self, **input_args) -> None:
         """
         The set of ODEs defining the dynamics of the model.
+
+        .. note::
+
+            ODE implements a scalar (element-wise) implementation
+            of the model
         """
+        raise NotImplementedError
+
+    def _ode_vectorized(self, **input_args) -> None:
+        """ODE kernel where params and states are assumed to be vectors or broadcast-able to vectors
+        """
+        raise NotImplementedError
+
+    def _ode_cuda(self, **input_args) -> None:
+        """vectorized ODE kernel for CUDA arrays
+        """
+        raise NotImplementedError
+
 
     def post(self, **post_args) -> None:
         """Post Processing
@@ -283,6 +360,16 @@ class Model:
         Another usage of this function could be the spike detection for
         conductance-based models.
         """
+
+    def _post_vectorized(self, **post_args) -> None:
+        """Vectorized Post computation
+        """
+        raise NotImplementedError
+
+    def _post_cuda(self, **post_args) -> None:
+        """Vectorized Post computation on CUDA
+        """
+        raise NotImplementedError
 
     def update(self, d_t: float, **input_args) -> None:
         """Update model value

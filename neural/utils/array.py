@@ -1,4 +1,5 @@
-from numbers import Number
+from numbers import Complex, Number
+import typing as tp
 import re
 import inspect
 import sys
@@ -38,12 +39,61 @@ def get_array_module(arr: npt.ArrayLike) -> ModuleType:
         return sys.modules['cupy']
     raise err.NeuralUtilityError(f"Cannot get array module of array: {arr}")
 
-def create_empty_like(arr: npt.ArrayLike) -> npt.ArrayLike:
-    if not isarray(arr):
-        raise err.NeuralUtilityError("Argument is not array")
-    if not iscudaarray(arr):
-        return np.empty_like(arr)
-    return get_array_module(arr).empty_like(arr)
+def create_empty(
+    shape,
+    dtype: npt.DTypeLike = None,
+    order: tp.Literal['C', 'F']='C',
+    like: npt.ArrayLike=None
+) -> npt.ArrayLike:
+    if like is not None:
+        if not isarray(like):
+            raise err.NeuralUtilityError("'like' is not an array.")
+        if hasattr(like, 'dtype'):
+            dtype = like.dtype
+        elif isinstance(like, Number):
+            dtype = np.int_ if isinstance(like, int) else np.complex_ if isinstance(like, Complex) else np.float_
+        else:
+            raise err.NeuralUtilityError("Cannot infer dtype from 'like'")
+        return get_array_module(like).empty(
+            shape,
+            dtype=dtype,
+            order='F' if iscontiguous(like, 'F') else 'C' if iscontiguous(like, 'C') else order
+        )
+    if dtype is None:
+        raise err.NeuralUtilityError("dtype and like cannot both be None")
+    return get_array_module(like).empty(
+        shape,
+        dtype=dtype,
+        order=order
+    )
+
+def create_zeros(
+    shape,
+    dtype: npt.DTypeLike = None,
+    order: tp.Literal['C', 'F']='C',
+    like: npt.ArrayLike=None
+) -> npt.ArrayLike:
+    if like is not None:
+        if not isarray(like):
+            raise err.NeuralUtilityError("'like' is not an array.")
+        if hasattr(like, 'dtype'):
+            dtype = like.dtype
+        elif isinstance(like, Number):
+            dtype = np.int_ if isinstance(like, int) else np.complex_ if isinstance(like, Complex) else np.float_
+        else:
+            raise err.NeuralUtilityError("Cannot infer dtype from 'like'")
+        return get_array_module(like).zeros(
+            shape,
+            dtype=dtype,
+            order='F' if iscontiguous(like, 'F') else 'C' if iscontiguous(like, 'C') else order
+        )
+    if dtype is None:
+        raise err.NeuralUtilityError("dtype and like cannot both be None")
+    return get_array_module(like).zeros(
+        shape,
+        dtype=dtype,
+        order=order
+    )
 
 def cudaarray_to_cpu(arr:npt.ArrayLike, out: npt.ArrayLike = None) -> npt.ArrayLike:
     if not isarray(arr):
