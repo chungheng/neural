@@ -29,7 +29,7 @@ def to_graph(model: tpe.Model, local: bool = False):
     Parameters:
         local: Whether to include local variables or not.
     """
-    raise NotImplementedError
+    return b"NotImplemented"
     # try:
     #     from .codegen.symbolic import VariableAnalyzer
     # except ImportError as e:
@@ -44,7 +44,7 @@ def to_latex(model: tpe.Model):
 
     Generate latex source code for the  model
     """
-    raise NotImplementedError
+    return model.symbolic.pprint().data
     # try:
     #     from .codegen.symbolic import SympyGenerator
     # except ImportError as e:
