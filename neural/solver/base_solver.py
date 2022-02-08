@@ -24,9 +24,6 @@ class BaseSolver:
     @classmethod
     def recast_arrays(cls, model: tpe.Model) -> None:
         """Recast states/gstates/params/bounds into ndarray modules compatible with the solver"""
-        for attr in ["states", "gstates", "bounds", "params"]:
-            for key, arr in (dct := getattr(model, attr)).items():
-                dct[key] = np.asarray(arr)
 
     @abstractmethod
     def step(self, d_t: float, **input_args) -> None:
