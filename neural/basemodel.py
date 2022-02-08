@@ -11,6 +11,7 @@ from .solver import BaseSolver, Euler
 from tqdm.auto import tqdm
 from . import types as tpe
 from . import errors as err
+from .utils.array import isarray
 from .codegen.parsedmodel import ParsedModel
 
 
@@ -163,12 +164,30 @@ class Model:
         self.bounds = copy.deepcopy(self.Default_Bounds)
         # set additional variables
         for key, val in kwargs.items():
-            if key in self.states:
-                self.states[key] = val
-            elif key in self.params:
-                self.params[key] = val
-            else:
+            if key not in self.states and key not in self.params:
                 raise err.NeuralModelError(f"Unexpected state/variable '{key}'")
+            for name in ['states', 'params']:
+                dct = getattr(self, name)
+                if key in dct:
+                    ref_dtype = dct[key].dtype
+                    if isarray(val) and len(val) != num:
+                        raise err.NeuralModelError(
+                            f"Value for state {key} has length {len(val)}, expect {num}"
+                        )
+                    if hasattr(val, 'dtype') and val.dtype != ref_dtype:
+                        warn(
+                            (
+                                f"Input for {name} {key} has dtype {val.dtype} that is "
+                                f"different from that default dtype {ref_dtype}."
+                                "Casting array to the default dtype."
+                            ),
+                            err.NeuralModelWarning
+                        )
+                        val = val.astype(ref_dtype)
+                    if np.isscalar(val):
+                        val = ref_dtype.type(val)
+                    dct[key] = val
+                    continue
 
         self.initial_states = copy.deepcopy(self.states)
         self.gstates = {

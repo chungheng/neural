@@ -3,9 +3,6 @@ import numpy as np
 from neural.basemodel import Model
 from neural import errors
 from neural import utils
-import pycuda.autoinit
-import pycuda.gpuarray as garray
-
 from neural.model.neuron import (
     IAF,
     LeakyIAF,
@@ -14,10 +11,10 @@ from neural.model.neuron import (
     Rinzel,
     ConnorStevens,
 )
-
+from neural.solver.base_solver import Euler
+from neural.solver import SOLVERS
+from helper_funcs import to_cupy, to_gpuarray
 NEURON_MODELS = [IAF, LeakyIAF, HodgkinHuxley, Wilson, Rinzel, ConnorStevens]
-BACKENDS = ["cuda", "scalar", "numpy"]
-
 
 @pytest.fixture
 def input_signal():
@@ -27,6 +24,15 @@ def input_signal():
     t = np.arange(len(waveform)) * dt
     return dt, dur, t, waveform
 
+@pytest.fixture
+def IAF_euler_result(input_signal):
+    dt, dur, t, waveform = input_signal
+    model = IAF()
+    res = np.zeros((model.num, len(waveform)), dtype=waveform.dtype)
+    for tt, wav in enumerate(waveform):
+        res[:, tt] = model.v
+        model.update(dt, stimulus=wav)
+    return res
 
 class DummyModel(Model):
     """Dummy Model that passes input to output"""
@@ -45,23 +51,8 @@ def test_model_construction():
     assert dum.initial_states == {"x": 0.0}
     assert dum.gstates == {"x": 0.0}
     assert dum.bounds == {}
-    assert dum.solver.__name__ == "forward_euler"
+    assert isinstance(dum.solver, Euler)
     assert dum.callbacks == []
-
-
-def test_model_compilation():
-    dum = DummyModel()
-    dum.compile(
-        backend="scalar",
-    )
-
-    dum = DummyModel()
-    dum.compile(backend="numpy")
-
-    dum = DummyModel()
-    dum.compile(backend="cuda", num=1)
-    with pytest.raises(errors.NeuralBackendError, match="Unexpected backend .*"):
-        dum.compile(backend="wrong")
 
 
 @pytest.mark.parametrize("Model", NEURON_MODELS)
@@ -75,9 +66,10 @@ def test_default_neurons_cpu(input_signal, Model):
 
 
 @pytest.mark.parametrize("Model", NEURON_MODELS)
-def test_default_neurons_compiled(input_signal, Model):
+@pytest.mark.parametrize("conversion_f", [to_cupy, to_gpuarray])
+def test_default_neurons_compiled(input_signal, Model, conversion_f):
     dt, dur, t, waveform = input_signal
-    waveform_g = garray.to_gpu(np.ascontiguousarray(waveform))
+    waveform_g = conversion_f(np.ascontiguousarray(waveform))
     record = np.zeros((len(BACKENDS), len(waveform)))
 
     for n, Backend in enumerate(BACKENDS):
@@ -92,15 +84,12 @@ def test_default_neurons_compiled(input_signal, Model):
             record[n, i] = model.v if Backend != "cuda" else model.v.get()
     np.testing.assert_almost_equal(record, np.roll(record, 1, axis=0))
 
-
-def test_solvers(input_signal):
+@pytest.mark.parametrize('solver', SOLVERS)
+def test_solvers(input_signal, IAF_euler_result, solver):
     dt, dur, t, waveform = input_signal
-    solvers = list(IAF().solver_alias.values())
-    record = np.zeros((len(solvers), len(waveform)))
-
-    for n, slv in enumerate(solvers):
-        model = IAF(solver=slv)
-        for i, wav in enumerate(waveform):
-            model.update(dt, stimulus=wav)
-            record[n, i] = model.v
-    np.testing.assert_almost_equal(record, np.roll(record, 1, axis=0))
+    model = IAF(solver=solver)
+    res = np.zeros((model.num, len(waveform)), dtype=waveform.dtype)
+    for tt, wav in enumerate(waveform):
+        res[:, tt] = model.v
+        model.update(dt, stimulus=wav)
+    np.testing.assert_almost_equal(res, IAF_euler_result)

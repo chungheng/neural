@@ -7,6 +7,7 @@ Network = "neural.network.Network"
 Input = "neural.network.Input"
 Container = "neural.network.Container"
 Symbol = "neural.network.Symbol"
+Operator = "neural.baseoperator.Operator"
 Solver = tp.Union[str, "neural.solver.BaseSolver"]
 Model = "neural.basemodel.Model"
 SupportedBackend = tp.Literal["scalar", "numpy", "cuda"]
