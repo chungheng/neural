@@ -12,18 +12,15 @@ from .solver import BaseSolver, Euler
 from tqdm.auto import tqdm
 from . import types as tpe
 from . import errors as err
-from .utils.array import create_empty, cudaarray_to_cpu, get_array_module, isarray, iscudaarray
+from .utils.array import (
+    create_empty,
+    cudaarray_to_cpu,
+    get_array_module,
+    isarray,
+    iscudaarray,
+)
 from .codegen.parsedmodel import ParsedModel
 
-
-def _is_implemented(func: tp.Callable) -> bool:
-    try:
-        func()
-        return True
-    except (NotImplementedError, TypeError):
-        return False
-    finally:
-        return True
 
 class Model:
     """Base Model Class
@@ -63,15 +60,6 @@ class Model:
     Default_Params: tp.Dict = None
     Time_Scale: float = 1.0
     solver: BaseSolver = Euler
-
-    vectorized: bool = True
-    """Controls if model can be vectorized
-
-    If `False`, then the Model.ode is always executed without vectorization
-    via numba.
-    In this case, :code:`_ode_cuda` method will not be generated and cuda-support
-    is allowed only if :code:`Model._ode_cuda` is explicitly defined in the model.
-    """
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
@@ -136,10 +124,11 @@ class Model:
 
         cls.Inputs = inputs
 
-        # # ode function definition
-        # # 1. _ode_scalar is set to ode if not specified
-        # if _is_implemented(cls._ode_scalar()):
-
+        # ode function definition
+        # 1. _ode_scalar is set to ode if not specified
+        # if not _is_implemented(cls._ode_vectorized):
+        #     try:
+        #         numba.vectorize()
 
         # validate class ode definition
         # temporarily set Derivates for all states
@@ -181,9 +170,13 @@ class Model:
             Are assumed to be values for states or parameters
         """
         # set state variables and parameters
-        self.num = 1 # num will be set in the first set_num call
-        self.params = {key: np.atleast_1d(val) for key,val in self.Default_Params.items()}
-        self.states = {key: np.atleast_1d(val) for key,val in self.Default_States.items()}
+        self.num = 1  # num will be set in the first set_num call
+        self.params = {
+            key: np.atleast_1d(val) for key, val in self.Default_Params.items()
+        }
+        self.states = {
+            key: np.atleast_1d(val) for key, val in self.Default_States.items()
+        }
         self.bounds = copy.deepcopy(self.Default_Bounds)
         self.gstates = {
             var: np.zeros_like(arr)
@@ -197,20 +190,24 @@ class Model:
         for key, val in kwargs.items():
             if key not in self.states and key not in self.params:
                 raise err.NeuralModelError(f"Unexpected state or param '{key}'")
-            for name in ['states', 'params']:
+            for name in ["states", "params"]:
                 dct = getattr(self, name)
                 if key in dct:
                     ref_dtype = dct[key].dtype
-                    if hasattr(val, 'dtype') and val.dtype != ref_dtype:
+                    if hasattr(val, "dtype") and val.dtype != ref_dtype:
                         warn(
                             (
                                 f"Input for {name} {key} has dtype {val.dtype} that is "
                                 f"different from that default dtype {ref_dtype}."
                                 "Casting array to the default dtype."
                             ),
-                            err.NeuralModelWarning
+                            err.NeuralModelWarning,
                         )
-                    dct[key][:] = ref_dtype.type(val) if np.isscalar(val) else val.astype(ref_dtype)
+                    dct[key][:] = (
+                        ref_dtype.type(val)
+                        if np.isscalar(val)
+                        else val.astype(ref_dtype)
+                    )
 
         # update initial states
         self.initial_states = copy.deepcopy(self.states)
@@ -221,7 +218,7 @@ class Model:
         # create symbolic model
         try:
             self.symbolic = ParsedModel(self)
-        except Exception as e:
+        except:
             self.symbolic = None
 
         self._jacobian = None
@@ -230,7 +227,7 @@ class Model:
         solver_kws = solver_kws or {}
         self.set_solver(solver, **solver_kws)
 
-    def set_num(self, num:int = None, keep_idx: tp.Iterable[int] = None) -> None:
+    def set_num(self, num: int = None, keep_idx: tp.Iterable[int] = None) -> None:
         """Set number of model
 
         Arguments:
@@ -245,7 +242,7 @@ class Model:
                 "when new num is smaller than current num, keep_idx must be specified "
                 "to perform the required slicing"
             )
-        if num > self.num and not (self.num==1 or isinstance(keep_idx, int)):
+        if num > self.num and not (self.num == 1 or isinstance(keep_idx, int)):
             raise err.NeuralModelError(
                 "when new num is larger than current num, current num must either be "
                 "1 or keep_idx must be specified to repeat the kept slice to new num"
@@ -257,11 +254,11 @@ class Model:
                 elif num > self.num:
                     if keep_idx is not None:
                         arr = arr[keep_idx]
-                    if (module := get_array_module(arr)) is None: # scalar
+                    if (module := get_array_module(arr)) is None:  # scalar
                         arr = np.full((num,), arr)
                     try:
-                        arr = module.repeat(arr, num) # numpy, cupy
-                    except AttributeError: # pycuda, no repeat method
+                        arr = module.repeat(arr, num)  # numpy, cupy
+                    except AttributeError:  # pycuda, no repeat method
                         if iscudaarray(arr):
                             val = cudaarray_to_cpu(arr).item()
                         elif isarray(arr):
@@ -313,6 +310,7 @@ class Model:
 
         return super().__getattribute__(key)
 
+    @abstractmethod
     def ode(self, **input_args) -> None:
         """
         The set of ODEs defining the dynamics of the model.
@@ -322,18 +320,14 @@ class Model:
             ODE implements a scalar (element-wise) implementation
             of the model
         """
-        raise NotImplementedError
 
     def _ode_vectorized(self, **input_args) -> None:
-        """ODE kernel where params and states are assumed to be vectors or broadcast-able to vectors
-        """
+        """ODE kernel where params and states are assumed to be vectors or broadcast-able to vectors"""
         raise NotImplementedError
 
     def _ode_cuda(self, **input_args) -> None:
-        """vectorized ODE kernel for CUDA arrays
-        """
+        """vectorized ODE kernel for CUDA arrays"""
         raise NotImplementedError
-
 
     def post(self, **post_args) -> None:
         """Post Processing
@@ -346,13 +340,11 @@ class Model:
         """
 
     def _post_vectorized(self, **post_args) -> None:
-        """Vectorized Post computation
-        """
+        """Vectorized Post computation"""
         raise NotImplementedError
 
     def _post_cuda(self, **post_args) -> None:
-        """Vectorized Post computation on CUDA
-        """
+        """Vectorized Post computation on CUDA"""
         raise NotImplementedError
 
     def update(self, d_t: float, **input_args) -> None:
