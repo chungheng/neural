@@ -32,19 +32,8 @@ from .. import errors as err
 from .. import types as tpe
 from .. import utils
 from ..solver import SOLVERS, BaseSolver, Euler
-
+from ..utils import isarray, isiterator
 # pylint:enable=relative-beyond-top-level
-
-
-def _isarray(data) -> bool:
-    return hasattr(data, "__array_interface__") or hasattr(
-        data, "__cuda_array_interface__"
-    )
-
-
-def _isiterator(data) -> bool:
-    return hasattr(data, "__next__") or hasattr(data, "__iter__")
-
 
 class Symbol(object):
     def __init__(self, container: tpe.Container, key: str):
@@ -82,14 +71,14 @@ class Input:
         self.value = None
 
     def __call__(self, data: tp.Union[npt.ArrayLike, tp.Iterable]):
-        if not _isarray(data) and not _isiterator(data):
+        if not isarray(data) and not isiterator(data):
             raise err.NeuralNetworkInputError(
                 f"Input '{self.name}' data must be either array or iterator, "
                 f"got {type(data)} instead."
             )
 
-        steps = len(data) if _isarray(data) else 0
-        if _isarray(data):
+        steps = len(data) if isarray(data) else 0
+        if isarray(data):
             if not data.flags.c_contiguous:
                 raise err.NeuralNetworkInputError(
                     f"Input '{self.name}' ndarray must be c-contiguous"
@@ -139,14 +128,13 @@ class Container(object):
     def __init__(
         self,
         obj: tp.Union[tpe.Model, tpe.Symbol, Number, tpe.Input],
-        num: int,
         name: str = "",
     ):
         self.obj = obj
-        self.num = num
+        self.num = obj.num if hasattr(obj, 'num') else None
         self.name = name
         self.vars = dict()
-        self.inputs = weakref.WeakKeyDictionary()
+        self.inputs = dict()
         self.recorder = None
         self._rec = []
 
@@ -200,7 +188,7 @@ class Container(object):
             _ = getattr(self.obj, key)
             self.vars[key] = Symbol(self, key)
             return self.vars[key]
-        except Exception as e:
+        except:
             return super(Container, self).__getattribute__(key)
 
     @property
@@ -233,9 +221,9 @@ class Container(object):
                 self._rec.append(arg)
 
     def set_recorder(
-        self, steps: int, rate: int = 1, gpu_buffer: int = 500
+        self, steps: int, rate: int = 1, gpu_bufsize: int = 500
     ) -> Recorder:
-        """Create Recorder Instace
+        """Create Recorder Instance
 
         Keyword Arguments:
             steps: total number of steps to record
@@ -249,7 +237,7 @@ class Container(object):
             or (set(self.recorder.dct.keys()) != set(self._rec))
         ):
             self.recorder = Recorder(
-                self.obj, self._rec, steps, gpu_buffer=gpu_buffer, rate=rate
+                self.obj, self._rec, steps, gpu_bufsize=gpu_bufsize, rate=rate
             )
         return self.recorder
 
@@ -288,8 +276,8 @@ class Network:
     """Neural Network Object"""
 
     def __init__(self, solver: tpe.Solver = Euler):
-        self.containers = weakref.WeakKeyDictionary()
-        self.inputs = weakref.WeakKeyDictionary()
+        self.containers = dict()
+        self.inputs = dict()
         self.solver = self.validate_solver(solver)
         self._iscompiled = False
 
@@ -311,9 +299,9 @@ class Network:
     def input(self, num: int = 1, name: str = None) -> Input:
         """Create input object"""
         name = name or f"input{len(self.inputs)}"
-        self.inputs[name] = inp = Input(num=num, name=name)
+        self.inputs[name] = Input(num=num, name=name)
         self._iscompiled = False
-        return inp
+        return self.inputs[name]
 
     def add(
         self,
@@ -335,8 +323,12 @@ class Network:
         if isinstance(module, Model):
             module.set_solver(solver, **solver_kws)
             obj = module
+            if num is not None and obj.num != num:
+                raise err.NeuralContainerError(
+                    f"num argument ({num}) does not equal to num of model ({obj.num})"
+                )
         elif issubclass(module, Model):
-            obj = module(solver=solver, solver_kws=solver_kws, **module_args)
+            obj = module(solver=solver, num=num, solver_kws=solver_kws, **module_args)
         elif inspect.isclass(module):
             if not Container.isacceptable(module):
                 raise err.NeuralNetworkError(
@@ -351,7 +343,7 @@ class Network:
                 "API of neural.basemodel.Model."
             )
 
-        self.containers[name] = container = Container(obj, num=num, name=name)
+        self.containers[name] = container = Container(obj, name=name)
         if record is not None:
             container.record(*list(record))
 
@@ -366,7 +358,6 @@ class Network:
         verbose: str = None,
         solver: tp.Union[str, BaseSolver] = None,
         gpu_bufsize: int = 500,
-        **kwargs,
     ) -> None:
         """Run Network
 
@@ -397,7 +388,7 @@ class Network:
 
         # create recorders
         for c in self.containers.values():
-            recorder = c.set_recorder(steps, rate, gpu_buffer=gpu_bufsize)
+            _ = c.set_recorder(steps, rate, gpu_bufsize=gpu_bufsize)
 
         # reset everything
         self.reset()
@@ -410,8 +401,8 @@ class Network:
             else:
                 iterator = tqdm(iterator, total=steps, dynamic_ncols=True)
 
-        for i in iterator:
-            self.update(d_t, i)
+        for _ in iterator:
+            self.update(d_t)
 
     def reset(self) -> None:
         """Reset everything"""
@@ -430,8 +421,8 @@ class Network:
             input.reset()
 
     def update(
-        self, d_t: float, idx: int
-    ) -> None:  # FIXME: idx should not be part of the argument
+        self, d_t: float
+    ) -> None:
         """Update Network and all components
 
         Arguments:
@@ -444,39 +435,39 @@ class Network:
 
         # update containers
         for c in self.containers.values():
-            args = {}
+            input_args = {}
             for key, val in c.inputs.items():
                 if isinstance(val, Symbol):
-                    args[key] = getattr(val.container.obj, val.key)
+                    input_args[key] = getattr(val.container.obj, val.key)
                 elif isinstance(val, Input):
-                    args[key] = val.value
+                    input_args[key] = val.value
                 elif isinstance(val, Number):
-                    args[key] = val
+                    input_args[key] = val
                 else:
                     raise err.NeuralNetworkUpdateError(
                         f"Input '{key}' of container '{c}' has invalid type: {val}"
                     )
 
-            if isinstance(c.obj, Model):
-                try:
-                    c.obj.update(d_t, **args)
-                except Exception as e:
-                    raise err.NeuralNetworkUpdateError(
-                        f"Update Failed for Model [{c.obj}]"
-                    ) from e
-            else:
-                try:
-                    c.obj.update(**args)
-                except Exception as e:
-                    raise err.NeuralNetworkUpdateError(
-                        f"Update Failed for Model [{c.obj}]"
-                    ) from e
+            try:
+                if isinstance(c.obj, Model):
+                    c.obj.update(d_t, **input_args)
+                else:
+                    c.obj.update(**input_args)
+            except Exception as e:
+                raise err.NeuralNetworkUpdateError(
+                    f"Update Failed for Model [{c.obj}]"
+                ) from e
         # update recorders
         for c in self.containers.values():
             if c.recorder is not None:
-                c.recorder.update(idx)
+                c.recorder.update()
 
     def compile(self, dtype: npt.DTypeLike = np.float_, debug: bool = False) -> None:
+        """Compile the module
+        compile backend for every model
+
+        FIXME: Is this function still needed?
+        """
         for c in self.containers.values():
             dct = {}
             for key, val in c.inputs.items():
@@ -491,8 +482,6 @@ class Network:
                 elif isinstance(val, Input):
                     if val.num is not None:
                         if c.num is not None and val.num != c.num:
-                            # raise Exception("Size mismatches: [{}: {}] vs. [{}: {}]".format(
-                            #     c.name, c.num, val.name, val.num))
                             warn(
                                 (
                                     f"Size mismatches: [{c.name}:{c.num}] vs. [{val.name}: "
@@ -501,7 +490,7 @@ class Network:
                                 ),
                                 err.NeuralNetworkWarning,
                             )
-                        dct[key] = np.zeros(val.num)
+                        dct[key] = np.zeros(val.num, dtype=dtype)
                     else:
                         dct[key] = dtype(0.0)
                 elif isinstance(val, Number):
@@ -519,13 +508,16 @@ class Network:
                     else:
                         c.obj.compile(**dct)
                 except Exception as e:
-                    raise Exception(f"Compilation Failed for Container {c.obj}") from e
-                if debug:
-                    s = "".join([", {}={}".format(*k) for k in dct.items()])
-                    print(f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})")
+                    if debug:
+                        s = "".join([", {}={}".format(*k) for k in dct.items()])
+                        print(f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})")
+                    raise err.NeuralNetworkCompileError(
+                        f"Compilation Failed for Container {c.obj}"
+                    ) from e
         self._iscompiled = True
 
-    def record(self, *args: tp.Iterable[Symbol]):
+    def record(self, *args: tp.Iterable[Symbol]) -> None:
+        """Record symbols (container.variables)"""
         for arg in args:
             if not isinstance(arg, Symbol):
                 raise err.NeuralNetworkError(
@@ -534,193 +526,9 @@ class Network:
             arg.container.record(arg.key)
 
     def get_obj(self, name: str) -> tp.Union[Container, Input]:
+        """Return container or input from network"""
         if name in self.containers:
             return self.containers[name]
-        elif name in self.inputs:
+        if name in self.inputs:
             return self.inputs[name]
-        else:
-            raise err.NeuralNetworkError(f"Unexpected name: '{name}'")
-
-    def to_graph(self, png: bool = False, svg: bool = False, prog="dot"):
-        """Visualize Network instance as Graph
-
-        Arguments:
-            network: network to visualize
-
-        Keyword Arguments:
-            png : whether to return png image as output
-            svg : whether to return svg image as output
-                - png takes precedence over svg
-            prog: program used to optimize graph layout
-        """
-        try:
-            import pydot
-        except ImportError as e:
-            raise err.NeuralNetworkError(
-                "pydot needs to be installed to create graph from network"
-            ) from e
-
-        graph = pydot.Dot(
-            graph_type="digraph", rankdir="LR", splines="ortho", decorate=True
-        )
-
-        nodes = {}
-        for c in list(self.containers.values()) + list(self.inputs.values()):
-            node = pydot.Node(c.name, shape="rect")
-            nodes[c.name] = node
-            graph.add_node(node)
-
-        edges = []
-        for c in self.containers.values():
-            target = c.name
-            v = nodes[target]
-            for key, val in c.inputs.items():
-                if isinstance(val, Symbol):
-                    source = val.container.name
-                    label = val.key
-                elif isinstance(val, Input):
-                    source = val.name
-                    label = ""
-                else:
-                    raise err.NeuralNetworkError(
-                        f"Container wrapping [{c.obj}] input {key} value {val} not "
-                        "understood"
-                    )
-                u = nodes[source]
-                graph.add_edge(pydot.Edge(u, v, label=label))
-                edges.append((source, target, label))
-
-        if png:  # return PNG Directly
-            png_str = graph.create_png(prog="dot")  # pylint: disable=no-member
-            return png_str
-        elif svg:
-            svg_str = graph.create_svg(prog="dot")  # pylint: disable=no-member
-            return svg_str
-        else:
-            D_bytes = graph.create_dot(prog="dot")  # pylint: disable=no-member
-
-            D = str(D_bytes, encoding="utf-8")
-
-            if D == "":  # no data returned
-                print(
-                    f"""Graphviz layout with {prog} failed
-                    To debug what happened try:
-                    >>> P = nx.nx_pydot.to_pydot(G)
-                    >>> P.write_dot("file.dot")
-                    And then run {prog} on file.dot"""
-                )
-
-            # List of "pydot.Dot" instances deserialized from this string.
-            Q_list = pydot.graph_from_dot_data(D)
-            assert len(Q_list) == 1
-            Q = Q_list[0]
-            # return Q
-
-            def get_node(Q, n):
-                node = Q.get_node(n)
-
-                if isinstance(node, list) and len(node) == 0:
-                    node = Q.get_node('"{}"'.format(n))
-                    assert node
-
-                return node[0]
-
-            def get_label_xy(x, y, ex, ey):
-                min_dist = np.inf
-                min_ex, min_ey = [0, 0], [0, 0]
-                for _ex, _ey in zip(zip(ex, ex[1:]), zip(ey, ey[1:])):
-                    dist = (np.mean(_ex) - x) ** 2 + (np.mean(_ey) - y) ** 2
-                    if dist < min_dist:
-                        min_dist = dist
-                        min_ex[:] = _ex[:]
-                        min_ey[:] = _ey[:]
-                if min_ex[0] == min_ex[1]:
-                    _x = min_ex[0]
-                    _x = np.sign(x - _x) * 10 + _x
-                    _y = y
-                else:
-                    _x = x
-                    _y = min_ey[0]
-                    _y = np.sign(y - _y) * 10 + _y
-                return _x, _y - 3
-
-            elements = []
-            bb = Q.get_bb()
-            viewbox = bb[1:-1].replace(",", " ")
-
-            for n in nodes.keys():
-
-                node = get_node(Q, n)
-
-                # strip leading and trailing double quotes
-                pos = node.get_pos()[1:-1]
-
-                if pos is not None:
-                    obj = self.get_obj(n)
-                    w = float(node.get_width())
-                    h = float(node.get_height())
-
-                    x, y = map(float, pos.split(","))
-                    attrs = {
-                        "width": w,
-                        "height": h,
-                        "rx": 5,
-                        "ry": 5,
-                        "x": x,
-                        "y": y,
-                        "stroke-width": 1.5,
-                        "fill": "none",
-                        "stroke": "#48caf9",
-                    }
-
-                    elements.append(
-                        {
-                            "label": [n, x, y],
-                            "shape": "rect",
-                            "attrs": attrs,
-                            "latex": obj.latex_src,
-                            "graph": obj.graph_src,
-                        }
-                    )
-
-            min_x, min_y, scale_w, scale_h = np.inf, np.inf, 0, 0
-            for el in elements:
-                if min_x > el["attrs"]["x"]:
-                    min_x = el["attrs"]["x"]
-                    scale_w = 2 * min_x / el["attrs"]["width"]
-                if min_y > el["attrs"]["y"]:
-                    min_y = el["attrs"]["y"]
-                    scale_h = 2 * min_y / el["attrs"]["height"]
-            for el in elements:
-                w = scale_w * el["attrs"]["width"]
-                h = scale_h * el["attrs"]["height"]
-                el["attrs"]["x"] = el["attrs"]["x"] - w / 2
-                el["attrs"]["y"] = el["attrs"]["y"] - h / 2
-                el["attrs"]["width"] = w
-                el["attrs"]["height"] = h
-
-            for e in Q.get_edge_list():
-                pos = (e.get_pos()[1:-1]).split(" ")
-                ax, ay = [float(v) for v in pos[0].split(",")[1:]]
-                pos = [v.split(",") for v in pos[1:]]
-
-                xx = [float(v[0]) for v in pos] + [ax]
-                yy = [float(v[1]) for v in pos] + [ay]
-                x, y, _x, _y = [], [], 0, 0
-                for __x, __y in zip(xx, yy):
-                    if not (__x == _x and __y == _y):
-                        x.append(__x)
-                        y.append(__y)
-                    _x = __x
-                    _y = __y
-                path = [f"{_x} {_y}" for _x, _y in zip(x, y)]
-                p = "M" + " L".join(path)
-                attrs = {"d": p, "stroke-width": 1.5, "fill": "none", "stroke": "black"}
-                lp = e.get_lp()
-                if lp:
-                    lx, ly = [float(v) for v in lp[1:-1].split(",")]
-                    lx, ly = get_label_xy(lx, ly, x, y)
-                    label = [e.get_label() or "", lx, ly]
-                elements.append({"label": label, "shape": "path", "attrs": attrs})
-            output = {"elements": elements, "viewbox": viewbox}
-            return output
+        raise err.NeuralNetworkError(f"Unexpected name: '{name}'")

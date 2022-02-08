@@ -181,14 +181,18 @@ class Model:
         self.callbacks = []
         callback = [] if callback is None else callback
         self.add_callback(callback)
-        solver_kws = solver_kws or {}
-        self.set_solver(solver, **solver_kws)
 
         # create symbolic model
         try:
             self.symbolic = ParsedModel(self)
         except Exception as e:
             self.symbolic = None
+
+        self._jacobian = None
+        self.get_jacobian()
+
+        solver_kws = solver_kws or {}
+        self.set_solver(solver, **solver_kws)
 
     def _check_dimensions(self) -> None:
         """Ensure consistent dimensions for all parameters and states"""
@@ -454,7 +458,7 @@ class Model:
             You can override jacobian definition in child classes to enforce
             a jacobian
 
-        .. seealso:: :py:func:`compNeuro.BaseModel.compute_jacobian`
+        .. seealso:: :py:func:`neural.Model.get_jacobian`
 
         Returns:
             A callable :code:`jacc_f(t, states, I_ext)` that returns a 2D numpy
@@ -464,4 +468,4 @@ class Model:
         """
         if self._jacobian is not None:
             return self._jacobian
-        return self.compute_jacobian()
+        return self.get_jacobian()
