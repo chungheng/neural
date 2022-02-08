@@ -27,9 +27,9 @@ class LeakyIAF(Model):
 def test_model():
     model = LeakyIAF()
     assert model.num == 1
-    assert all([np.isscalar(val) for val in model.states])
-    assert all([np.isscalar(val) for val in model.gstates])
-    assert all([np.isscalar(val) for val in model.params])
+    assert all([isinstance(val, np.ndarray) and len(val) ==1  for val in model.states.values()])
+    assert all([isinstance(val, np.ndarray) and len(val) ==1  for val in model.gstates.values()])
+    assert all([isinstance(val, np.ndarray) and len(val) ==1  for val in model.params.values()])
     assert model.params == LeakyIAF.Default_Params
     assert model.states == LeakyIAF.Default_States
     assert model.Derivates == ["v"]
@@ -97,18 +97,18 @@ def res_ref_multi(
 )
 def test_model_init(Model):
     model = Model(a=10.0)
-    assert model.params["a"] == 10.0
-    assert model.states["x1"] == np.array([0.0])
-    assert model.states["x2"] == np.array([1.0])
+    np.testing.assert_array_equal(model.params["a"], np.array([10.0]))
+    np.testing.assert_array_equal(model.states["x1"], np.array([0.0]))
+    np.testing.assert_array_equal(model.states["x2"], np.array([1.0]))
     assert model.bounds["x2"][0] == 0.0
     assert model.bounds["x2"][1] == 10.0
     with pytest.raises(KeyError):
         model.bounds["x1"]
 
     model = Model(a=10.0, num=10)
-    assert model.params["a"] == 10.0
-    np.testing.assert_equal(model.states["x1"], np.full((10,), 0.0))
-    np.testing.assert_equal(model.states["x2"], np.full((10,), 1.0))
+    np.testing.assert_array_equal(model.params["a"],  np.full((10,), 10.0))
+    np.testing.assert_array_equal(model.states["x1"], np.full((10,), 0.0))
+    np.testing.assert_array_equal(model.states["x2"], np.full((10,), 1.0))
     assert model.bounds["x2"][0] == 0.0
     assert model.bounds["x2"][1] == 10.0
     with pytest.raises(KeyError):
@@ -119,14 +119,14 @@ def test_model_ode():
     model = DummyModel(a=10.0, x1=10.0)
     model.ode(I_ext=0.0)
     assert model.gstates["x1"] == -model.states["x1"] * 10.0
-    assert model.gstates["x2"] == 0
+    assert model.gstates["x2"] == np.array([0.])
 
 
 def test_model_ode_multi_input():
     model = DummyModelMultiInputs(a=10.0, x1=10.0)
     model.ode(I_ext=0.0, Input2=2.0)
     assert model.gstates["x1"] == -model.states["x1"] * 10.0
-    assert model.gstates["x2"] == -2.0
+    assert model.gstates["x2"] == np.array([-2.0])
 
 
 def test_model_solve():

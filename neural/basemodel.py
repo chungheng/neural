@@ -7,9 +7,6 @@ from warnings import warn
 from inspect import getfullargspec
 import typing as tp
 import numpy as np
-import inspect
-import textwrap
-import ast
 import numba
 from .solver import BaseSolver, Euler
 from tqdm.auto import tqdm
@@ -183,16 +180,23 @@ class Model:
         Keyword Arguments:
             Are assumed to be values for states or parameters
         """
-        self.num = num
-
         # set state variables and parameters
-        self.params = copy.deepcopy(self.Default_Params)
-        self.states = copy.deepcopy(self.Default_States)
+        self.num = 1 # num will be set in the first set_num call
+        self.params = {key: np.atleast_1d(val) for key,val in self.Default_Params.items()}
+        self.states = {key: np.atleast_1d(val) for key,val in self.Default_States.items()}
         self.bounds = copy.deepcopy(self.Default_Bounds)
+        self.gstates = {
+            var: np.zeros_like(arr)
+            for var, arr in self.states.items()
+            if var in self.Derivates
+        }
+        self.initial_states = copy.deepcopy(self.states)
+        self.set_num(num)
+
         # set additional variables
         for key, val in kwargs.items():
             if key not in self.states and key not in self.params:
-                raise err.NeuralModelError(f"Unexpected state/variable '{key}'")
+                raise err.NeuralModelError(f"Unexpected state or param '{key}'")
             for name in ['states', 'params']:
                 dct = getattr(self, name)
                 if key in dct:
@@ -206,16 +210,10 @@ class Model:
                             ),
                             err.NeuralModelWarning
                         )
-                    dct[key] = ref_dtype.type(val) if np.isscalar(val) else val.astype(ref_dtype)
+                    dct[key][:] = ref_dtype.type(val) if np.isscalar(val) else val.astype(ref_dtype)
 
+        # update initial states
         self.initial_states = copy.deepcopy(self.states)
-        self.gstates = {
-            var: np.zeros_like(arr)
-            for var, arr in self.states.items()
-            if var in self.Derivates
-        }
-        self.set_num(num)
-
         self.callbacks = []
         callback = [] if callback is None else callback
         self.add_callback(callback)
@@ -232,45 +230,38 @@ class Model:
         solver_kws = solver_kws or {}
         self.set_solver(solver, **solver_kws)
 
-    def set_num(self, num:int = None, drop:bool=False, keep_idx:int=0) -> None:
+    def set_num(self, num:int = None, keep_idx: tp.Iterable[int] = None) -> None:
         """Set number of model
 
         Arguments:
             num: number of model components
-            drop: whether to force the number change. This is only
-              applicable when the current number is greater than 1
-              and the new number is 1 or None (scalar).
-              If `True`, the :code:`keep_idx` will be saved
-              from the original array. If `False` an Exception
-              will be raised when trying to go from array to scalar
+            keep_idx: slice original array down using these indices
+              if num is smaller than current num
         """
-        if not (num is None or num >= 1):
-            raise err.NeuralModelError("num must be None or an integer greater than 0.")
-        to_scalar = num in [None, 1]
+        if not (isinstance(num, int) and num >= 1):
+            raise err.NeuralModelError("num must be an integer greater than 0.")
+        if num < self.num and keep_idx is None:
+            raise err.NeuralModelError(
+                "when new num is smaller than current num, keep_idx must be specified "
+                "to perform the required slicing"
+            )
+        if num > self.num and not (self.num==1 or isinstance(keep_idx, int)):
+            raise err.NeuralModelError(
+                "when new num is larger than current num, current num must either be "
+                "1 or keep_idx must be specified to repeat the kept slice to new num"
+            )
         for attr in ["params", "states", "gstates", "initial_states"]:
-            # make sure vector-valued parameters have the same shape as the number
-            # of components in the model
             for key, arr in (dct := getattr(self, attr)).items():
-                # to scalar
-                if to_scalar:
-                    if np.isscalar(arr) or arr.ndim ==0: # scalar
-                        pass
-                    elif drop: # keep a slice of array
+                if num < self.num:
+                    dct[key] = arr[keep_idx]
+                elif num > self.num:
+                    if keep_idx is not None:
                         arr = arr[keep_idx]
-                    else:
-                        raise err.NeuralModelError(
-                            f"Changing number from {self.num} to {num} "
-                            f"requires dropping array components for {attr}.{key}."
-                            "If you want to keep only a specific slice of the array, "
-                            "set `drop` and `keep_idx` arguments."
-                        )
-                # to array
-                elif np.isscalar(arr) or arr.ndim == 0: # repeat
                     if (module := get_array_module(arr)) is None: # scalar
                         arr = np.full((num,), arr)
                     try:
-                        arr = module.repeat(arr, num)
-                    except AttributeError:
+                        arr = module.repeat(arr, num) # numpy, cupy
+                    except AttributeError: # pycuda, no repeat method
                         if iscudaarray(arr):
                             val = cudaarray_to_cpu(arr).item()
                         elif isarray(arr):
@@ -284,13 +275,6 @@ class Model:
                         raise err.NeuralModelError(
                             f"Cannot create array for {attr}.{key}"
                         ) from e
-                # to array and already array - check dimension
-                else:
-                    if len(arr) != num:
-                        raise err.NeuralModelError(
-                            f"Existing array of {attr}.{key} has length {len(arr)}, "
-                            f"does not match the desired number {num}"
-                        )
                 dct[key] = arr
         self.num = num
 
@@ -394,7 +378,7 @@ class Model:
             reset()
             return
         for var in self.states:
-            self.states[var].fill(self.initial_states[var])
+            self.states[var][:] = self.initial_states[var]
         for var in self.gstates:
             self.gstates[var].fill(0.0)
 
@@ -414,7 +398,9 @@ class Model:
             clip(states=states)
             return
         for var, bds in self.bounds.items():
-            states[var].clip(*bds, out=states[var])
+            arr = states[var]
+            if np.isscalar(arr) or arr.ndim == 0:
+                states[var].clip(*bds, out=states[var])
 
     def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
         if (
