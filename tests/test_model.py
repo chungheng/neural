@@ -14,7 +14,9 @@ from neural.model.neuron import (
 from neural.solver.base_solver import Euler
 from neural.solver import SOLVERS
 from helper_funcs import to_cupy, to_gpuarray
+
 NEURON_MODELS = [IAF, LeakyIAF, HodgkinHuxley, Wilson, Rinzel, ConnorStevens]
+
 
 @pytest.fixture
 def input_signal():
@@ -23,6 +25,7 @@ def input_signal():
     waveform = utils.generate_stimulus("step", dt, dur, (0.05, 0.15), 20.0)
     t = np.arange(len(waveform)) * dt
     return dt, dur, t, waveform
+
 
 @pytest.fixture
 def IAF_euler_result(input_signal):
@@ -33,6 +36,7 @@ def IAF_euler_result(input_signal):
         res[:, tt] = model.v
         model.update(dt, stimulus=wav)
     return res
+
 
 class DummyModel(Model):
     """Dummy Model that passes input to output"""
@@ -84,7 +88,8 @@ def test_default_neurons_compiled(input_signal, Model, conversion_f):
     #         record[n, i] = model.v if Backend != "cuda" else model.v.get()
     # np.testing.assert_almost_equal(record, np.roll(record, 1, axis=0))
 
-@pytest.mark.parametrize('solver', SOLVERS)
+
+@pytest.mark.parametrize("solver", SOLVERS)
 def test_solvers(input_signal, IAF_euler_result, solver):
     dt, dur, t, waveform = input_signal
     model = IAF(solver=solver)

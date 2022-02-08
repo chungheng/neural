@@ -33,7 +33,9 @@ from .. import types as tpe
 from .. import utils
 from ..solver import SOLVERS, BaseSolver, Euler
 from ..utils import isarray, isiterator
+
 # pylint:enable=relative-beyond-top-level
+
 
 class Symbol(object):
     def __init__(self, container: tpe.Container, key: str):
@@ -131,7 +133,7 @@ class Container(object):
         name: str = "",
     ):
         self.obj = obj
-        self.num = obj.num if hasattr(obj, 'num') else None
+        self.num = obj.num if hasattr(obj, "num") else None
         self.name = name
         self.vars = dict()
         self.inputs = dict()
@@ -316,9 +318,7 @@ class Network:
         solver = self.validate_solver(solver or self.solver)
 
         if (name := name or f"obj{len(self.containers)}") in self.containers:
-            raise err.NeuralNetworkError(
-                f"Duplicate container name: '{name}'"
-            )
+            raise err.NeuralNetworkError(f"Duplicate container name: '{name}'")
 
         if isinstance(module, Model):
             module.set_solver(solver, **solver_kws)
@@ -420,9 +420,7 @@ class Network:
         for input in self.inputs.values():
             input.reset()
 
-    def update(
-        self, d_t: float
-    ) -> None:
+    def update(self, d_t: float) -> None:
         """Update Network and all components
 
         Arguments:

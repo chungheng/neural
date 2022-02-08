@@ -4,6 +4,7 @@ import random
 
 # pylint:disable=import-error
 from neural.basemodel import Model
+
 # from neural.codegen.symbolic import SympyGenerator
 # pylint:enable=import-error
 

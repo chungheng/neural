@@ -37,6 +37,7 @@ def create_rng(seed: tp.Union[int, np.random.RandomState]):
 
 # pylint:enable=no-member
 
+
 def generate_spike_from_psth(
     d_t: float, psth: np.ndarray, num: int = 1, seed: int = None
 ) -> np.ndarray:
@@ -108,6 +109,7 @@ def compute_psth(
 
     return rates, stamps
 
+
 def generate_stimulus(
     mode: str,
     d_t: float,
@@ -128,12 +130,12 @@ def generate_stimulus(
         support: two time points at which the stimulus starts and ends.
         amplitude: the amplitudes of the stimuli.
         sigma: variance of zero-mean Gaussian noise added to the waveform.
-    
+
     Keyword Arguments:
         ratio: a real number between 0,1 that indicates the point within
-            :code:`support` where stimulus reaches the peak. 
+            :code:`support` where stimulus reaches the peak.
             - Only applicable if :code:`mode` is either `"parabola"` or `"ramp"`.
-        psth: a numpy array correspoding to spike rate. 
+        psth: a numpy array correspoding to spike rate.
             - Only applicable if :code:`mode` is `"spike"`
         seed: seed for random number generator
             - Only applicable if :code:`mode` is `"spike"`
@@ -199,15 +201,16 @@ def generate_stimulus(
               step waveform with amplitude
             seed: random seed of poisson process
         """
-        psth = np.atleast_2d(kwargs.pop(
-            "psth",
-            _generate_step(waveforms, d_t, support, amplitude)
-        ))
-        seed = kwargs.pop('seed', None)
-        return np.vstack([
-            np.squeeze(generate_spike_from_psth(d_t, _psth, num=1, seed=seed))
-            for _psth in psth
-        ])
+        psth = np.atleast_2d(
+            kwargs.pop("psth", _generate_step(waveforms, d_t, support, amplitude))
+        )
+        seed = kwargs.pop("seed", None)
+        return np.vstack(
+            [
+                np.squeeze(generate_spike_from_psth(d_t, _psth, num=1, seed=seed))
+                for _psth in psth
+            ]
+        )
 
     Nt = int((duration + d_t / 2) // d_t)
 
@@ -220,11 +223,7 @@ def generate_stimulus(
         generator = locals()[tmp]
 
     waveforms = generator(
-        np.atleast_2d(waveforms),
-        d_t,
-        support,
-        np.atleast_1d(amplitude),
-        **kwargs
+        np.atleast_2d(waveforms), d_t, support, np.atleast_1d(amplitude), **kwargs
     )
 
     if sigma is not None:

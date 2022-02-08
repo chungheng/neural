@@ -11,6 +11,7 @@ from neural import errors
 import numpy as np
 from helper_funcs import to_gpuarray, to_cupy
 
+
 @pytest.fixture
 def single_spike_data():
     dt, dur, start, stop, amp = 1e-4, 2, 0.5, 1.0, 100.0
@@ -96,7 +97,8 @@ def test_network_construction_compilation(single_spike_data):
         dum = nn.add(DummyModel, name="Dummy", num=1)
         nn.run(dt, verbose=False)
 
-@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray])
+
+@pytest.mark.parametrize("conversion_f", [to_cupy, to_gpuarray])
 def test_network_running(single_spike_data, conversion_f):
     dt, dur, start, stop, amp, spike = single_spike_data
     num = 2
@@ -113,8 +115,9 @@ def test_network_running(single_spike_data, conversion_f):
     nn.run(dt, verbose=False)
     np.testing.assert_almost_equal(dum.recorder.x, wav)
 
-@pytest.mark.parametrize('solver', SOLVERS)
-@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray])
+
+@pytest.mark.parametrize("solver", SOLVERS)
+@pytest.mark.parametrize("conversion_f", [to_cupy, to_gpuarray])
 def test_network_solvers(single_spike_data, solver, conversion_f):
     dt, dur, start, stop, amp, spike = single_spike_data
     num = 2
@@ -140,7 +143,7 @@ def test_recorder(single_spike_data, multi_spike_data):
     for tt, ss in enumerate(spike):
         mdl.obj.update(dt, inp=ss)
         rec.update(index=tt)
-    np.testing.assert_equal(rec.x, spike[None,:])
+    np.testing.assert_equal(rec.x, spike[None, :])
 
     mdl = Container(DummyModel(num=1), name="dummy")
     mdl.record("x")
@@ -148,7 +151,7 @@ def test_recorder(single_spike_data, multi_spike_data):
     for tt, ss in enumerate(spike):
         mdl.obj.update(dt, inp=ss)
         rec.update(index=tt)
-    np.testing.assert_equal(rec.x, spike[None,::5])
+    np.testing.assert_equal(rec.x, spike[None, ::5])
 
     # DEBUG: This currently does not work because the container instantiation
     # is not aware of the `num` argument.
@@ -161,7 +164,8 @@ def test_recorder(single_spike_data, multi_spike_data):
         rec.update(index=tt)
     np.testing.assert_equal(rec.x, spikes)
 
-@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray])
+
+@pytest.mark.parametrize("conversion_f", [to_cupy, to_gpuarray])
 def test_cuda_recorder(single_spike_data, conversion_f):
     dt, dur, start, stop, amp, spike = single_spike_data
     spikes_g = conversion_f(spike)
@@ -171,4 +175,4 @@ def test_cuda_recorder(single_spike_data, conversion_f):
     for tt, ss in enumerate(spikes_g):
         mdl.obj.update(dt, inp=ss)
         rec.update(index=tt)
-    np.testing.assert_equal(rec.x, utils.array.cudaarray_to_cpu(spikes_g)[None,:])
+    np.testing.assert_equal(rec.x, utils.array.cudaarray_to_cpu(spikes_g)[None, :])

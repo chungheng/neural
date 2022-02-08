@@ -24,13 +24,14 @@ class Recorder:
 
     Attributes:
     """
+
     def __init__(
         self,
         obj: tp.Union[tpe.Model, tpe.Operator],
         attrs: tp.Iterable[str],
         steps: int,
         rate: int = 1,
-        gpu_bufsize: int = np.inf
+        gpu_bufsize: int = np.inf,
     ):
         """
         Arguments:
@@ -45,7 +46,7 @@ class Recorder:
         self.total_steps = steps
         self.rate = rate
         self.steps = len(np.arange(steps)[:: self.rate])
-        self.curr_step = -1 # internal counter for current step
+        self.curr_step = -1  # internal counter for current step
 
         self.dct = {key: None for key in attrs}
         self.gpu_bufsize = self.steps if gpu_bufsize in [np.inf, True] else gpu_bufsize
@@ -79,22 +80,20 @@ class Recorder:
             if iscudaarray(src) and gpu_bufsize > 0:
                 try:
                     self.gpu_buf[key] = get_array_module(src).zeros(
-                            gpu_shape,
-                            dtype=src.dtype,
-                            order='F'
-                        )
+                        gpu_shape, dtype=src.dtype, order="F"
+                    )
                 except:
                     warn(
                         "Creating gpu buffer for CUDA array failed, "
                         f"source array is {self.obj}.{key}.",
-                        err.NeuralRecorderWarning
+                        err.NeuralRecorderWarning,
                     )
 
     def reset(self) -> None:
         for arr in self.dct.values():
-            arr.fill(0.)
+            arr.fill(0.0)
         for arr in self.gpu_buf.values():
-            arr.fill(0.)
+            arr.fill(0.0)
         self.curr_step = -1
 
     def update(self, index: int = None) -> None:
@@ -110,8 +109,8 @@ class Recorder:
         """
         self.curr_step += 1
         step = index or self.curr_step
-        d_index = int(step // self.rate) # downsample index
-        b_index = d_index % self.gpu_bufsize # buffer index
+        d_index = int(step // self.rate)  # downsample index
+        b_index = d_index % self.gpu_bufsize  # buffer index
 
         if d_index >= self.steps:
             raise err.NeuralRecorderError(
@@ -123,7 +122,9 @@ class Recorder:
             if attr in self.gpu_buf:
                 self.gpu_buf[attr][..., b_index] += getattr(self.obj, attr)
             else:
-                self.dct[attr][..., d_index] += cudaarray_to_cpu(getattr(self.obj, attr))
+                self.dct[attr][..., d_index] += cudaarray_to_cpu(
+                    getattr(self.obj, attr)
+                )
 
         # return if not time to update
         if (step % self.rate) != 0:
@@ -143,7 +144,9 @@ class Recorder:
         # 4. dump gpu_buf to dct if gpu_buf is full or if all steps have been exhausted
         if (d_index == self.steps - 1) or (b_index == self.gpu_bufsize - 1):
             for attr, arr_g in self.gpu_buf.items():
-                cudaarray_to_cpu(arr_g, out=self.dct[attr][..., d_index-b_index:d_index+1])
+                cudaarray_to_cpu(
+                    arr_g, out=self.dct[attr][..., d_index - b_index : d_index + 1]
+                )
 
     def __getitem__(self, key: str):
         return self.dct[key]
