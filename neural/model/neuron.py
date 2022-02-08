@@ -1,11 +1,12 @@
 # pylint: disable=attribute-defined-outside-init
 # pylint: disable=access-member-before-definition
 # pylint:disable=arguments-differ
+# pylint:disable=abstract-method
+# pylint:disable=invalid-name
 """
 Basic neuron models.
 """
-import numpy as np
-
+import math
 from ..basemodel import Model
 
 
@@ -22,8 +23,8 @@ class IAF(Model):
         self.d_v = 1.0 / self.c * (stimulus + self.bias)
 
     def post(self):
-        self.spike = np.where(self.v > self.vt, 1.0, 0.0)
-        self.v = np.where(self.v > self.vt, 0.0, self.v)
+        self.spike = 1.0 if self.v > self.vt else 0.0
+        self.v = 0.0 if self.v > self.vt else self.v
 
 
 class LeakyIAF(Model):
@@ -39,8 +40,8 @@ class LeakyIAF(Model):
         self.d_v = 1.0 / self.c * (-self.v / self.r + stimulus)
 
     def post(self):
-        self.spike = np.where(self.v > self.vt, 1.0, 0.0)
-        self.v = np.where(self.v > self.vt, self.vr, self.v)
+        self.spike = 1.0 if self.v > self.vt else 0.0
+        self.v = self.vr if self.v > self.vt else self.v
 
 
 class Rinzel(Model):
@@ -63,22 +64,22 @@ class Rinzel(Model):
 
     def ode(self, stimulus=0.0):
 
-        alpha = np.exp(-(self.v + 55.0) / 10.0) - 1.0
-        beta = 0.125 * np.exp(-(self.v + 65.0) / 80.0)
-        alpha = np.where(np.abs(alpha) <= 1e-7, 0.1, -0.01 * (self.v + 55.0) / alpha)
+        alpha = math.exp(-(self.v + 55.0) / 10.0) - 1.0
+        beta = 0.125 * math.exp(-(self.v + 65.0) / 80.0)
+        alpha = 0.1 if abs(alpha) <= 1e-7 else -0.01 * (self.v + 55.0) / alpha
         n_infty = alpha / (alpha + beta)
 
-        alpha = np.exp(-(self.v + 40.0) / 10.0) - 1.0
-        beta = 4.0 * np.exp(-(self.v + 65.0) / 18.0)
-        alpha = np.where(np.abs(alpha) <= 1e-7, 1.0, -0.1 * (self.v + 40.0) / alpha)
+        alpha = math.exp(-(self.v + 40.0) / 10.0) - 1.0
+        beta = 4.0 * math.exp(-(self.v + 65.0) / 18.0)
+        alpha = 1.0 if abs(alpha) <= 1e-7 else -0.1 * (self.v + 40.0) / alpha
         m_infty = alpha / (alpha + beta)
 
-        alpha = 0.07 * np.exp(-(self.v + 65.0) / 20.0)
-        beta = 1.0 / (np.exp(-(self.v + 35.0) / 10.0) + 1.0)
+        alpha = 0.07 * math.exp(-(self.v + 65.0) / 20.0)
+        beta = 1.0 / (math.exp(-(self.v + 35.0) / 10.0) + 1.0)
         h_infty = alpha / (alpha + beta)
 
         w_infty = self.s / (1.0 + self.s**2) * (n_infty + self.s * (1.0 - h_infty))
-        tau_w = 1.0 + 5.0 * np.exp(-(self.v + 55.0) * (self.v + 55.0) / 55.0 * 55.0)
+        tau_w = 1.0 + 5.0 * math.exp(-(self.v + 55.0) * (self.v + 55.0) / 55.0 * 55.0)
 
         self.d_w = 3.0 * w_infty / tau_w - 3.0 / tau_w * self.w
 
@@ -152,40 +153,41 @@ class ConnorStevens(Model):
 
     def ode(self, stimulus=0.0):
 
-        alpha = np.exp(-(self.v + 50.0 + self.ns) / 10.0) - 1.0
-        alpha = np.where(
-            np.abs(alpha) <= 1e-7, 0.1, -0.01 * (self.v + 50.0 + self.ns) / alpha
+        alpha = math.exp(-(self.v + 50.0 + self.ns) / 10.0) - 1.0
+        alpha = (
+            0.1 if abs(alpha) <= 1e-7 else -0.01 * (self.v + 50.0 + self.ns) / alpha
         )
-        beta = 0.125 * np.exp(-(self.v + 60.0 + self.ns) / 80.0)
+        beta = 0.125 * math.exp(-(self.v + 60.0 + self.ns) / 80.0)
         n_inf = alpha / (alpha + beta)
         tau_n = 2.0 / (3.8 * (alpha + beta))
 
-        alpha = np.exp(-(self.v + 35.0 + self.ms) / 10.0) - 1.0
-        alpha = np.where(
-            np.abs(alpha) <= 1e-7, 1.0, -0.1 * (self.v + 35.0 + self.ms) / alpha
+        alpha = math.exp(-(self.v + 35.0 + self.ms) / 10.0) - 1.0
+        alpha = (
+            1.0 if abs(alpha) <= 1e-7 else -0.1 * (self.v + 35.0 + self.ms) / alpha
         )
-        beta = 4.0 * np.exp(-(self.v + 60.0 + self.ms) / 18.0)
+        beta = 4.0 * math.exp(-(self.v + 60.0 + self.ms) / 18.0)
         m_inf = alpha / (alpha + beta)
         tau_m = 1.0 / (3.8 * (alpha + beta))
 
-        alpha = 0.07 * np.exp(-(self.v + 60.0 + self.hs) / 20.0)
-        beta = 1.0 / (1.0 + np.exp(-(self.v + 30.0 + self.hs) / 10.0))
+        alpha = 0.07 * math.exp(-(self.v + 60.0 + self.hs) / 20.0)
+        beta = 1.0 / (1.0 + math.exp(-(self.v + 30.0 + self.hs) / 10.0))
         h_inf = alpha / (alpha + beta)
         tau_h = 1 / (3.8 * (alpha + beta))
 
-        a_inf = np.cbrt(
+        a_inf = (
             0.0761
-            * np.exp((self.v + 94.22) / 31.84)
-            / (1.0 + np.exp((self.v + 1.17) / 28.93))
-        )
-        tau_a = 0.3632 + 1.158 / (1.0 + np.exp((self.v + 55.96) / 20.12))
-        b_inf = np.power(1 / (1 + np.exp((self.v + 53.3) / 14.54)), 4.0)
-        tau_b = 1.24 + 2.678 / (1 + np.exp((self.v + 50) / 16.027))
+            * math.exp((self.v + 94.22) / 31.84)
+            / (1.0 + math.exp((self.v + 1.17) / 28.93))
+        ) ** (1./3.)
 
-        i_na = self.g_Na * np.power(self.m, 3) * self.h * (self.v - self.E_Na)
-        i_k = self.g_K * np.power(self.n, 4) * (self.v - self.E_K)
+        tau_a = 0.3632 + 1.158 / (1.0 + math.exp((self.v + 55.96) / 20.12))
+        b_inf = pow(1 / (1 + math.exp((self.v + 53.3) / 14.54)), 4.0)
+        tau_b = 1.24 + 2.678 / (1 + math.exp((self.v + 50) / 16.027))
+
+        i_na = self.g_Na * pow(self.m, 3) * self.h * (self.v - self.E_Na)
+        i_k = self.g_K * pow(self.n, 4) * (self.v - self.E_K)
         i_l = self.g_L * (self.v - self.E_L)
-        i_a = self.g_a * np.power(self.a, 3) * self.b * (self.v - self.E_a)
+        i_a = self.g_a * pow(self.a, 3) * self.b * (self.v - self.E_a)
 
         self.d_v = stimulus - i_na - i_k - i_l - i_a
         self.d_n = (n_inf - self.n) / tau_n
@@ -210,30 +212,30 @@ class HodgkinHuxley(Model):
 
     def ode(self, stimulus=0.0):
 
-        alpha = np.exp(-(self.v + 55.0) / 10.0) - 1.0
-        beta = 0.125 * np.exp(-(self.v + 65.0) / 80.0)
+        alpha = math.exp(-(self.v + 55.0) / 10.0) - 1.0
+        beta = 0.125 * math.exp(-(self.v + 65.0) / 80.0)
 
-        self.d_n = np.where(
-            np.abs(alpha) <= 1e-7,
-            0.1 * (1.0 - self.n) - beta * self.n,
-            (-0.01 * (self.v + 55.0) / alpha) * (1.0 - self.n) - beta * self.n,
+        self.d_n = (
+            0.1 * (1.0 - self.n) - beta * self.n
+            if abs(alpha) <= 1e-7
+            else (-0.01 * (self.v + 55.0) / alpha) * (1.0 - self.n) - beta * self.n
         )
 
-        alpha = np.exp(-(self.v + 40.0) / 10.0) - 1.0
-        beta = 4.0 * np.exp(-(self.v + 65.0) / 18.0)
+        alpha = math.exp(-(self.v + 40.0) / 10.0) - 1.0
+        beta = 4.0 * math.exp(-(self.v + 65.0) / 18.0)
 
-        self.d_m = np.where(
-            np.abs(alpha) <= 1e-7,
-            (1.0 - self.m) - beta * self.m,
-            (-0.1 * (self.v + 40.0) / alpha) * (1.0 - self.m) - beta * self.m,
+        self.d_m = (
+            (1.0 - self.m) - beta * self.m
+            if abs(alpha) <= 1e-7
+            else (-0.1 * (self.v + 40.0) / alpha) * (1.0 - self.m) - beta * self.m
         )
 
-        alpha = 0.07 * np.exp(-(self.v + 65.0) / 20.0)
-        beta = 1.0 / (np.exp(-(self.v + 35.0) / 10.0) + 1.0)
+        alpha = 0.07 * math.exp(-(self.v + 65.0) / 20.0)
+        beta = 1.0 / (math.exp(-(self.v + 35.0) / 10.0) + 1.0)
         self.d_h = alpha * (1 - self.h) - beta * self.h
 
-        i_na = self.g_Na * np.power(self.m, 3) * self.h * (self.v - self.E_Na)
-        i_k = self.g_K * np.power(self.n, 4) * (self.v - self.E_K)
+        i_na = self.g_Na * pow(self.m, 3) * self.h * (self.v - self.E_Na)
+        i_k = self.g_K * pow(self.n, 4) * (self.v - self.E_K)
         i_l = self.g_L * (self.v - self.E_L)
 
         self.d_v = stimulus - i_na - i_k - i_l
