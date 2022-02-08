@@ -7,30 +7,7 @@ from neural.utils.array import (
 )
 import numpy as np
 import sys
-cupy = None
-gpuarray = None
-try:
-    import cupy
-except:
-    pass
-try:
-    import pycuda.autoprimaryctx
-    from pycuda import gpuarray
-except:
-    pass
-to_cupy = None
-to_gpuarray = None
-try:
-    import cupy
-    to_cupy = lambda x: cupy.asarray(x)
-except:
-    pass
-try:
-    import pycuda.autoprimaryctx
-    from pycuda import gpuarray
-    to_gpuarray = lambda x: gpuarray.to_gpu(x)
-except:
-    pass
+from helper_funcs import to_cupy, cupy, gpuarray, to_gpuarray
 
 ARRAYS = {
     'numpy': {
@@ -54,8 +31,11 @@ ARRAYS = {
 }
 
 def test_isarray():
-    for key, arr in ARRAYS['numpy'].items():
-        assert isarray(arr) == (key != 'scalar')
+    for mod, arrays in ARRAYS.items():
+        for key, arr in arrays.items():
+            if arr is None:
+                continue
+            assert isarray(arr), f"{mod}, {key}"
 
 def test_iscudaarray():
     for mod, arrays in ARRAYS.items():
@@ -102,8 +82,8 @@ def test_cudaarray_to_cpu():
 def test_is_contiguous(conversion_f, dtype):
     # 0D
     a = np.array(0., dtype=dtype)
-    a_C = np.ascontiguousarray(a).astype(dtype)
-    a_F = np.asfortranarray(a).astype(dtype)
+    a_C = np.ascontiguousarray(a)
+    a_F = np.asfortranarray(a)
     b = conversion_f(a)
     b_C = conversion_f(a_C)
     b_F = conversion_f(a_F)
@@ -113,13 +93,13 @@ def test_is_contiguous(conversion_f, dtype):
 
     # 1D
     a = np.arange(10).astype(dtype)
-    a_C = np.ascontiguousarray(a).astype(dtype)
-    a_F = np.asfortranarray(a).astype(dtype)
-    a_dis = a[::2].astype(dtype)
+    a_C = np.ascontiguousarray(a)
+    a_F = np.asfortranarray(a)
+    a_dis = a[::2]
     b = conversion_f(a)
     b_C = conversion_f(a_C)
     b_F = conversion_f(a_F)
-    b_dis = conversion_f(a_dis)
+    b_dis = b[::2]
     for order in ['C', 'F']:
         for arr in [a, a_C, a_F, b, b_C, b_F]:
             assert iscontiguous(arr, order) is True
@@ -128,13 +108,13 @@ def test_is_contiguous(conversion_f, dtype):
 
     # 2D
     a = np.random.randn(5, 10).astype(dtype)
-    a_C = np.ascontiguousarray(a).astype(dtype)
-    a_F = np.asfortranarray(a).astype(dtype)
-    a_dis = a[::2, ::2].astype(dtype)
+    a_C = np.ascontiguousarray(a)
+    a_F = np.asfortranarray(a)
+    a_dis = a[::2, ::2]
     b = conversion_f(a)
     b_C = conversion_f(a_C)
     b_F = conversion_f(a_F)
-    b_dis = conversion_f(a_dis)
+    b_dis = b[::2, ::2]
     for arr in [a, a_C, b, b_C]:
         assert iscontiguous(arr, 'C') is True
         assert iscontiguous(arr, 'F') is False

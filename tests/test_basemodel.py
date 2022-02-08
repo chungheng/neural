@@ -1,5 +1,6 @@
 # pylint:disable=arguments-differ
 from copy import deepcopy
+from numbers import Number
 import pytest
 import numpy as np
 from scipy.integrate import cumtrapz
@@ -20,14 +21,15 @@ class LeakyIAF(Model):
         self.d_v = 1.0 / self.c * (-self.v / self.r + stimulus)
 
     def post(self):
-        self.spike = np.where(
-            self.v > self.vt, 1.0, 0.0
-        )  # pylint:disable=access-member-before-definition
-        self.v = np.where(self.v > self.vt, self.vr, self.v)
-
+        self.spike = 1 if self.v > self.vt else 0  # pylint:disable=access-member-before-definition
+        self.v = self.vr if self.v > self.vt else self.v
 
 def test_model():
     model = LeakyIAF()
+    assert model.num == 1
+    assert all([np.isscalar(val) for val in model.states])
+    assert all([np.isscalar(val) for val in model.gstates])
+    assert all([np.isscalar(val) for val in model.params])
     assert model.params == LeakyIAF.Default_Params
     assert model.states == LeakyIAF.Default_States
     assert model.Derivates == ["v"]

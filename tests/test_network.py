@@ -1,19 +1,15 @@
 import pytest
+import pycuda.autoprimaryctx
 import pycuda.gpuarray as garray
 import numpy as np
 from neural.basemodel import Model
-from neural.recorder import Recorder, CUDARecorder, NumpyRecorder, ScalarRecorder
+from neural.recorder import Recorder
 from neural.network import Container, Network, Symbol
+from neural.solver import SOLVERS
 from neural import utils
 from neural import errors
-
-try:
-    import pycuda.autoinit
-
-    CUDA = True
-except:
-    CUDA = False
-
+import numpy as np
+from helper_funcs import to_gpuarray, to_cupy
 
 @pytest.fixture
 def single_spike_data():
@@ -43,9 +39,15 @@ class DummyModel(Model):
 
 def test_container():
     Container.isacceptable(DummyModel)
-
-    dum = Container(DummyModel(), name="Dummy", num=1)
+    dum = Container(DummyModel(num=1), name="Dummy")
     assert dum.num == 1
+    assert dum.name == "Dummy"
+    assert isinstance(dum.x, Symbol)
+    dum.latex_src
+    dum.graph_src
+
+    dum = Container(DummyModel(num=10), name="Dummy")
+    assert dum.num == 10
     assert dum.name == "Dummy"
     assert isinstance(dum.x, Symbol)
     dum.latex_src
@@ -54,7 +56,7 @@ def test_container():
     with pytest.raises(
         errors.NeuralContainerError, match="called with value .* not understood"
     ):
-        dum = Container(DummyModel(), name="Dummy", num=1)
+        dum = Container(DummyModel(num=1), name="Dummy")
         dum(inp="not_Symbol_or_Input_or_Number")
 
 
@@ -69,9 +71,8 @@ def test_network_construction_compilation(single_spike_data):
     assert "Dummy" in nn.containers
     assert len(nn.inputs) and "Test" in nn.inputs
     assert nn._iscompiled == True
-    assert nn.backend == "cuda"
 
-    with pytest.raises(errors.NeuralNetworkError, match="Duplicate container name .*"):
+    with pytest.raises(errors.NeuralNetworkError, match="Duplicate container name: .*"):
         nn = Network()
         inp = nn.input(name="Test", num=2)
         dum = nn.add(DummyModel, name="Dummy", num=2)
@@ -95,12 +96,12 @@ def test_network_construction_compilation(single_spike_data):
         dum = nn.add(DummyModel, name="Dummy", num=1)
         nn.run(dt, verbose=False)
 
-
-def test_network_running(single_spike_data):
+@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray])
+def test_network_running(single_spike_data, conversion_f):
     dt, dur, start, stop, amp, spike = single_spike_data
     num = 2
     wav = utils.generate_stimulus("step", dt, dur, (start, stop), np.full((num,), amp))
-    wav_g = garray.to_gpu(np.ascontiguousarray(wav.T))
+    wav_g = conversion_f(np.ascontiguousarray(wav.T))
 
     nn = Network()
     inp = nn.input(name="Test", num=2)
@@ -112,17 +113,17 @@ def test_network_running(single_spike_data):
     nn.run(dt, verbose=False)
     np.testing.assert_almost_equal(dum.recorder.x, wav)
 
-
-def test_network_backends(single_spike_data):
+@pytest.mark.parametrize('solver', SOLVERS)
+@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray])
+def test_network_solvers(single_spike_data, solver, conversion_f):
     dt, dur, start, stop, amp, spike = single_spike_data
     num = 2
     wav = utils.generate_stimulus("step", dt, dur, (start, stop), np.full((num,), amp))
-    wav_g = garray.to_gpu(np.ascontiguousarray(wav.T))
+    wav_g = conversion_f(np.ascontiguousarray(wav.T))
 
-    # cuda backend
-    nn = Network(backend="cuda")
-    inp = nn.input(name="Test", num=2)
-    dum = nn.add(DummyModel, name="Dummy", num=2)
+    nn = Network(solver=solver)
+    inp = nn.input(name="Test", num=num)
+    dum = nn.add(DummyModel, name="Dummy", num=num)
     dum(inp=inp)
     nn.compile()
     dum.record("x")
@@ -133,35 +134,41 @@ def test_network_backends(single_spike_data):
 
 def test_recorder(single_spike_data, multi_spike_data):
     dt, dur, start, stop, amp, spike = single_spike_data
-    mdl = Container(DummyModel(), name="dummy", num=1)
+    mdl = Container(DummyModel(num=1), name="dummy")
     mdl.record("x")
     rec = mdl.set_recorder(steps=spike.shape[-1], rate=1)
     for tt, ss in enumerate(spike):
         mdl.obj.update(dt, inp=ss)
         rec.update(index=tt)
-    np.testing.assert_equal(rec.x, spike)
+    np.testing.assert_equal(rec.x, spike[None,:])
+
+    mdl = Container(DummyModel(num=1), name="dummy")
+    mdl.record("x")
+    rec = mdl.set_recorder(steps=spike.shape[-1], rate=5)
+    for tt, ss in enumerate(spike):
+        mdl.obj.update(dt, inp=ss)
+        rec.update(index=tt)
+    np.testing.assert_equal(rec.x, spike[None,::5])
 
     # DEBUG: This currently does not work because the container instantiation
     # is not aware of the `num` argument.
-    # dt, dur, start, stop, amps, spikes = multi_spike_data
-    # mdl = Container(DummyModel(), name="dummy", num=len(amps))
-    # mdl.record("x")
-    # rec = mdl.set_recorder(steps=spikes.shape[-1], rate=1)
-    # for tt, ss in enumerate(spikes.T):
-    #     mdl.obj.update(dt, inp=ss)
-    #     rec.update(index=tt)
-    # np.testing.assert_equal(rec.x, spikes)
+    dt, dur, start, stop, amps, spikes = multi_spike_data
+    mdl = Container(DummyModel(num=len(amps)), name="dummy")
+    mdl.record("x")
+    rec = mdl.set_recorder(steps=spikes.shape[-1], rate=1)
+    for tt, ss in enumerate(spikes.T):
+        mdl.obj.update(dt, inp=ss)
+        rec.update(index=tt)
+    np.testing.assert_equal(rec.x, spikes)
 
-
-@pytest.mark.skipif(not CUDA, reason="requires CUDA")
-def test_cuda_recorder(single_spike_data):
+@pytest.mark.parametrize('conversion_f', [to_cupy, to_gpuarray])
+def test_cuda_recorder(single_spike_data, conversion_f):
     dt, dur, start, stop, amp, spike = single_spike_data
-    spikes_g = garray.to_gpu(spike)
-    mdl = Container(DummyModel(), name="dummy", num=1)
+    spikes_g = conversion_f(spike)
+    mdl = Container(DummyModel(num=1), name="dummy")
     mdl.record("x")
     rec = mdl.set_recorder(steps=spikes_g.shape[-1], rate=1)
     for tt, ss in enumerate(spikes_g):
         mdl.obj.update(dt, inp=ss)
         rec.update(index=tt)
-    np.testing.assert_equal(rec.x, spikes_g.get())
-    del spikes_g
+    np.testing.assert_equal(rec.x, utils.array.cudaarray_to_cpu(spikes_g)[None,:])
