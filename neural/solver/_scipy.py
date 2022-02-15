@@ -9,7 +9,6 @@ from .. import types as tpe
 from .. import errors as err
 from ..utils.array import cudaarray_to_cpu
 
-
 class SciPySolver(BaseSolver):
     """SciPy OdeSolvers
 
@@ -21,7 +20,6 @@ class SciPySolver(BaseSolver):
         as required by :code:`OdeSolver`s. As such, we cannot guarantee
         that the data types are perserved during integration step.
     """
-
     SolverCls: OdeSolver = OdeSolver
 
     def __init__(self, model: tpe.Model, **solver_options) -> None:
@@ -37,11 +35,6 @@ class SciPySolver(BaseSolver):
         self._dense_output = None
         self.jac = self.model.jacobian
 
-    @classmethod
-    def recast_arrays(cls, model: tpe.Model) -> None:
-        for attr in ["states", "gstates", "bounds", "params"]:
-            for key, arr in (dct := getattr(model, attr)).items():
-                dct[key] = cudaarray_to_cpu(arr)
 
     def set_initial_value(self, t0: float = 0, **initial_states):
         """Change initial value of solver
