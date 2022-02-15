@@ -5,15 +5,15 @@ import inspect
 import sys
 from types import ModuleType
 from typing import Literal
+from attr import has
 import numpy as np
 import numpy.typing as npt
 from .. import errors as err
+import numba.cuda
 
 
 def iscudaarray(arr) -> bool:
-    if hasattr(arr, "__cuda_array_interface__"):
-        return True
-    return False
+    return numba.cuda.is_cuda_array(arr)
 
 
 def isarray(arr) -> bool:
@@ -91,6 +91,8 @@ def cudaarray_to_cpu(arr: npt.ArrayLike, out: npt.ArrayLike = None) -> npt.Array
             raise err.NeuralUtilityError(
                 "Cannot convert cuda array to numpy array"
             ) from e
+    if hasattr(arr, "copy_to_host()"):
+        return arr.copy_to_host()
     raise err.NeuralUtilityError(
         "cuda array type not supported. does not have .get() or .detach() methods"
     )
@@ -106,3 +108,19 @@ def iscontiguous(arr: npt.ArrayLike, order: Literal["C", "F"] = "C") -> bool:
             return arr.flags.f_contiguous
         raise err.NeuralUtilityError("order must be 'C' or 'F'")
     raise err.NeuralUtilityError(f"Array of type '{type(arr)}' not understood.")
+
+
+@numba.cuda.jit
+def cuda_clip(arr, a_min, a_max, out):
+    for n in range(
+        numba.cuda.grid(1), arr.shape[0], numba.cuda.gridsize(1)
+    ):  # pylint:disable=too-many-function-args
+        out[n] = a_min if arr[n] < a_min else a_max if arr[n] > a_max else arr[n]
+
+
+@numba.cuda.jit
+def cuda_fill(arr, value):
+    for n in range(
+        numba.cuda.grid(1), arr.shape[0], numba.cuda.gridsize(1)
+    ):  # pylint:disable=too-many-function-args
+        arr[n] = value

@@ -1,4 +1,4 @@
-#pylint:disable=abstract-method
+# pylint:disable=abstract-method
 """Backend Modules for Model"""
 import hashlib
 import tempfile
@@ -34,20 +34,19 @@ def _get_per_user_string():
     else:
         return "uid%d" % getuid()
 
+
 class Backend:
-    """Base Backend Implementation
-    """
+    """Base Backend Implementation"""
+
     def __init__(self, model: tpe.Model):
         self.model = model
+
 
 class CUDABackend(Backend):
 
     blocksize: int = 256
 
-    def __init__(
-        self,
-        model: tpe.Model
-    ):
+    def __init__(self, model: tpe.Model):
         if not numba.cuda.is_available():
             raise err.NeuralBackendError(
                 "CUDA gpu not available, cannot support CUDABackend"
@@ -56,10 +55,9 @@ class CUDABackend(Backend):
 
     @property
     def gridsize(self) -> int:
-        return int(min(
-            6 * MULTIPROCESSOR_COUNT,
-            (self.model.num-1) // self.blocksize + 1
-        ))
+        return int(
+            min(6 * MULTIPROCESSOR_COUNT, (self.model.num - 1) // self.blocksize + 1)
+        )
 
     def recast(self) -> None:
         for attr in ["states", "gstates", "bounds", "params"]:
@@ -73,12 +71,13 @@ class CUDABackend(Backend):
         for attr in self.model.states:
             cuda_fill(self.model.states[attr], self.model.initial_states[attr])
         for attr in self.model.gstates:
-            cuda_fill(self.model.gstates[attr], 0.)
+            cuda_fill(self.model.gstates[attr], 0.0)
 
     def clip(self, states: dict = None) -> None:
         states = self.model.states if states is None else states
         for var, bds in self.model.bounds.items():
             cuda_clip(states[var], *bds, states[var])
+
 
 class CodegenBackend(Backend):
     """Backends with code generation into str
@@ -90,10 +89,11 @@ class CodegenBackend(Backend):
 
     If self.ode and/or self.post are defined, they are automatically populated
     """
+
     def __init__(self, model: tpe.Model):
         super().__init__(model)
-        self.source = "" # source code for module
-        self._module = None # ModuleType that is defined from the generated source code
+        self.source = ""  # source code for module
+        self._module = None  # ModuleType that is defined from the generated source code
 
     def compile(self):
         module_name = f"{self.__class__.__name__}For{self.model.__class__.__name__}"
@@ -109,17 +109,17 @@ class CodegenBackend(Backend):
                 break
 
         # write source to temp file and load as module
-        source = self.source.encode('utf-8')
-        cache_dir = pathlib.Path(tempfile.gettempdir()) / \
-            f"neural-compiler-cache-{_get_per_user_string()}"
+        source = self.source.encode("utf-8")
+        cache_dir = (
+            pathlib.Path(tempfile.gettempdir())
+            / f"neural-compiler-cache-{_get_per_user_string()}"
+        )
         try:
             cache_dir.mkdir(parents=False, exist_ok=False)
         except FileExistsError:
             pass
         except Exception as e:
-            raise err.NeuralBackendError(
-                f"Cannot creat cache dir {cache_dir}"
-            ) from e
+            raise err.NeuralBackendError(f"Cannot creat cache dir {cache_dir}") from e
         checksum = hashlib.md5()
         checksum.update(source)
         cache_file = checksum.hexdigest()
@@ -132,11 +132,13 @@ class CodegenBackend(Backend):
                 self._module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(self._module)
             except Exception as e:
-                raise err.NeuralBackendError(textwrap.dedent(
-                    f"""Error in loading generated code for backend {self.__class__.__name__}
+                raise err.NeuralBackendError(
+                    textwrap.dedent(
+                        f"""Error in loading generated code for backend {self.__class__.__name__}
                     {self.source}
                     """
-                )) from e
+                    )
+                ) from e
 
         # set globals for the module to match original function definition
         for method in methods_to_implement:
@@ -155,26 +157,25 @@ class CodegenBackend(Backend):
     def generate(self, method: str) -> str:
         """Return generated str for a particular method"""
 
+
 class NumbaCPUBackend(CodegenBackend):
     def generate(self, method: str) -> str:
-        """generate source for numba kernel
-        """
-        if method not in ['ode', 'post']:
+        """generate source for numba kernel"""
+        if method not in ["ode", "post"]:
             raise err.NeuralCodeGenError(
                 f"Only .ode and .post support codegen with numba, got '{method}'"
             )
         # jit target function
         try:
-            return get_numba_function_source(self.model, method, target='numpy').src
+            return get_numba_function_source(self.model, method, target="numpy").src
         except Exception as e:
-            raise err.NeuralCodeGenError(f"Code Generation for Method {method} failed") from e
+            raise err.NeuralCodeGenError(
+                f"Code Generation for Method {method} failed"
+            ) from e
+
 
 class NumbaCUDABackend(CUDABackend, CodegenBackend):
-
-    def __init__(
-        self,
-        model: tpe.Model
-    ):
+    def __init__(self, model: tpe.Model):
         if not numba.cuda.is_available():
             raise err.NeuralBackendError(
                 "CUDA gpu not available, cannot support NumbaCUDABackend"
@@ -182,14 +183,15 @@ class NumbaCUDABackend(CUDABackend, CodegenBackend):
         super().__init__(model)
 
     def generate(self, method: str) -> str:
-        """generate source for numba kernel
-        """
-        if method not in ['ode', 'post']:
+        """generate source for numba kernel"""
+        if method not in ["ode", "post"]:
             raise err.NeuralCodeGenError(
                 f"Only .ode and .post support codegen with numba, got '{method}'"
             )
         # jit target function
         try:
-            return get_numba_function_source(self.model, method, target='cuda').src
+            return get_numba_function_source(self.model, method, target="cuda").src
         except Exception as e:
-            raise err.NeuralCodeGenError(f"Code Generation for Method {method} failed") from e
+            raise err.NeuralCodeGenError(
+                f"Code Generation for Method {method} failed"
+            ) from e

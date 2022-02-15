@@ -154,17 +154,13 @@ class ConnorStevens(Model):
     def ode(self, stimulus=0.0):
 
         alpha = math.exp(-(self.v + 50.0 + self.ns) / 10.0) - 1.0
-        alpha = (
-            0.1 if abs(alpha) <= 1e-7 else -0.01 * (self.v + 50.0 + self.ns) / alpha
-        )
+        alpha = 0.1 if abs(alpha) <= 1e-7 else -0.01 * (self.v + 50.0 + self.ns) / alpha
         beta = 0.125 * math.exp(-(self.v + 60.0 + self.ns) / 80.0)
         n_inf = alpha / (alpha + beta)
         tau_n = 2.0 / (3.8 * (alpha + beta))
 
         alpha = math.exp(-(self.v + 35.0 + self.ms) / 10.0) - 1.0
-        alpha = (
-            1.0 if abs(alpha) <= 1e-7 else -0.1 * (self.v + 35.0 + self.ms) / alpha
-        )
+        alpha = 1.0 if abs(alpha) <= 1e-7 else -0.1 * (self.v + 35.0 + self.ms) / alpha
         beta = 4.0 * math.exp(-(self.v + 60.0 + self.ms) / 18.0)
         m_inf = alpha / (alpha + beta)
         tau_m = 1.0 / (3.8 * (alpha + beta))
@@ -178,7 +174,7 @@ class ConnorStevens(Model):
             0.0761
             * math.exp((self.v + 94.22) / 31.84)
             / (1.0 + math.exp((self.v + 1.17) / 28.93))
-        ) ** (1./3.)
+        ) ** (1.0 / 3.0)
 
         tau_a = 0.3632 + 1.158 / (1.0 + math.exp((self.v + 55.96) / 20.12))
         b_inf = pow(1 / (1 + math.exp((self.v + 53.3) / 14.54)), 4.0)

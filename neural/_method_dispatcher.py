@@ -3,6 +3,7 @@ import weakref
 from abc import get_cache_token
 from functools import update_wrapper
 
+
 class MethodDispatcher:
     """Dispatch Neural.Model method descriptor.
 
@@ -33,7 +34,7 @@ class MethodDispatcher:
             raise TypeError(f"{func!r} is not callable or a descriptor")
 
         self.cache_token = None
-        self.registry =  None
+        self.registry = None
         self.dispatch_cache = None
         func.register = self.register
         func.registry = self.registry
@@ -91,4 +92,4 @@ class MethodDispatcher:
 
     @property
     def __isabstractmethod__(self):
-        return getattr(self.func, '__isabstractmethod__', False)
+        return getattr(self.func, "__isabstractmethod__", False)

@@ -13,7 +13,7 @@ else:
     from ast import unparse
 
 NUMBA_TEMPLATE = Template(
-"""
+    """
 import numba
 import numba.cuda
 
@@ -51,26 +51,30 @@ def {{ method }}{{signature}}:
 """
 )
 
+
 class CollectVariables(ast.NodeVisitor):
     def __init__(self):
         self.local_vars = list()
+
     def visit_Name(self, node: ast.Name) -> tp.Any:
         self.local_vars.append(node.id)
 
+
 class ReplaceAttr(ast.NodeTransformer):
-    def __init__(self, name_replacements: dict, idx_name: str = '_i'):
+    def __init__(self, name_replacements: dict, idx_name: str = "_i"):
         self.replacements = name_replacements
         self.idx_name = idx_name
 
     def visit_Attribute(self, node: ast.Attribute) -> tp.Any:
         self.generic_visit(node)
-        if isinstance(node.value, ast.Name) and node.value.id == 'self':
+        if isinstance(node.value, ast.Name) and node.value.id == "self":
             if (old_var := f"self.{node.attr}") in self.replacements:
                 ctx = node.ctx
                 var_name = self.replacements[old_var]
                 node = ast.parse(f"{var_name}[{self.idx_name}]").body[0].value
-                node.ctx =  ctx
+                node.ctx = ctx
         return node
+
 
 @dataclass
 class JittedFunction:
@@ -78,19 +82,15 @@ class JittedFunction:
     src: str
     args: tp.Dict[str, str]
 
-def get_numba_function_source(
-    model: tpe.Model,
-    method: str = "ode",
-    target: tp.Literal["cpu", "cuda"] = "cpu"
-) -> JittedFunction:
-    """Return a function definition that can be jitted
-    """
-    if not callable(func:= getattr(model, method, None)):
-        raise err.NeuralCodeGenError(
-            f"Method '{method}' not valid for model {model}"
-        )
 
-    inputs = [p for p in inspect.signature(func).parameters if p != 'self']
+def get_numba_function_source(
+    model: tpe.Model, method: str = "ode", target: tp.Literal["cpu", "cuda"] = "cpu"
+) -> JittedFunction:
+    """Return a function definition that can be jitted"""
+    if not callable(func := getattr(model, method, None)):
+        raise err.NeuralCodeGenError(f"Method '{method}' not valid for model {model}")
+
+    inputs = [p for p in inspect.signature(func).parameters if p != "self"]
     replacements = dict()
     for arg in inputs:
         replacements[arg] = f"input_{arg}"
@@ -121,28 +121,25 @@ def get_numba_function_source(
             )
 
     # replace attributes self.x with states_x/params_x/gstates_x ...
-    tree = ast.fix_missing_locations(ReplaceAttr(
-        name_replacements=replacements,
-        idx_name=idx_name,
-    ).visit(tree))
+    tree = ast.fix_missing_locations(
+        ReplaceAttr(
+            name_replacements=replacements,
+            idx_name=idx_name,
+        ).visit(tree)
+    )
 
     # render function source
     args = list(replacements.values())
     func_src = NUMBA_TEMPLATE.render(
         method=method,
-        signature=str(inspect.signature(
-            getattr(model.__class__, method)
-        )),
+        signature=str(inspect.signature(getattr(model.__class__, method))),
         inputs=inputs,
         arguments=args,
-        ode_expressions=textwrap.indent(
-            unparse(tree.body[0].body),
-            prefix=" " * 8
-        ),
+        ode_expressions=textwrap.indent(unparse(tree.body[0].body), prefix=" " * 8),
         idx=idx_name,
         N=model.num,
         target=target,
-        grid_size=1 if target == 'cuda' else None,
-        block_size=1 if target == 'cuda' else None
+        grid_size=1 if target == "cuda" else None,
+        block_size=1 if target == "cuda" else None,
     )
     return JittedFunction(name=method, src=func_src, args=replacements)

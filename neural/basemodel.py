@@ -1,4 +1,4 @@
-#pylint:disable=method-hidden
+# pylint:disable=method-hidden
 """
 Base model class for neurons and synapses.
 """
@@ -24,6 +24,7 @@ from .utils.array import (
 )
 from .backend import Backend, NumbaCPUBackend, NumbaCUDABackend
 from ._method_dispatcher import MethodDispatcher
+
 
 class FindDerivates(ast.NodeVisitor):
     def __init__(self):
@@ -79,7 +80,11 @@ class Model:
     Time_Scale: float = 1.0
     solver: BaseSolver = Euler
     backend: Backend = None
-    Supported_Backends: tp.Iterable[Backend] = (Backend, NumbaCPUBackend, NumbaCUDABackend)
+    Supported_Backends: tp.Iterable[Backend] = (
+        Backend,
+        NumbaCPUBackend,
+        NumbaCUDABackend,
+    )
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
@@ -151,14 +156,13 @@ class Model:
         # all the methods that are decorated as DispatchByBackend in Model
         # should also be decorated in the subclasses. If not decorated already,
         # we manually decorate it.
-        for method in ['ode', 'post', 'clip', 'reset', 'recast']:
+        for method in ["ode", "post", "clip", "reset", "recast"]:
             # check if method is decorated
             func = getattr(cls, method)
-            if not hasattr(func, 'register'):
+            if not hasattr(func, "register"):
                 func = MethodDispatcher(func)
                 MethodDispatcher.__set_name__(func, cls, method)
                 setattr(cls, method, func)
-
 
     def __init__(
         self,
@@ -345,7 +349,7 @@ class Model:
         for attr in self.states:
             self.states[attr][:] = self.initial_states[attr]
         for attr in self.gstates:
-            self.gstates[attr][:] = 0.
+            self.gstates[attr][:] = 0.0
 
     def clip(self, states: dict = None) -> None:
         states = self.states if states is None else states
@@ -370,10 +374,11 @@ class Model:
             func(self)
 
     def set_backend(self, new_backend: Backend, **backend_options) -> None:
-        assert (new_backend == Backend or issubclass(new_backend, Backend)), \
-            err.NeuralBackendError(f"backend {new_backend} not understood")
+        assert new_backend == Backend or issubclass(
+            new_backend, Backend
+        ), err.NeuralBackendError(f"backend {new_backend} not understood")
 
-        if self.backend.__class__  == new_backend:
+        if self.backend.__class__ == new_backend:
             return
         self.backend = new_backend(self, **backend_options)
         try:
@@ -381,8 +386,8 @@ class Model:
         except AttributeError:
             pass
 
-        for method in ['ode', 'post', 'clip', 'reset', 'recast']:
-            if callable(func:= getattr(self.backend, method, None)):
+        for method in ["ode", "post", "clip", "reset", "recast"]:
+            if callable(func := getattr(self.backend, method, None)):
                 getattr(self, method).register(new_backend, func)
         self.recast()  # recast array types
 
@@ -460,8 +465,8 @@ class Model:
                     f"same length as t ({len(t)}) and num ({self.num}) "
                     f"in the second dimension, got {stim.shape} instead."
                 )
-            if (stim.ndim == 1 and len(stim) == len(t)):
-                stim = np.repeat(stim[:,None], self.num, axis=1)
+            if stim.ndim == 1 and len(stim) == len(t):
+                stim = np.repeat(stim[:, None], self.num, axis=1)
                 # FIXME: This shouldn't be necessary.
                 # the kernel should support broadcasting by itself.
                 # maybe the compilation should be default.
