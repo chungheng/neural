@@ -21,10 +21,6 @@ class BaseSolver:
         # required for initial value setting
         self.solver_options = solver_options or {}
 
-    @classmethod
-    def recast_arrays(cls, model: tpe.Model) -> None:
-        """Recast states/gstates/params/bounds into ndarray modules compatible with the solver"""
-
     @abstractmethod
     def step(self, d_t: float, **input_args) -> None:
         """Step integration once"""
