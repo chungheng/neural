@@ -87,7 +87,7 @@ class MethodDispatcher:
         if obj is None:
             return self.func
         # if called from instance return dispatched implementation
-        return MethodType(self.dispatch(obj.backend.__class__), obj)
+        return self.dispatch(obj.backend.__class__).__get__(obj, cls)
 
     @property
     def __isabstractmethod__(self):

@@ -1,16 +1,18 @@
+#pylint:disable=method-hidden
 """
 Base model class for neurons and synapses.
 """
+import inspect
 import copy
+import ast
+import textwrap
 from abc import abstractmethod
 from warnings import warn
 from inspect import getfullargspec
 import typing as tp
 import numpy as np
-import numba
-from .solver import BaseSolver, Euler
 from tqdm.auto import tqdm
-from . import types as tpe
+from .solver import BaseSolver, Euler
 from . import errors as err
 from .utils.array import (
     create_empty,
@@ -18,8 +20,24 @@ from .utils.array import (
     get_array_module,
     isarray,
     iscudaarray,
+    cuda_fill,
 )
-from .codegen.parsedmodel import ParsedModel
+from .backend import Backend, NumbaCPUBackend, NumbaCUDABackend
+from ._method_dispatcher import MethodDispatcher
+
+class FindDerivates(ast.NodeVisitor):
+    def __init__(self):
+        self.Derivates = []
+
+    def visit_Assign(self, node: ast.Assign) -> tp.Any:
+        for t in node.targets:
+            if (
+                isinstance(t, ast.Attribute)
+                and isinstance(t.value, ast.Name)
+                and t.value.id == "self"
+                and t.attr.startswith("d_")
+            ):
+                self.Derivates.append(t.attr[2:])
 
 
 class Model:
@@ -60,6 +78,8 @@ class Model:
     Default_Params: tp.Dict = None
     Time_Scale: float = 1.0
     solver: BaseSolver = Euler
+    backend: Backend = None
+    Supported_Backends: tp.Iterable[Backend] = (Backend, NumbaCPUBackend, NumbaCUDABackend)
 
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
@@ -124,35 +144,28 @@ class Model:
 
         cls.Inputs = inputs
 
-        # ode function definition
-        # 1. _ode_scalar is set to ode if not specified
-        # if not _is_implemented(cls._ode_vectorized):
-        #     try:
-        #         numba.vectorize()
+        vis = FindDerivates()
+        vis.visit(ast.parse(textwrap.dedent(inspect.getsource(cls.ode))))
+        cls.Derivates = [var for var in vis.Derivates if var in cls.Default_States]
 
-        # validate class ode definition
-        # temporarily set Derivates for all states
-        cls.Derivates = [key for key in states]
-        obj = cls()
-        # set all gstates to None to filter out which gstates are actually set
-        obj.gstates = {var: None for var in obj.gstates}
-        # call ode method, pass obj into argument as `self`
-        try:
-            obj.ode()
-        except Exception as e:
-            raise err.NeuralModelError(f"{cls.__name__}.ode failed to execute") from e
-        try:
-            obj.post()
-        except Exception as e:
-            raise err.NeuralModelError(f"{cls.__name__}.post failed to execute") from e
+        # all the methods that are decorated as DispatchByBackend in Model
+        # should also be decorated in the subclasses. If not decorated already,
+        # we manually decorate it.
+        for method in ['ode', 'post', 'clip', 'reset', 'recast']:
+            # check if method is decorated
+            func = getattr(cls, method)
+            if not hasattr(func, 'register'):
+                func = MethodDispatcher(func)
+                MethodDispatcher.__set_name__(func, cls, method)
+                setattr(cls, method, func)
 
-        # store state variables with gradients
-        cls.Derivates = [var for var, val in obj.gstates.items() if val is not None]
 
     def __init__(
         self,
         num: int = 1,
         callback: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
+        backend: Backend = Backend,
+        backend_kws: dict = None,
         solver: BaseSolver = Euler,
         solver_kws: dict = None,
         **kwargs,
@@ -169,6 +182,7 @@ class Model:
         Keyword Arguments:
             Are assumed to be values for states or parameters
         """
+
         # set state variables and parameters
         self.num = 1  # num will be set in the first set_num call
         self.params = {
@@ -203,11 +217,7 @@ class Model:
                             ),
                             err.NeuralModelWarning,
                         )
-                    dct[key][:] = (
-                        ref_dtype.type(val)
-                        if np.isscalar(val)
-                        else val.astype(ref_dtype)
-                    )
+                    dct[key][:] = val
 
         # update initial states
         self.initial_states = copy.deepcopy(self.states)
@@ -215,15 +225,8 @@ class Model:
         callback = [] if callback is None else callback
         self.add_callback(callback)
 
-        # create symbolic model
-        try:
-            self.symbolic = ParsedModel(self)
-        except:
-            self.symbolic = None
-
-        self._jacobian = None
-        self.get_jacobian()
-
+        backend_kws = backend_kws or {}
+        self.set_backend(backend, **backend_kws)
         solver_kws = solver_kws or {}
         self.set_solver(solver, **solver_kws)
 
@@ -266,7 +269,7 @@ class Model:
                         else:
                             val = arr
                         new_arr = create_empty((num,), like=arr)
-                        new_arr.fill(val)
+                        cuda_fill(new_arr, val)
                         arr = new_arr
                     except Exception as e:
                         raise err.NeuralModelError(
@@ -277,11 +280,12 @@ class Model:
 
     def __setattr__(self, key: str, value: tp.Any):
         if key.startswith("d_"):
-            if key[2:] not in self.gstates:
+            try:
+                self.gstates[key[2:]] = value
+            except KeyError as e:
                 raise AttributeError(
                     f"Attribute {key} assumed to be gradient, but not found in Model.gstates"
-                )
-            self.gstates[key[2:]] = value
+                ) from e
             return
 
         if key in ["states", "params", "bounds"]:
@@ -321,14 +325,6 @@ class Model:
             of the model
         """
 
-    def _ode_vectorized(self, **input_args) -> None:
-        """ODE kernel where params and states are assumed to be vectors or broadcast-able to vectors"""
-        raise NotImplementedError
-
-    def _ode_cuda(self, **input_args) -> None:
-        """vectorized ODE kernel for CUDA arrays"""
-        raise NotImplementedError
-
     def post(self, **post_args) -> None:
         """Post Processing
 
@@ -338,14 +334,23 @@ class Model:
         Another usage of this function could be the spike detection for
         conductance-based models.
         """
-
-    def _post_vectorized(self, **post_args) -> None:
-        """Vectorized Post computation"""
         raise NotImplementedError
 
-    def _post_cuda(self, **post_args) -> None:
-        """Vectorized Post computation on CUDA"""
-        raise NotImplementedError
+    def recast(self) -> None:
+        for attr in ["states", "gstates", "bounds", "params"]:
+            for key, arr in (dct := getattr(self, attr)).items():
+                dct[key] = cudaarray_to_cpu(arr)
+
+    def reset(self) -> None:
+        for attr in self.states:
+            self.states[attr][:] = self.initial_states[attr]
+        for attr in self.gstates:
+            self.gstates[attr][:] = 0.
+
+    def clip(self, states: dict = None) -> None:
+        states = self.states if states is None else states
+        for var, bds in self.bounds.items():
+            states[var].clip(*bds, out=states[var])
 
     def update(self, d_t: float, **input_args) -> None:
         """Update model value
@@ -356,43 +361,30 @@ class Model:
               call signature of :py:func:`Model.ode`.
         """
         self.solver.step(d_t, **input_args)
-        self.post()
+        try:
+            self.post()
+        except NotImplementedError:
+            pass
         self.clip()
         for func in self.callbacks:
             func(self)
 
-    def reset(self) -> None:
-        """Reset state values.
+    def set_backend(self, new_backend: Backend, **backend_options) -> None:
+        assert (new_backend == Backend or issubclass(new_backend, Backend)), \
+            err.NeuralBackendError(f"backend {new_backend} not understood")
 
-        Sets states to initial values, and sets gstates to 0.
-        """
-        if callable(reset := getattr(self.solver, "reset", None)):
-            reset()
+        if self.backend.__class__  == new_backend:
             return
-        for var in self.states:
-            self.states[var][:] = self.initial_states[var]
-        for var in self.gstates:
-            self.gstates[var].fill(0.0)
+        self.backend = new_backend(self, **backend_options)
+        try:
+            self.backend.compile()
+        except AttributeError:
+            pass
 
-    def clip(self, states: dict = None) -> None:
-        """Clip the State Variables
-
-        Clip the state variables in-place after calling the numerical solver.
-
-        The state variables are usually bounded, for example, binding
-        variables are bounded between 0 and 1. However, numerical sovlers
-        might cause the value of state variables exceed its bounds. A hard
-        clip is forced here to ensure the state variables remain in the
-        given bounds.
-        """
-        states = self.states if states is None else states
-        if callable(clip := getattr(self.solver, "clip", None)):
-            clip(states=states)
-            return
-        for var, bds in self.bounds.items():
-            arr = states[var]
-            if np.isscalar(arr) or arr.ndim == 0:
-                states[var].clip(*bds, out=states[var])
+        for method in ['ode', 'post', 'clip', 'reset', 'recast']:
+            if callable(func:= getattr(self.backend, method, None)):
+                getattr(self, method).register(new_backend, func)
+        self.recast()  # recast array types
 
     def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
         if (
@@ -400,15 +392,12 @@ class Model:
             and self.solver.solver_options == solver_options
         ):
             return  # no-op
+
         self.solver = new_solver(self, **solver_options)
-        new_solver.recast_arrays(self)
 
     def add_callback(self, callbacks: tp.Iterable[tp.Callable]) -> None:
         """Add callback to Model's `callbacks` list"""
-        if not hasattr(callbacks, "__len__"):
-            callbacks = [
-                callbacks,
-            ]
+        callbacks = list(callbacks)
         for func in callbacks:
             if not callable(func):
                 raise err.NeuralModelError(
@@ -471,6 +460,11 @@ class Model:
                     f"same length as t ({len(t)}) and num ({self.num}) "
                     f"in the second dimension, got {stim.shape} instead."
                 )
+            if (stim.ndim == 1 and len(stim) == len(t)):
+                stim = np.repeat(stim[:,None], self.num, axis=1)
+                # FIXME: This shouldn't be necessary.
+                # the kernel should support broadcasting by itself.
+                # maybe the compilation should be default.
             input_args[var_name] = stim
 
         # create stimuli generator
@@ -512,44 +506,3 @@ class Model:
             for var, val in self.states.items():
                 res[var][tt][:] = val
         return {var: val.T for var, val in res.items()}
-
-    def get_jacobian(self) -> tp.Callable:
-        """Compute Jacobian of Model
-
-        .. note::
-
-            Differing from :py:func:`Model.jacobian`, this function will always
-            `re-compute` jacobian, including re-parsing the model. This is
-            provided in case the model parameter has been changed in-place
-            and the jacobian needs to be updated.
-
-        Returns:
-            A callable :code:`jacc_f(t, states, **input_args)` that returns a 2D numpy
-            array corresponding to the jacobian of the model.
-        """
-        if self.symbolic is None:
-            return None
-        # set the jacobian for model
-        self._jacobian = self.symbolic.get_lambidified_jacobian()
-        return self._jacobian
-
-    @property
-    def jacobian(self) -> tp.Callable:
-        """Compute or return cached jacobian of the model
-
-        .. note::
-
-            You can override jacobian definition in child classes to enforce
-            a jacobian
-
-        .. seealso:: :py:func:`neural.Model.get_jacobian`
-
-        Returns:
-            A callable :code:`jacc_f(t, states, I_ext)` that returns a 2D numpy
-            array corresponding to the jacobian of the model. For model that does
-            not require `I_ext` input, the callable's call signature is
-            :code:`jacc_f(t, states, I_ext)`.
-        """
-        if self._jacobian is not None:
-            return self._jacobian
-        return self.get_jacobian()
