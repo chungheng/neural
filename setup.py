@@ -18,7 +18,7 @@ requirements = [
     "scipy >= 1.5",
     "tqdm >= 4.48",
     "sympy",
-    # "pycodegen",
+    "numba",
 ]
 
 test_requirements = [
@@ -28,14 +28,13 @@ test_requirements = [
 setup(
     author="Tingkai Liu",
     author_email="tingkai.liu@columbia.edu",
-    python_requires=">=3.8",
+    python_requires=">=3.9",
     classifiers=[
         "Development Status :: 2 - Pre-Alpha",
         "Intended Audience :: Developers",
         "License :: OSI Approved :: BSD License",
         "Natural Language :: English",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
     ],

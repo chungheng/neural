@@ -2,16 +2,10 @@ import pytest
 import numpy as np
 import random
 
-try:
-    import pycuda.autoinit
-
-    CUDA = True
-except:
-    CUDA = False
-
 # pylint:disable=import-error
 from neural.basemodel import Model
-from neural.codegen.symbolic import SympyGenerator
+
+# from neural.codegen.symbolic import SympyGenerator
 # pylint:enable=import-error
 
 
@@ -51,8 +45,8 @@ def model():
     return FakeModel()
 
 
-def test_sympy_gen(model):
-    sg = SympyGenerator(model)
-    assert sg.sympy_src is not None
-    assert sg.latex_src is not None
-    model.compile(backend="cuda" if CUDA else "scalar")
+# def test_sympy_gen(model):
+#     sg = SympyGenerator(model)
+#     assert sg.sympy_src is not None
+#     assert sg.latex_src is not None
+#     model.compile(backend="cuda" if CUDA else "scalar")

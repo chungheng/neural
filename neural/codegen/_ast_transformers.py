@@ -1,3 +1,4 @@
+# pylint:disable=invalid-name
 """Transformers for AST Nodes
 """
 import math

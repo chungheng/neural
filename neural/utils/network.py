@@ -6,7 +6,9 @@ from ..network.network import Symbol, Input
 from .. import errors as err
 
 
-def to_graph(network, png: bool = False, svg: bool = False, prog="dot") -> tp.Union[bytes, dict]:
+def to_graph(
+    network, png: bool = False, svg: bool = False, prog="dot"
+) -> tp.Union[bytes, dict]:
     """Visualize Network instance as Graph
 
     Arguments:
@@ -54,7 +56,7 @@ def to_graph(network, png: bool = False, svg: bool = False, prog="dot") -> tp.Un
     if svg:
         svg_str = graph.create_svg(prog="dot")  # pylint: disable=no-member
         return svg_str
-    
+
     # return dot
     D_bytes = graph.create_dot(prog="dot")  # pylint: disable=no-member
 

@@ -7,6 +7,12 @@ from scipy.integrate import OdeSolver, RK45, RK23, DOP853, Radau, LSODA, OdeSolu
 from .base_solver import BaseSolver, Euler
 from .. import types as tpe
 from .. import errors as err
+from ..backend import (
+    BackendMixin,
+    CuPyBackendMixin,
+    NumbaCPUBackendMixin,
+    NumbaCUDABackendMixin,
+)
 from ..utils.array import cudaarray_to_cpu
 
 
@@ -22,6 +28,7 @@ class SciPySolver(BaseSolver):
         that the data types are perserved during integration step.
     """
 
+    Supported_Backends = (BackendMixin, NumbaCPUBackendMixin)
     SolverCls: OdeSolver = OdeSolver
 
     def __init__(self, model: tpe.Model, **solver_options) -> None:
@@ -36,12 +43,6 @@ class SciPySolver(BaseSolver):
         self.set_initial_value(t0=self._t, **self.model.initial_states)
         self._dense_output = None
         self.jac = self.model.jacobian
-
-    @classmethod
-    def recast_arrays(cls, model: tpe.Model) -> None:
-        for attr in ["states", "gstates", "bounds", "params"]:
-            for key, arr in (dct := getattr(model, attr)).items():
-                dct[key] =  cudaarray_to_cpu(arr)
 
     def set_initial_value(self, t0: float = 0, **initial_states):
         """Change initial value of solver
@@ -61,7 +62,7 @@ class SciPySolver(BaseSolver):
                 for var, val in {**self.model.initial_states, **initial_states}.items()
             }
         )
-        if not self.model.Derivates: # no gradients, no need for solver:
+        if not self.model.Derivates:  # no gradients, no need for solver:
             self._solver = None
         else:
             self._solver = self.SolverCls(self.ode, t0, y0, **self.solver_options)
@@ -87,6 +88,7 @@ class SciPySolver(BaseSolver):
             self.model.states.update(self._vec_to_states(y, self.model.gstates))
             self.model.ode(**input_args)
             return self._states_to_vec(self.model.gstates) * self.model.Time_Scale
+
         return wrapped_ode
 
     def step(self, d_t: float, **input_args) -> None:

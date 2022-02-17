@@ -108,7 +108,7 @@ class Symbol:
     default: Number = None  # default numerical value
 
     def __repr__(self):
-        return self.sym.__repr__()
+        return repr(self.sym)
 
 
 class ParsedModel:

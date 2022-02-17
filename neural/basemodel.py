@@ -1,18 +1,50 @@
+# pylint:disable=method-hidden
 """
 Base model class for neurons and synapses.
 """
+from functools import cache
+import inspect
 import copy
+import ast
+import textwrap
 from abc import abstractmethod
 from warnings import warn
 from inspect import getfullargspec
 import typing as tp
 import numpy as np
-from .solver import BaseSolver, Euler
 from tqdm.auto import tqdm
-from . import types as tpe
+from .solver import BaseSolver, Euler
 from . import errors as err
-from .utils.array import isarray
-from .codegen.parsedmodel import ParsedModel
+from .utils.array import (
+    create_empty,
+    cudaarray_to_cpu,
+    get_array_module,
+    isarray,
+    iscudaarray,
+    cuda_fill,
+)
+from .backend import (
+    BackendMixin,
+    CuPyBackendMixin,
+    NumbaCPUBackendMixin,
+    NumbaCUDABackendMixin,
+)
+from ._method_dispatcher import MethodDispatcher
+
+
+class FindDerivates(ast.NodeVisitor):
+    def __init__(self):
+        self.Derivates = []
+
+    def visit_Assign(self, node: ast.Assign) -> tp.Any:
+        for t in node.targets:
+            if (
+                isinstance(t, ast.Attribute)
+                and isinstance(t.value, ast.Name)
+                and t.value.id == "self"
+                and t.attr.startswith("d_")
+            ):
+                self.Derivates.append(t.attr[2:])
 
 
 class Model:
@@ -42,36 +74,25 @@ class Model:
           :py:func:`Model.ode`
 
     Attributes:
-        states (np.ndarray): the state variables, updated by the ODE.
-        params (np.ndarray): parameters of the model, can only be set during
+        states (dict): the state variables, updated by the ODE.
+        params (dict): parameters of the model, can only be set during
           contrusction.
-        gstates (np.ndarray): the gradient of the state variables.
-        bounds (np.ndarray): lower and upper bounds of the state variables.
+        gstates (dict): the gradient of the state variables.
+        bounds (dict): lower and upper bounds of the state variables.
     """
 
     Default_States: tp.Dict = None
     Default_Params: tp.Dict = None
     Time_Scale: float = 1.0
-    solver = Euler
+    solver: BaseSolver = Euler
+    backend: BackendMixin = None
 
-    def __init_subclass__(cls) -> None:
-        super().__init_subclass__()
-        cls.Time_Scale = np.float_(cls.Time_Scale)
-
-        bounds = dict()
-        states = dict()
-        variables = dict()
-
-        if cls.Default_Params is None:
-            cls.Default_Params = dict()
-        if cls.Default_States is None:
-            cls.Default_States = dict()
-
-        # structured dtype for states (states/gstates/bounds) and params
+    @classmethod
+    @property
+    @cache
+    def bounds(cls) -> dict:
+        dct = {}
         for key, val in cls.Default_States.items():
-            dtype = val.dtype if isinstance(val, np.generic) else np.float_
-            states[key] = dtype(val) if np.isscalar(val) else dtype(val[0])
-
             if not np.isscalar(val):
                 if len(val) != 3:
                     raise err.NeuralModelError(
@@ -79,24 +100,30 @@ class Model:
                         "of 3 elements (initial value, upper bound, lower bound) "
                         f"but {val} is given."
                     )
-                bounds[key] = np.asarray(val[1:], dtype=dtype)
-            variables[key] = "states"
-        cls.Default_States = states
-        cls.Default_Bounds = bounds
+                dct[key] = np.asarray(val[1:])
+        return dct
 
-        # parse params
-        for key, val in cls.Default_Params.items():
-            dtype = val.dtype if isinstance(val, np.generic) else np.float_
-            cls.Default_Params[key] = dtype(val)
-            if key in cls.Default_States:
-                raise err.NeuralModelError(
-                    f"Parameters cannot have the same name as the States: '{key}'"
-                )
-        variables.update({key: "params" for key in cls.Default_Params})
+    @classmethod
+    @property
+    @cache
+    def Variables(cls) -> tuple:
+        return {
+            **{var: "states" for var in cls.Default_States.keys()},
+            **{var: "params" for var in cls.Default_Params.keys()},
+        }
 
-        # store variables
-        cls.Variables = variables
+    @classmethod
+    @property
+    @cache
+    def Derivates(cls) -> dict:
+        vis = FindDerivates()
+        vis.visit(ast.parse(textwrap.dedent(inspect.getsource(cls.ode))))
+        return tuple([var for var in vis.Derivates if var in cls.Default_States])
 
+    @classmethod
+    @property
+    @cache
+    def Inputs(cls) -> dict:
         # parse inputs
         inputs = dict()
         for func in [cls.ode, cls.post]:
@@ -114,132 +141,145 @@ class Model:
             for val, key in zip(argspec.defaults[::-1], argspec.args[::-1]):
                 dtype = val.dtype if isinstance(val, np.generic) else np.float_
                 inputs[key] = dtype(val)
-
-        cls.Inputs = inputs
-
-        # validate class ode definition
-        # temporarily set Derivates for all states
-        cls.Derivates = [key for key in states]
-        obj = cls()
-        # set all gstates to None to filter out which gstates are actually set
-        obj.gstates = {var: None for var in obj.gstates}
-        # call ode method, pass obj into argument as `self`
-        try:
-            obj.ode()
-        except Exception as e:
-            raise err.NeuralModelError(f"{cls.__name__}.ode failed to execute") from e
-        try:
-            obj.post()
-        except Exception as e:
-            raise err.NeuralModelError(f"{cls.__name__}.post failed to execute") from e
-
-        # store state variables with gradients
-        cls.Derivates = [var for var, val in obj.gstates.items() if val is not None]
+        return inputs
 
     def __init__(
         self,
         num: int = 1,
         callback: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
+        backend: BackendMixin = BackendMixin,
+        backend_kws: dict = None,
         solver: BaseSolver = Euler,
         solver_kws: dict = None,
         **kwargs,
     ):
         """
-        Initialize the model.
-
         Arguments:
             num: number of components for the model
             callback: iterable of callback functions.
               callback functions should have model instance as first and
               only argument.
+            backend: which backend class to use for the model
+            backend_kws: keyword arguments for initializing the backend
+            solver: solver class to use for the model
+            solver_kws: keyword arguments for initializing the solver
 
         Keyword Arguments:
             Are assumed to be values for states or parameters
         """
-        self.num = num
 
         # set state variables and parameters
-        self.params = copy.deepcopy(self.Default_Params)
-        self.states = copy.deepcopy(self.Default_States)
-        self.bounds = copy.deepcopy(self.Default_Bounds)
+        self.num = 1  # num will be set in the first set_num call
+        self.params = {}
+        for key, val in self.Default_Params.items():
+            _dtype = val.dtype.type if isinstance(val, np.generic) else np.float_
+            self.params[key] = np.atleast_1d(_dtype(val))
+        self.states = {}
+        for key, val in self.Default_States.items():
+            assert np.isscalar(val) or len(val) == 3, err.NeuralModelError(
+                f"Variable {key} should be a scalar of a iterable "
+                "of 3 elements (initial value, upper bound, lower bound) "
+                f"but {val} is given."
+            )
+            _state = val if np.isscalar(val) else val[0]
+            _dtype = _state.dtype.type if isinstance(_state, np.generic) else np.float_
+            self.states[key] = np.atleast_1d(_dtype(_state))
+        self.gstates = {
+            var: np.zeros_like(arr)
+            for var, arr in self.states.items()
+            if var in self.Derivates
+        }
+        self.initial_states = copy.deepcopy(self.states)
+        self.set_num(num)
+
         # set additional variables
         for key, val in kwargs.items():
             if key not in self.states and key not in self.params:
-                raise err.NeuralModelError(f"Unexpected state/variable '{key}'")
-            for name in ['states', 'params']:
+                raise err.NeuralModelError(f"Unexpected state or param '{key}'")
+            for name in ["states", "params"]:
                 dct = getattr(self, name)
                 if key in dct:
                     ref_dtype = dct[key].dtype
-                    if isarray(val) and len(val) != num:
-                        raise err.NeuralModelError(
-                            f"Value for state {key} has length {len(val)}, expect {num}"
-                        )
-                    if hasattr(val, 'dtype') and val.dtype != ref_dtype:
+                    if hasattr(val, "dtype") and val.dtype != ref_dtype:
                         warn(
                             (
                                 f"Input for {name} {key} has dtype {val.dtype} that is "
                                 f"different from that default dtype {ref_dtype}."
                                 "Casting array to the default dtype."
                             ),
-                            err.NeuralModelWarning
+                            err.NeuralModelWarning,
                         )
-                        val = val.astype(ref_dtype)
-                    if np.isscalar(val):
-                        val = ref_dtype.type(val)
-                    dct[key] = val
-                    continue
+                    dct[key][:] = val
 
+        # update initial states
         self.initial_states = copy.deepcopy(self.states)
-        self.gstates = {
-            var: np.zeros_like(arr)
-            for var, arr in self.states.items()
-            if var in self.Derivates
-        }
-        self._check_dimensions()
-
         self.callbacks = []
+
         callback = [] if callback is None else callback
         self.add_callback(callback)
 
-        # create symbolic model
-        try:
-            self.symbolic = ParsedModel(self)
-        except Exception as e:
-            self.symbolic = None
-
-        self._jacobian = None
-        self.get_jacobian()
+        backend_kws = backend_kws or {}
+        self.set_backend(backend, **backend_kws)
 
         solver_kws = solver_kws or {}
         self.set_solver(solver, **solver_kws)
 
-    def _check_dimensions(self) -> None:
-        """Ensure consistent dimensions for all parameters and states"""
+    def set_num(self, num: int = None, keep_idx: tp.Iterable[int] = None) -> None:
+        """Set number of model
 
+        Arguments:
+            num: number of model components
+            keep_idx: slice original array down using these indices
+              if num is smaller than current num
+        """
+        if not (isinstance(num, int) and num >= 1):
+            raise err.NeuralModelError("num must be an integer greater than 0.")
+        if num < self.num and keep_idx is None:
+            raise err.NeuralModelError(
+                "when new num is smaller than current num, keep_idx must be specified "
+                "to perform the required slicing"
+            )
+        if num > self.num and not (self.num == 1 or isinstance(keep_idx, int)):
+            raise err.NeuralModelError(
+                "when new num is larger than current num, current num must either be "
+                "1 or keep_idx must be specified to repeat the kept slice to new num"
+            )
         for attr in ["params", "states", "gstates", "initial_states"]:
-            # make sure vector-valued parameters have the same shape as the number
-            # of components in the model
             for key, arr in (dct := getattr(self, attr)).items():
-                if np.isscalar(arr) and attr in ["params", "initial_states"]:
-                    continue
-                arr = np.asarray(arr)
-                if not (arr.size in [1, self.num] and arr.ndim in [0, 1]):
-                    raise err.NeuralModelError(
-                        f"{attr.capitalize()}['{key}'] should be 0D/1D array of length 1 or num "
-                        f"({self.num}), got {len(arr)} instead: {arr}"
-                    )
-                if attr in ["params", "initial_states"]:
-                    continue
-                if arr.size == 1:
-                    dct[key] = np.repeat(arr, self.num)
+                if num < self.num:
+                    dct[key] = arr[keep_idx]
+                elif num > self.num:
+                    if keep_idx is not None:
+                        arr = arr[keep_idx]
+                    if (module := get_array_module(arr)) is None:  # scalar
+                        arr = np.full((num,), arr)
+                    try:
+                        arr = module.repeat(arr, num)  # numpy, cupy
+                    except AttributeError:  # pycuda, no repeat method
+                        if iscudaarray(arr):
+                            val = cudaarray_to_cpu(arr).item()
+                        elif isarray(arr):
+                            val = arr.item()
+                        else:
+                            val = arr
+                        new_arr = create_empty((num,), like=arr)
+                        cuda_fill(new_arr, val)
+                        arr = new_arr
+                    except Exception as e:
+                        raise err.NeuralModelError(
+                            f"Cannot create array for {attr}.{key}"
+                        ) from e
+                dct[key] = arr
+        self.num = num
 
     def __setattr__(self, key: str, value: tp.Any):
         if key.startswith("d_"):
-            if key[2:] not in self.gstates:
+            try:
+                self.gstates[key[2:]] = value
+            except KeyError as e:
                 raise AttributeError(
                     f"Attribute {key} assumed to be gradient, but not found in Model.gstates"
-                )
-            self.gstates[key[2:]] = value
+                ) from e
             return
 
         if key in ["states", "params", "bounds"]:
@@ -272,6 +312,11 @@ class Model:
     def ode(self, **input_args) -> None:
         """
         The set of ODEs defining the dynamics of the model.
+
+        .. note::
+
+            ODE implements a scalar (element-wise) implementation
+            of the model
         """
 
     def post(self, **post_args) -> None:
@@ -283,6 +328,26 @@ class Model:
         Another usage of this function could be the spike detection for
         conductance-based models.
         """
+        raise NotImplementedError
+
+    def recast(self) -> None:
+        """Recast arrays to compatible formats"""
+        for attr in ["states", "gstates", "bounds", "params"]:
+            for key, arr in (dct := getattr(self, attr)).items():
+                dct[key] = cudaarray_to_cpu(arr)
+
+    def reset(self) -> None:
+        """Reset model states to initial and gstates to 0"""
+        for attr in self.states:
+            self.states[attr][:] = self.initial_states[attr]
+        for attr in self.gstates:
+            self.gstates[attr][:] = 0.0
+
+    def clip(self, states: dict = None) -> None:
+        """Clip state values by bounds"""
+        states = self.states if states is None else states
+        for var, bds in self.bounds.items():
+            states[var].clip(*bds, out=states[var])
 
     def update(self, d_t: float, **input_args) -> None:
         """Update model value
@@ -293,41 +358,33 @@ class Model:
               call signature of :py:func:`Model.ode`.
         """
         self.solver.step(d_t, **input_args)
-        self.post()
+        try:
+            self.post()
+        except NotImplementedError:
+            pass
         self.clip()
         for func in self.callbacks:
             func(self)
 
-    def reset(self) -> None:
-        """Reset state values.
+    def set_backend(self, new_backend: BackendMixin, **backend_options) -> None:
+        assert new_backend == BackendMixin or issubclass(
+            new_backend, BackendMixin
+        ), err.NeuralBackendError(f"backend {new_backend} not understood")
+        if not new_backend.is_backend_supported:
+            raise err.NeuralBackendError(f"backend {new_backend} not supported.")
 
-        Sets states to initial values, and sets gstates to 0.
-        """
-        if callable(reset := getattr(self.solver, "reset", None)):
-            reset()
-            return
-        for var in self.states:
-            self.states[var].fill(self.initial_states[var])
-        for var in self.gstates:
-            self.gstates[var].fill(0.0)
+        new_supers = [new_backend, self.__class__] + [
+            B
+            for B in self.__class__.__bases__
+            if not isinstance(B, BackendMixin) or B != object
+        ]
+        self.__class__ = type(self.__class__.__name__, tuple(new_supers), {})
+        try:
+            self.compile()  # compile model if the new backend has compile method defined
+        except AttributeError:
+            pass
 
-    def clip(self, states: dict = None) -> None:
-        """Clip the State Variables
-
-        Clip the state variables in-place after calling the numerical solver.
-
-        The state variables are usually bounded, for example, binding
-        variables are bounded between 0 and 1. However, numerical sovlers
-        might cause the value of state variables exceed its bounds. A hard
-        clip is forced here to ensure the state variables remain in the
-        given bounds.
-        """
-        states = self.states if states is None else states
-        if callable(clip := getattr(self.solver, "clip", None)):
-            clip(states=states)
-            return
-        for var, bds in self.bounds.items():
-            states[var].clip(*bds, out=states[var])
+        self.recast()  # recast array types
 
     def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
         if (
@@ -335,15 +392,12 @@ class Model:
             and self.solver.solver_options == solver_options
         ):
             return  # no-op
+
         self.solver = new_solver(self, **solver_options)
-        new_solver.recast_arrays(self)
 
     def add_callback(self, callbacks: tp.Iterable[tp.Callable]) -> None:
         """Add callback to Model's `callbacks` list"""
-        if not hasattr(callbacks, "__len__"):
-            callbacks = [
-                callbacks,
-            ]
+        callbacks = list(callbacks)
         for func in callbacks:
             if not callable(func):
                 raise err.NeuralModelError(
@@ -406,6 +460,11 @@ class Model:
                     f"same length as t ({len(t)}) and num ({self.num}) "
                     f"in the second dimension, got {stim.shape} instead."
                 )
+            if stim.ndim == 1 and len(stim) == len(t):
+                stim = np.repeat(stim[:, None], self.num, axis=1)
+                # FIXME: This shouldn't be necessary.
+                # the kernel should support broadcasting by itself.
+                # maybe the compilation should be default.
             input_args[var_name] = stim
 
         # create stimuli generator
@@ -447,44 +506,3 @@ class Model:
             for var, val in self.states.items():
                 res[var][tt][:] = val
         return {var: val.T for var, val in res.items()}
-
-    def get_jacobian(self) -> tp.Callable:
-        """Compute Jacobian of Model
-
-        .. note::
-
-            Differing from :py:func:`Model.jacobian`, this function will always
-            `re-compute` jacobian, including re-parsing the model. This is
-            provided in case the model parameter has been changed in-place
-            and the jacobian needs to be updated.
-
-        Returns:
-            A callable :code:`jacc_f(t, states, **input_args)` that returns a 2D numpy
-            array corresponding to the jacobian of the model.
-        """
-        if self.symbolic is None:
-            return None
-        # set the jacobian for model
-        self._jacobian = self.symbolic.get_lambidified_jacobian()
-        return self._jacobian
-
-    @property
-    def jacobian(self) -> tp.Callable:
-        """Compute or return cached jacobian of the model
-
-        .. note::
-
-            You can override jacobian definition in child classes to enforce
-            a jacobian
-
-        .. seealso:: :py:func:`neural.Model.get_jacobian`
-
-        Returns:
-            A callable :code:`jacc_f(t, states, I_ext)` that returns a 2D numpy
-            array corresponding to the jacobian of the model. For model that does
-            not require `I_ext` input, the callable's call signature is
-            :code:`jacc_f(t, states, I_ext)`.
-        """
-        if self._jacobian is not None:
-            return self._jacobian
-        return self.get_jacobian()

@@ -2,28 +2,30 @@
 Backend Classes For Model
 """
 from abc import abstractmethod
-import inspect
+from warnings import warn
 import weakref
-from functools import wraps
 import typing as tp
-import numpy as np
-from tqdm.auto import tqdm
-
+from ..backend import BackendMixin
 from .. import errors as err
 from .. import types as tpe
 
 
 class BaseSolver:
+    Supported_Backends: tp.Iterable[BackendMixin] = None
+
     def __init__(self, model: tpe.Model, **solver_options) -> None:
+        if self.Supported_Backends is not None and (
+            model.backend is not None and model.backed not in self.Supported_Backends
+        ):
+            warn(
+                f"Model backend '{model.backend}' is not supported by this solver {self.__class__}",
+                err.NeuralSolverWarning,
+            )
         self.model = weakref.proxy(model)
 
         # cache options in case reinstantiation is
         # required for initial value setting
         self.solver_options = solver_options or {}
-
-    @classmethod
-    def recast_arrays(cls, model: tpe.Model) -> None:
-        """Recast states/gstates/params/bounds into ndarray modules compatible with the solver"""
 
     @abstractmethod
     def step(self, d_t: float, **input_args) -> None:
