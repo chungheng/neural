@@ -72,11 +72,9 @@ def test_model_construction():
 @pytest.mark.parametrize("Model", NEURON_MODELS)
 def test_default_neurons(input_signal, Model, Backend):
     dt, dur, t, waveform = input_signal
-    record = np.zeros(len(waveform))
-    model = Model(backend=Backend)
+    model = Model(backend=Backend, solver=Euler)
     for i, wav in enumerate(waveform):
         model.update(dt, stimulus=wav)
-        record[i] = model.v
 
 
 @pytest.mark.parametrize("Model", NEURON_MODELS)

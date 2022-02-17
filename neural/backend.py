@@ -1,30 +1,23 @@
 # pylint:disable=abstract-method
 """Backend Modules for Model"""
-from functools import update_wrapper
+from functools import cache, update_wrapper
 import hashlib
 import tempfile
 import pathlib
-import textwrap
+import sys
 from abc import abstractmethod
 import importlib.util
 from types import MethodType
-import numpy as np
 import numba
 import numba.extending
 import numba.cuda
 from . import errors as err
 from .utils.array import cuda_fill, cuda_clip
 from .codegen.numba import get_numba_function_source
-
 try:
     import cupy as cp
 except ImportError:
-    cp = None
-
-if numba.cuda.is_available():
-    MULTIPROCESSOR_COUNT = numba.cuda.get_current_device().MULTIPROCESSOR_COUNT
-else:
-    MULTIPROCESSOR_COUNT = None
+    pass
 
 # copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
 def _get_per_user_string():
@@ -41,40 +34,23 @@ def _get_per_user_string():
 
 
 class BackendMixin:
-    """Base Backend Implementation"""
+    """Base Backend Implementation
+
+    Properties:
+        is_backend_supported
+
+    Methods:
+        clip() -> None
+        reset() -> None
+        recast() -> None
+        compile() -> None
+        generate() -> None
+    """
 
     @classmethod
     @property
     def is_backend_supported(cls) -> bool:
         return True
-
-
-class CuPyBackendMixin(BackendMixin):
-    @classmethod
-    @property
-    def is_backend_supported(cls) -> bool:
-        try:
-            import cupy as cp
-
-            return True
-        except ImportError:
-            return False
-
-    def recast(self) -> None:
-        for attr in ["states", "gstates", "bounds", "params"]:
-            for key, arr in (dct := getattr(self, attr)).items():
-                dct[key] = cp.asarray(arr)
-
-    def reset(self) -> None:
-        for attr in self.states:
-            self.states[attr].fill(self.initial_states[attr])
-        for attr in self.gstates:
-            self.states[attr].fill(0.0)
-
-    def clip(self, states: dict = None) -> None:
-        states = self.states if states is None else states
-        for var, bds in self.bounds.items():
-            cp.clip(states[var], *bds, out=states[var])
 
 
 class CodegenBackendMixin(BackendMixin):
@@ -127,8 +103,9 @@ class CodegenBackendMixin(BackendMixin):
             f.flush()
             try:
                 spec = importlib.util.spec_from_file_location(module_name, cache_path)
-                self.codgen_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(self.codgen_module)
+                self.codegen_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(self.codegen_module)
+                sys.modules[module_name] = self.codegen_module
             except Exception as e:
                 raise err.NeuralBackendError(
                     f"Error in loading generated code for backend {self.__class__.__name__}"
@@ -137,11 +114,11 @@ class CodegenBackendMixin(BackendMixin):
         # set globals for the module to match original function definition
         for method in methods_to_implement:
             for key, val in getattr(self, method).__globals__.items():
-                setattr(self.codgen_module, key, val)
+                setattr(self.codegen_module, key, val)
 
         # save method to backend referencing method to model
         for method in methods_to_implement:
-            if not callable(func := getattr(self.codgen_module, method, None)):
+            if not callable(func := getattr(self.codegen_module, method, None)):
                 raise err.NeuralCodeGenError(
                     f"Method '{method}' not found in codegen module"
                 )
@@ -178,9 +155,14 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
     def blocksize(self) -> int:
         return 256
 
+    @cache
+    def _get_gridsize(self, num: int) -> int:
+        COUNT = numba.cuda.get_current_device().MULTIPROCESSOR_COUNT
+        return int(min(6 * COUNT, (num - 1) // self.blocksize + 1))
+
     @property
     def gridsize(self) -> int:
-        return int(min(6 * MULTIPROCESSOR_COUNT, (self.num - 1) // self.blocksize + 1))
+        return self._get_gridsize(self.num)
 
     def reset(self) -> None:
         for attr in self.states:
@@ -193,7 +175,7 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
     def clip(self, states: dict = None) -> None:
         states = self.states if states is None else states
         for var, bds in self.bounds.items():
-            cuda_clip[self.gridsize, self.blocksize](states[var], *bds, out=states[var])
+            cuda_clip[self.gridsize, self.blocksize](states[var], *bds, states[var])
 
     def generate(self, method: str) -> str:
         """generate source for numba kernel"""
@@ -222,3 +204,30 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
 
                 update_wrapper(wrapper, func)
                 setattr(self, method, wrapper)
+
+class CuPyBackendMixin(NumbaCUDABackendMixin):
+    @classmethod
+    @property
+    def is_backend_supported(cls) -> bool:
+        try:
+            import cupy
+
+            return True
+        except ImportError:
+            return False
+
+    def recast(self) -> None:
+        for attr in ["states", "gstates", "bounds", "params"]:
+            for key, arr in (dct := getattr(self, attr)).items():
+                dct[key] = cp.asarray(arr)
+
+    def reset(self) -> None:
+        for attr in self.states:
+            self.states[attr].fill(self.initial_states[attr])
+        for attr in self.gstates:
+            self.states[attr].fill(0.0)
+
+    def clip(self, states: dict = None) -> None:
+        states = self.states if states is None else states
+        for var, bds in self.bounds.items():
+            cp.clip(states[var], *bds, out=states[var])
