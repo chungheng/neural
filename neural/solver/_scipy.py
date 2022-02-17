@@ -7,7 +7,12 @@ from scipy.integrate import OdeSolver, RK45, RK23, DOP853, Radau, LSODA, OdeSolu
 from .base_solver import BaseSolver, Euler
 from .. import types as tpe
 from .. import errors as err
-from ..backend import BackendMixin, CuPyBackendMixin, NumbaCPUBackendMixin, NumbaCUDABackendMixin
+from ..backend import (
+    BackendMixin,
+    CuPyBackendMixin,
+    NumbaCPUBackendMixin,
+    NumbaCUDABackendMixin,
+)
 from ..utils.array import cudaarray_to_cpu
 
 
@@ -22,6 +27,7 @@ class SciPySolver(BaseSolver):
         as required by :code:`OdeSolver`s. As such, we cannot guarantee
         that the data types are perserved during integration step.
     """
+
     Supported_Backends = (BackendMixin, NumbaCPUBackendMixin)
     SolverCls: OdeSolver = OdeSolver
 

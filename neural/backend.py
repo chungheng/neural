@@ -42,22 +42,23 @@ def _get_per_user_string():
 
 class BackendMixin:
     """Base Backend Implementation"""
+
     @classmethod
     @property
     def is_backend_supported(cls) -> bool:
         return True
 
-class CuPyBackendMixin(BackendMixin):
 
+class CuPyBackendMixin(BackendMixin):
     @classmethod
     @property
     def is_backend_supported(cls) -> bool:
         try:
             import cupy as cp
+
             return True
         except ImportError:
             return False
-
 
     def recast(self) -> None:
         for attr in ["states", "gstates", "bounds", "params"]:
@@ -86,6 +87,7 @@ class CodegenBackendMixin(BackendMixin):
 
     If self.ode and/or self.post are defined, they are automatically populated
     """
+
     codegen_source = ""  # source code for module
     codegen_module = None  # ModuleType that is defined from the generated source code
 
@@ -178,9 +180,7 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
 
     @property
     def gridsize(self) -> int:
-        return int(
-            min(6 * MULTIPROCESSOR_COUNT, (self.num - 1) // self.blocksize + 1)
-        )
+        return int(min(6 * MULTIPROCESSOR_COUNT, (self.num - 1) // self.blocksize + 1))
 
     def reset(self) -> None:
         for attr in self.states:
@@ -188,9 +188,7 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
                 self.states[attr], self.initial_states[attr]
             )
         for attr in self.gstates:
-            cuda_fill[self.gridsize, self.blocksize](
-                self.states[attr], 0.0
-            )
+            cuda_fill[self.gridsize, self.blocksize](self.states[attr], 0.0)
 
     def clip(self, states: dict = None) -> None:
         states = self.states if states is None else states
@@ -215,10 +213,12 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
         super().compile()
 
         # save method to backend referencing method to model
-        for method in ['ode', 'post']:
+        for method in ["ode", "post"]:
             func = getattr(self, method)
             if numba.extending.is_jitted(func):
+
                 def wrapper(*args, **kwargs):
                     return func[self.gridsize, self.blocksize](*args, **kwargs)
+
                 update_wrapper(wrapper, func)
                 setattr(self, method, wrapper)

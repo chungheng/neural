@@ -23,7 +23,12 @@ from .utils.array import (
     iscudaarray,
     cuda_fill,
 )
-from .backend import BackendMixin, CuPyBackendMixin, NumbaCPUBackendMixin, NumbaCUDABackendMixin
+from .backend import (
+    BackendMixin,
+    CuPyBackendMixin,
+    NumbaCPUBackendMixin,
+    NumbaCUDABackendMixin,
+)
 from ._method_dispatcher import MethodDispatcher
 
 
@@ -40,6 +45,7 @@ class FindDerivates(ast.NodeVisitor):
                 and t.attr.startswith("d_")
             ):
                 self.Derivates.append(t.attr[2:])
+
 
 class Model:
     """Base Model Class
@@ -102,8 +108,8 @@ class Model:
     @cache
     def Variables(cls) -> tuple:
         return {
-            **{var: 'states' for var in cls.Default_States.keys()},
-            **{var: 'params' for var in cls.Default_Params.keys()},
+            **{var: "states" for var in cls.Default_States.keys()},
+            **{var: "params" for var in cls.Default_Params.keys()},
         }
 
     @classmethod
@@ -169,13 +175,12 @@ class Model:
             _dtype = val.dtype.type if isinstance(val, np.generic) else np.float_
             self.params[key] = np.atleast_1d(_dtype(val))
         self.states = {}
-        for key,val in self.Default_States.items():
-            assert np.isscalar(val) or len(val) == 3, \
-                err.NeuralModelError(
-                    f"Variable {key} should be a scalar of a iterable "
-                    "of 3 elements (initial value, upper bound, lower bound) "
-                    f"but {val} is given."
-                )
+        for key, val in self.Default_States.items():
+            assert np.isscalar(val) or len(val) == 3, err.NeuralModelError(
+                f"Variable {key} should be a scalar of a iterable "
+                "of 3 elements (initial value, upper bound, lower bound) "
+                f"but {val} is given."
+            )
             _state = val if np.isscalar(val) else val[0]
             _dtype = _state.dtype.type if isinstance(_state, np.generic) else np.float_
             self.states[key] = np.atleast_1d(_dtype(_state))
@@ -371,16 +376,11 @@ class Model:
         new_supers = [new_backend, self.__class__] + [
             B
             for B in self.__class__.__bases__
-            if not isinstance(B, BackendMixin)
-            or B != object
+            if not isinstance(B, BackendMixin) or B != object
         ]
-        self.__class__ = type(
-            self.__class__.__name__,
-            tuple(new_supers),
-            {}
-        )
+        self.__class__ = type(self.__class__.__name__, tuple(new_supers), {})
         try:
-            self.compile() # compile model if the new backend has compile method defined
+            self.compile()  # compile model if the new backend has compile method defined
         except AttributeError:
             pass
 

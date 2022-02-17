@@ -9,8 +9,9 @@ from .. import types as tpe
 from .base_solver import BaseSolver
 from ..backend import NumbaCPUBackend, NumbaCUDABackend
 
+
 class NumbaSolver(BaseSolver):
-    Supported_Backends = (NumbaCPUBackend, )
+    Supported_Backends = (NumbaCPUBackend,)
 
     @numba.njit
     def _step(self, d_t: float, **input_args) -> None:
@@ -20,8 +21,8 @@ class NumbaSolver(BaseSolver):
         """Euler's method"""
         return self._step(d_t, **input_args)
 
-class NumbaEulerSolver(NumbaSolver):
 
+class NumbaEulerSolver(NumbaSolver):
     @numba.njit
     def _step(self, d_t: float, **input_args) -> None:
         self.model.ode(**input_args)
@@ -57,6 +58,7 @@ class NumbaEulerSolver(NumbaSolver):
 #     for key in dct_a.keys():
 #         out[key] += sal * dct_b[key]
 #     return out
+
 
 def increment(
     model: tpe.Model, d_t: float, states: dict, out_states: dict = None, **input_args
@@ -118,7 +120,6 @@ def _increment(
     return out_states
 
 
-
 def _forward_euler(
     model, d_t: float, states: dict, out_states: dict = None, **input_args
 ) -> dict:
@@ -142,11 +143,11 @@ def _forward_euler(
     model.clip(out_states)
     return out_states
 
-class NumbaMidpointSolver(NumbaSolver):
 
+class NumbaMidpointSolver(NumbaSolver):
     @numba.njit
     def _step(self, d_t: float, **input_args) -> None:
-        states = self.model.states.copy() # freeze state
+        states = self.model.states.copy()  # freeze state
 
         _forward_euler(0.5 * d_t, model.states, states, **input_args)
         _forward_euler(d_t, states, model.states, **input_args)

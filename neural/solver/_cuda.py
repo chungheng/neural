@@ -9,6 +9,7 @@ from scipy.integrate import solve_ivp
 from .. import types as tpe
 from .base_solver import BaseSolver
 
+
 def _dict_iadd_(dct_a: dict, dct_b: dict) -> dict:
     """Add dictionaries inplace"""
     for key in dct_a.keys():
@@ -37,6 +38,7 @@ def _dict_add_scalar_(dct_a: dict, dct_b: dict, sal: float, out: dict = None) ->
     for key in dct_a.keys():
         out[key] += sal * dct_b[key]
     return out
+
 
 def increment(
     model: tpe.Model, d_t: float, states: dict, out_states: dict = None, **input_args
@@ -68,7 +70,6 @@ def increment(
     return out_states
 
 
-
 def _forward_euler(
     model, d_t: float, states: dict, out_states: dict = None, **input_args
 ) -> dict:
@@ -94,16 +95,11 @@ def _forward_euler(
 
 
 class Euler(BaseSolver):
-
-    @numba.cuda.jit
-    def cuda_step(self, d_t, )
-
     def step(self, d_t: float, **input_args) -> None:
         """Euler's method"""
         self.model.ode(**input_args)
         for var, grad in self.model.gstates.items():
             self.model.states[var] += d_t * self.model.Time_Scale * grad
-
 
 
 def midpoint(model, d_t: float, **input_args) -> None:

@@ -92,7 +92,6 @@ class NeuralNetworkWarning(NeuralWarning):
     """Neural Warning for Network Module"""
 
 
-
 class NeuralSolverError(NeuralError):
     """Neural Error for Solver Module"""
 

@@ -71,7 +71,7 @@ class ReplaceAttr(ast.NodeTransformer):
 
     def visit_Name(self, node: ast.Name) -> tp.Any:
         if node.id in self.replacements:
-            node.id = self.replacements[node.id] # inputs
+            node.id = self.replacements[node.id]  # inputs
         return node
 
 
@@ -132,13 +132,14 @@ def get_numba_function_source(
     func_src = NUMBA_TEMPLATE.render(
         method=method,
         signature=str(inspect.signature(getattr(model.__class__, method))),
-        caller_args= inputs + ['*self.states.values()', '*self.params.values()', '*self.gstates.values()'],
+        caller_args=inputs
+        + ["*self.states.values()", "*self.params.values()", "*self.gstates.values()"],
         arguments=args,
         ode_expressions=textwrap.indent(unparse(tree.body[0].body), prefix=" " * 8),
         idx=idx_name,
         N=model.num,
         target=target,
-        grid_size=1 if target == "cuda" else None, # FIXME: Not 1
-        block_size=1 if target == "cuda" else None, # FIXME: Not 1
+        grid_size=1 if target == "cuda" else None,  # FIXME: Not 1
+        block_size=1 if target == "cuda" else None,  # FIXME: Not 1
     )
     return JittedFunction(name=method, src=func_src, args=replacements)

@@ -13,7 +13,7 @@ class LeakyIAF(Model):
     Leaky IAF neuron model.
     """
 
-    Default_States = dict(spike=0., v=(-0.05, -0.070, 0.025))
+    Default_States = dict(spike=0.0, v=(-0.05, -0.070, 0.025))
     Default_Params = dict(vt=-0.025, c=1.5, vr=-0.070, r=0.2)
 
     def ode(self, stimulus=0.0):
@@ -22,7 +22,7 @@ class LeakyIAF(Model):
 
     def post(self):
         self.spike = (
-            1. if self.v > self.vt else 0.
+            1.0 if self.v > self.vt else 0.0
         )  # pylint:disable=access-member-before-definition
         self.v = self.vr if self.v > self.vt else self.v
 
