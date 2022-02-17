@@ -89,4 +89,13 @@ class NeuralUtilityWarning(NeuralWarning):
 
 
 class NeuralNetworkWarning(NeuralWarning):
-    """Neural Error for Network Module unctions"""
+    """Neural Warning for Network Module"""
+
+
+
+class NeuralSolverError(NeuralError):
+    """Neural Error for Solver Module"""
+
+
+class NeuralSolverWarning(NeuralWarning):
+    """Neural Warning for Solver Module"""

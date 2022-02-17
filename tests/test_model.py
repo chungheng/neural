@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
 from neural.basemodel import Model
+from neural.backend import BackendMixin,CuPyBackendMixin,NumbaCPUBackendMixin,NumbaCUDABackendMixin
 from neural import errors
 from neural import utils
 from neural.model.neuron import (
@@ -59,11 +60,12 @@ def test_model_construction():
     assert dum.callbacks == []
 
 
+@pytest.mark.parametrize("Backend", [BackendMixin,CuPyBackendMixin,NumbaCPUBackendMixin,NumbaCUDABackendMixin])
 @pytest.mark.parametrize("Model", NEURON_MODELS)
-def test_default_neurons_cpu(input_signal, Model):
+def test_default_neurons(input_signal, Model, Backend):
     dt, dur, t, waveform = input_signal
     record = np.zeros(len(waveform))
-    model = Model()
+    model = Model(backend=Backend)
     for i, wav in enumerate(waveform):
         model.update(dt, stimulus=wav)
         record[i] = model.v
@@ -74,6 +76,7 @@ def test_default_neurons_cpu(input_signal, Model):
 def test_default_neurons_compiled(input_signal, Model, conversion_f):
     dt, dur, t, waveform = input_signal
     waveform_g = conversion_f(np.ascontiguousarray(waveform))
+    # FIXME
     # record = np.zeros((len(BACKENDS), len(waveform)))
 
     # for n, Backend in enumerate(BACKENDS):
