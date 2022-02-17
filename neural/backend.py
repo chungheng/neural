@@ -14,6 +14,7 @@ import numba.cuda
 from . import errors as err
 from .utils.array import cuda_fill, cuda_clip
 from .codegen.numba import get_numba_function_source
+
 try:
     import cupy as cp
 except ImportError:
@@ -204,6 +205,7 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
 
                 update_wrapper(wrapper, func)
                 setattr(self, method, wrapper)
+
 
 class CuPyBackendMixin(NumbaCUDABackendMixin):
     @classmethod
