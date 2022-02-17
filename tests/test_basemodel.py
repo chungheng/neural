@@ -13,7 +13,7 @@ class LeakyIAF(Model):
     Leaky IAF neuron model.
     """
 
-    Default_States = dict(spike=0, v=(-0.05, -0.070, 0.025))
+    Default_States = dict(spike=0., v=(-0.05, -0.070, 0.025))
     Default_Params = dict(vt=-0.025, c=1.5, vr=-0.070, r=0.2)
 
     def ode(self, stimulus=0.0):
@@ -22,7 +22,7 @@ class LeakyIAF(Model):
 
     def post(self):
         self.spike = (
-            1 if self.v > self.vt else 0
+            1. if self.v > self.vt else 0.
         )  # pylint:disable=access-member-before-definition
         self.v = self.vr if self.v > self.vt else self.v
 
@@ -43,8 +43,8 @@ def test_model():
         [isinstance(val, np.ndarray) and len(val) == 1 for val in model.params.values()]
     )
     assert model.params == LeakyIAF.Default_Params
-    assert model.states == LeakyIAF.Default_States
-    assert model.Derivates == ["v"]
+    assert model.states == dict(spike=np.array([0]), v=np.array([-0.05]))
+    assert model.Derivates == ("v",)
 
 
 class DummyModel(Model):
@@ -101,14 +101,14 @@ def res_ref_multi(
 
 
 @pytest.mark.parametrize(
-    "Model",
+    "klass",
     [
         DummyModel,
         DummyModelMultiInputs,
     ],
 )
-def test_model_init(Model):
-    model = Model(a=10.0)
+def test_model_init(klass):
+    model = klass(a=10.0)
     np.testing.assert_array_equal(model.params["a"], np.array([10.0]))
     np.testing.assert_array_equal(model.states["x1"], np.array([0.0]))
     np.testing.assert_array_equal(model.states["x2"], np.array([1.0]))
@@ -117,7 +117,7 @@ def test_model_init(Model):
     with pytest.raises(KeyError):
         model.bounds["x1"]
 
-    model = Model(a=10.0, num=10)
+    model = klass(a=10.0, num=10)
     np.testing.assert_array_equal(model.params["a"], np.full((10,), 10.0))
     np.testing.assert_array_equal(model.states["x1"], np.full((10,), 0.0))
     np.testing.assert_array_equal(model.states["x2"], np.full((10,), 1.0))

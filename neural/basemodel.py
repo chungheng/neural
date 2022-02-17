@@ -2,6 +2,7 @@
 """
 Base model class for neurons and synapses.
 """
+from functools import cache
 import inspect
 import copy
 import ast
@@ -22,7 +23,7 @@ from .utils.array import (
     iscudaarray,
     cuda_fill,
 )
-from .backend import Backend, NumbaCPUBackend, NumbaCUDABackend
+from .backend import BackendMixin, CuPyBackendMixin, NumbaCPUBackendMixin, NumbaCUDABackendMixin
 from ._method_dispatcher import MethodDispatcher
 
 
@@ -39,7 +40,6 @@ class FindDerivates(ast.NodeVisitor):
                 and t.attr.startswith("d_")
             ):
                 self.Derivates.append(t.attr[2:])
-
 
 class Model:
     """Base Model Class
@@ -68,42 +68,25 @@ class Model:
           :py:func:`Model.ode`
 
     Attributes:
-        states (np.ndarray): the state variables, updated by the ODE.
-        params (np.ndarray): parameters of the model, can only be set during
+        states (dict): the state variables, updated by the ODE.
+        params (dict): parameters of the model, can only be set during
           contrusction.
-        gstates (np.ndarray): the gradient of the state variables.
-        bounds (np.ndarray): lower and upper bounds of the state variables.
+        gstates (dict): the gradient of the state variables.
+        bounds (dict): lower and upper bounds of the state variables.
     """
 
     Default_States: tp.Dict = None
     Default_Params: tp.Dict = None
     Time_Scale: float = 1.0
     solver: BaseSolver = Euler
-    backend: Backend = None
-    Supported_Backends: tp.Iterable[Backend] = (
-        Backend,
-        NumbaCPUBackend,
-        NumbaCUDABackend,
-    )
+    backend: BackendMixin = None
 
-    def __init_subclass__(cls) -> None:
-        super().__init_subclass__()
-        cls.Time_Scale = np.float_(cls.Time_Scale)
-
-        bounds = dict()
-        states = dict()
-        variables = dict()
-
-        if cls.Default_Params is None:
-            cls.Default_Params = dict()
-        if cls.Default_States is None:
-            cls.Default_States = dict()
-
-        # structured dtype for states (states/gstates/bounds) and params
+    @classmethod
+    @property
+    @cache
+    def bounds(cls) -> dict:
+        dct = {}
         for key, val in cls.Default_States.items():
-            dtype = val.dtype if isinstance(val, np.generic) else np.float_
-            states[key] = dtype(val) if np.isscalar(val) else dtype(val[0])
-
             if not np.isscalar(val):
                 if len(val) != 3:
                     raise err.NeuralModelError(
@@ -111,24 +94,30 @@ class Model:
                         "of 3 elements (initial value, upper bound, lower bound) "
                         f"but {val} is given."
                     )
-                bounds[key] = np.asarray(val[1:], dtype=dtype)
-            variables[key] = "states"
-        cls.Default_States = states
-        cls.Default_Bounds = bounds
+                dct[key] = np.asarray(val[1:])
+        return dct
 
-        # parse params
-        for key, val in cls.Default_Params.items():
-            dtype = val.dtype if isinstance(val, np.generic) else np.float_
-            cls.Default_Params[key] = dtype(val)
-            if key in cls.Default_States:
-                raise err.NeuralModelError(
-                    f"Parameters cannot have the same name as the States: '{key}'"
-                )
-        variables.update({key: "params" for key in cls.Default_Params})
+    @classmethod
+    @property
+    @cache
+    def Variables(cls) -> tuple:
+        return {
+            **{var: 'states' for var in cls.Default_States.keys()},
+            **{var: 'params' for var in cls.Default_Params.keys()},
+        }
 
-        # store variables
-        cls.Variables = variables
+    @classmethod
+    @property
+    @cache
+    def Derivates(cls) -> dict:
+        vis = FindDerivates()
+        vis.visit(ast.parse(textwrap.dedent(inspect.getsource(cls.ode))))
+        return tuple([var for var in vis.Derivates if var in cls.Default_States])
 
+    @classmethod
+    @property
+    @cache
+    def Inputs(cls) -> dict:
         # parse inputs
         inputs = dict()
         for func in [cls.ode, cls.post]:
@@ -146,42 +135,28 @@ class Model:
             for val, key in zip(argspec.defaults[::-1], argspec.args[::-1]):
                 dtype = val.dtype if isinstance(val, np.generic) else np.float_
                 inputs[key] = dtype(val)
-
-        cls.Inputs = inputs
-
-        vis = FindDerivates()
-        vis.visit(ast.parse(textwrap.dedent(inspect.getsource(cls.ode))))
-        cls.Derivates = [var for var in vis.Derivates if var in cls.Default_States]
-
-        # all the methods that are decorated as DispatchByBackend in Model
-        # should also be decorated in the subclasses. If not decorated already,
-        # we manually decorate it.
-        for method in ["ode", "post", "clip", "reset", "recast"]:
-            # check if method is decorated
-            func = getattr(cls, method)
-            if not hasattr(func, "register"):
-                func = MethodDispatcher(func)
-                MethodDispatcher.__set_name__(func, cls, method)
-                setattr(cls, method, func)
+        return inputs
 
     def __init__(
         self,
         num: int = 1,
         callback: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
-        backend: Backend = Backend,
+        backend: BackendMixin = BackendMixin,
         backend_kws: dict = None,
         solver: BaseSolver = Euler,
         solver_kws: dict = None,
         **kwargs,
     ):
         """
-        Initialize the model.
-
         Arguments:
             num: number of components for the model
             callback: iterable of callback functions.
               callback functions should have model instance as first and
               only argument.
+            backend: which backend class to use for the model
+            backend_kws: keyword arguments for initializing the backend
+            solver: solver class to use for the model
+            solver_kws: keyword arguments for initializing the solver
 
         Keyword Arguments:
             Are assumed to be values for states or parameters
@@ -189,13 +164,21 @@ class Model:
 
         # set state variables and parameters
         self.num = 1  # num will be set in the first set_num call
-        self.params = {
-            key: np.atleast_1d(val) for key, val in self.Default_Params.items()
-        }
-        self.states = {
-            key: np.atleast_1d(val) for key, val in self.Default_States.items()
-        }
-        self.bounds = copy.deepcopy(self.Default_Bounds)
+        self.params = {}
+        for key, val in self.Default_Params.items():
+            _dtype = val.dtype.type if isinstance(val, np.generic) else np.float_
+            self.params[key] = np.atleast_1d(_dtype(val))
+        self.states = {}
+        for key,val in self.Default_States.items():
+            assert np.isscalar(val) or len(val) == 3, \
+                err.NeuralModelError(
+                    f"Variable {key} should be a scalar of a iterable "
+                    "of 3 elements (initial value, upper bound, lower bound) "
+                    f"but {val} is given."
+                )
+            _state = val if np.isscalar(val) else val[0]
+            _dtype = _state.dtype.type if isinstance(_state, np.generic) else np.float_
+            self.states[key] = np.atleast_1d(_dtype(_state))
         self.gstates = {
             var: np.zeros_like(arr)
             for var, arr in self.states.items()
@@ -226,11 +209,13 @@ class Model:
         # update initial states
         self.initial_states = copy.deepcopy(self.states)
         self.callbacks = []
+
         callback = [] if callback is None else callback
         self.add_callback(callback)
 
         backend_kws = backend_kws or {}
         self.set_backend(backend, **backend_kws)
+
         solver_kws = solver_kws or {}
         self.set_solver(solver, **solver_kws)
 
@@ -341,17 +326,20 @@ class Model:
         raise NotImplementedError
 
     def recast(self) -> None:
+        """Recast arrays to compatible formats"""
         for attr in ["states", "gstates", "bounds", "params"]:
             for key, arr in (dct := getattr(self, attr)).items():
                 dct[key] = cudaarray_to_cpu(arr)
 
     def reset(self) -> None:
+        """Reset model states to initial and gstates to 0"""
         for attr in self.states:
             self.states[attr][:] = self.initial_states[attr]
         for attr in self.gstates:
             self.gstates[attr][:] = 0.0
 
     def clip(self, states: dict = None) -> None:
+        """Clip state values by bounds"""
         states = self.states if states is None else states
         for var, bds in self.bounds.items():
             states[var].clip(*bds, out=states[var])
@@ -373,22 +361,29 @@ class Model:
         for func in self.callbacks:
             func(self)
 
-    def set_backend(self, new_backend: Backend, **backend_options) -> None:
-        assert new_backend == Backend or issubclass(
-            new_backend, Backend
+    def set_backend(self, new_backend: BackendMixin, **backend_options) -> None:
+        assert new_backend == BackendMixin or issubclass(
+            new_backend, BackendMixin
         ), err.NeuralBackendError(f"backend {new_backend} not understood")
+        if not new_backend.is_backend_supported:
+            raise err.NeuralBackendError(f"backend {new_backend} not supported.")
 
-        if self.backend.__class__ == new_backend:
-            return
-        self.backend = new_backend(self, **backend_options)
+        new_supers = [new_backend, self.__class__] + [
+            B
+            for B in self.__class__.__bases__
+            if not isinstance(B, BackendMixin)
+            or B != object
+        ]
+        self.__class__ = type(
+            self.__class__.__name__,
+            tuple(new_supers),
+            {}
+        )
         try:
-            self.backend.compile()
+            self.compile() # compile model if the new backend has compile method defined
         except AttributeError:
             pass
 
-        for method in ["ode", "post", "clip", "reset", "recast"]:
-            if callable(func := getattr(self.backend, method, None)):
-                getattr(self, method).register(new_backend, func)
         self.recast()  # recast array types
 
     def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
