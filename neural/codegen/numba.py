@@ -1,16 +1,15 @@
 # pylint:disable=invalid-name
 from dataclasses import dataclass
 from functools import wraps
-import sys, inspect, ast, textwrap
+import inspect
+import ast
+import textwrap
+from ast import unparse
 import typing as tp
 from jinja2 import Template
 from .. import types as tpe
 from .. import errors as err
 
-if sys.version_info < (3, 9):
-    from astunparse import unparse
-else:
-    from ast import unparse
 
 NUMBA_TEMPLATE = Template(
     """

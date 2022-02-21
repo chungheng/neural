@@ -10,6 +10,7 @@ Symbol = "neural.network.Symbol"
 Operator = "neural.baseoperator.Operator"
 Solver = tp.Union[str, "neural.solver.BaseSolver"]
 Model = "neural.basemodel.Model"
+ParsedModel = "neural.codegen.symbolic.ParsedModel"
 Backend = "neural.backend.Backend"
 ScalarOrArray = tp.Union[Number, npt.ArrayLike]
 ModelAttrType = tp.Literal["params", "states", "gstates"]

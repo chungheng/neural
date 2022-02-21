@@ -7,7 +7,7 @@ import typing as tp
 import numpy as np
 from scipy.integrate import solve_ivp
 from .. import types as tpe
-from .base_solver import BaseSolver
+from .basesolver import BaseSolver
 
 
 def _dict_iadd_(dct_a: dict, dct_b: dict) -> dict:

@@ -6,12 +6,12 @@ import typing as tp
 import numpy as np
 from scipy.integrate import solve_ivp
 from .. import types as tpe
-from .base_solver import BaseSolver
-from ..backend import NumbaCPUBackend, NumbaCUDABackend
+from .basesolver import BaseSolver
+from ..backend import NumbaCPUBackendMixin, NumbaCUDABackendMixin
 
 
 class NumbaSolver(BaseSolver):
-    Supported_Backends = (NumbaCPUBackend,)
+    Supported_Backends = (NumbaCPUBackendMixin,)
 
     @numba.njit
     def _step(self, d_t: float, **input_args) -> None:

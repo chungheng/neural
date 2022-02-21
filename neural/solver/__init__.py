@@ -1,7 +1,7 @@
 """Solvers for Model
 """
 import collections
-from .base_solver import BaseSolver, Euler
+from .basesolver import BaseSolver, Euler
 from ._scipy import (
     RK45Solver,
     RK23Solver,
