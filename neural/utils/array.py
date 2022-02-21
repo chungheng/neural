@@ -1,3 +1,5 @@
+"""Utilities for Arrays"""
+import numba.cuda
 from numbers import Complex, Number
 import typing as tp
 import re
@@ -8,7 +10,6 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 from .. import errors as err
-import numba.cuda
 
 
 def iscudaarray(arr) -> bool:
@@ -90,8 +91,11 @@ def cudaarray_to_cpu(arr: npt.ArrayLike, out: npt.ArrayLike = None) -> npt.Array
             raise err.NeuralUtilityError(
                 "Cannot convert cuda array to numpy array"
             ) from e
-    if hasattr(arr, "copy_to_host()"):
-        return arr.copy_to_host()
+    if hasattr(arr, "copy_to_host"):
+        _out = arr.copy_to_host()
+        if out is not None:
+            out = _out
+        return _out
     raise err.NeuralUtilityError(
         "cuda array type not supported. does not have .get() or .detach() methods"
     )

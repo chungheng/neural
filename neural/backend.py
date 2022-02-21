@@ -17,6 +17,7 @@ from .codegen.numba import get_numba_function_source
 
 try:
     import cupy as cp
+
     CUPY_INSTALLED = True
 except ImportError:
     CUPY_INSTALLED = False
@@ -154,7 +155,7 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
         if not (supported := (numba.cuda.is_available() and CUPY_INSTALLED)):
             warn(
                 "CUDA Backend requires CUDA-compatible GPU and CuPy installed.",
-                err.NeuralBackendWarning
+                err.NeuralBackendWarning,
             )
         return supported
 

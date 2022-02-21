@@ -39,11 +39,7 @@ setup(
     ],
     description="A simple python package for neuron and synapse models.",
     install_requires=requirements,
-    extras_require = {
-        'cuda': [
-            "cupy >= 10.1"
-        ]
-    },
+    extras_require={"cuda": ["cupy >= 10.1"]},
     license="BSD license",
     long_description=readme + "\n\n" + history,
     include_package_data=True,

@@ -1,31 +1,26 @@
 """Base Class of Operators
 """
-from . import types as tpe
 import numpy as np
-import pycuda.gpuarray as garray
+from .utils.array import cudaarray_to_cpu
 
 
 class Operator:
-    backend: tpe.SupportedBackend = "numpy"
+    """Operators are non-stateful operations like multiplication"""
 
-    def __init__(self, size=None, output_size=None, dtype=np.float64, backend="cuda"):
+    def __init__(self, size=None, output_size=None, dtype=np.float_):
         self.size = size
-        if output_size is None:
-            output_size = size
-        self._output_size = output_size
-        self.dtype = "double" if dtype == np.float64 else "float"
-        if self._output_size is not None:
-            self.output = garray.empty(self._output_size, dtype=dtype)
+        self.dtype = dtype
+        if output_size is not None:
+            self.output = np.zeros(output_size, dtype=dtype)
         else:
-            self.output = 0.0
-        self._backend = backend
-        if backend == "scalar":
-            self.output = self.output.get()
-        elif backend != "cuda":
-            raise NotImplementedError("{} backend not understood".format(backend))
+            self.output = dtype(0.0)
 
-    def update(self, **kwargs):
+    def recast(self) -> None:
+        """Recast arrays to compatible formats"""
+        self.output = cudaarray_to_cpu(self.output)
+
+    def update(self, **input_args) -> None:
         pass
 
-    def compile(self, **kwargs):
+    def compile(self, **compiler_args) -> None:
         pass

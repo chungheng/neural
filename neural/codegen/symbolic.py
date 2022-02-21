@@ -23,6 +23,7 @@ from .ufuncs import _numpy as NUMPY_FUNCTIONS
 from .ufuncs import _random as RANDOM_FUNCTIONS
 from .ufuncs import _math as MATH_FUNCTIONS
 
+
 def _get_function_module(func: tp.Callable) -> str:
     """Get the name of the module"""
     if inspect.getmodule(func) is not None:
@@ -30,6 +31,7 @@ def _get_function_module(func: tp.Callable) -> str:
     if isinstance(func, np.ufunc):
         return np
     return None
+
 
 class NumPy2SymPy(ast.NodeTransformer):
     """Convert function calls to SymPy calls
@@ -199,6 +201,7 @@ class NumPy2SymPy(ast.NodeTransformer):
             keywords=[],
         )
 
+
 class AlignedEquationPrinter(LatexPrinter):
     """Create alinged LaTeX equations based on parsed model"""
 
@@ -212,7 +215,7 @@ class AlignedEquationPrinter(LatexPrinter):
         return r"\begin{aligned} %s \end{aligned}" % r" \\ ".join(items)
 
     def _print_Equality(self, d) -> str:
-        return fr"{self._print(d.lhs)} &= {self._print(d.rhs)}"
+        return rf"{self._print(d.lhs)} &= {self._print(d.rhs)}"
 
     def _print_Symbol(self, expr, style="plain"):
         if expr.name.startswith("local_"):  # internal variables
@@ -222,6 +225,7 @@ class AlignedEquationPrinter(LatexPrinter):
         res = re.sub(r"((?:infty|inf|infinity))", r"\\infty", res)
 
         return res
+
 
 class RerouteGetattrSetattr:
     """A context to reroute BaseModel.__getattr__ to return sympy symbols"""

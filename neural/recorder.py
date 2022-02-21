@@ -2,17 +2,10 @@
 """
 Utility modules for recording data from Neural models
 """
-import sys
-from distutils.log import warn
 import numbers
 from numbers import Number
 import typing as tp
 import numpy as np
-import cupy as cp
-
-import pycuda.gpuarray as garray
-import pycuda.driver as cuda
-from sympy import Integer
 from . import errors as err
 from . import types as tpe
 from .utils import isarray, iscudaarray, get_array_module, cudaarray_to_cpu
@@ -82,12 +75,11 @@ class Recorder:
                     self.gpu_buf[key] = get_array_module(src).zeros(
                         gpu_shape, dtype=src.dtype, order="F"
                     )
-                except:
-                    warn(
+                except Exception as e:
+                    raise err.NeuralRecorderError(
                         "Creating gpu buffer for CUDA array failed, "
-                        f"source array is {self.obj}.{key}.",
-                        err.NeuralRecorderWarning,
-                    )
+                        f"source array is {self.obj}.{key}."
+                    ) from e
 
     def reset(self) -> None:
         for arr in self.dct.values():
