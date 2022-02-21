@@ -1,6 +1,4 @@
 import pytest
-import pycuda.autoprimaryctx
-import pycuda.gpuarray as garray
 import numpy as np
 from neural.basemodel import Model
 from neural.recorder import Recorder
@@ -10,7 +8,6 @@ from neural import utils
 from neural import errors
 import numpy as np
 from helper_funcs import to_gpuarray, to_cupy
-
 
 @pytest.fixture
 def single_spike_data():

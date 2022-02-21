@@ -4,16 +4,14 @@ Scipy Backend For Model
 import typing as tp
 import numpy as np
 from scipy.integrate import OdeSolver, RK45, RK23, DOP853, Radau, LSODA, OdeSolution
-from .base_solver import BaseSolver, Euler
+from .basesolver import BaseSolver, Euler
 from .. import types as tpe
 from .. import errors as err
 from ..backend import (
     BackendMixin,
-    CuPyBackendMixin,
     NumbaCPUBackendMixin,
     NumbaCUDABackendMixin,
 )
-from ..utils.array import cudaarray_to_cpu
 
 
 class SciPySolver(BaseSolver):

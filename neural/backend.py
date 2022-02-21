@@ -8,17 +8,18 @@ import sys
 from abc import abstractmethod
 import importlib.util
 from types import MethodType
+from warnings import warn
 import numba
 import numba.extending
 import numba.cuda
 from . import errors as err
-from .utils.array import cuda_fill, cuda_clip
 from .codegen.numba import get_numba_function_source
 
 try:
     import cupy as cp
+    CUPY_INSTALLED = True
 except ImportError:
-    pass
+    CUPY_INSTALLED = False
 
 # copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
 def _get_per_user_string():
@@ -150,7 +151,12 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
     @classmethod
     @property
     def is_backend_supported(cls) -> bool:
-        return numba.cuda.is_available()
+        if not (supported := (numba.cuda.is_available() and CUPY_INSTALLED)):
+            warn(
+                "CUDA Backend requires CUDA-compatible GPU and CuPy installed.",
+                err.NeuralBackendWarning
+            )
+        return supported
 
     @property
     def blocksize(self) -> int:
@@ -165,18 +171,10 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
     def gridsize(self) -> int:
         return self._get_gridsize(self.num)
 
-    def reset(self) -> None:
-        for attr in self.states:
-            cuda_fill[self.gridsize, self.blocksize](
-                self.states[attr], self.initial_states[attr]
-            )
-        for attr in self.gstates:
-            cuda_fill[self.gridsize, self.blocksize](self.states[attr], 0.0)
-
-    def clip(self, states: dict = None) -> None:
-        states = self.states if states is None else states
-        for var, bds in self.bounds.items():
-            cuda_clip[self.gridsize, self.blocksize](states[var], *bds, states[var])
+    def recast(self) -> None:
+        for attr in ["states", "gstates", "bounds", "params"]:
+            for key, arr in (dct := getattr(self, attr)).items():
+                dct[key] = cp.asarray(arr)
 
     def generate(self, method: str) -> str:
         """generate source for numba kernel"""
@@ -205,31 +203,3 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
 
                 update_wrapper(wrapper, func)
                 setattr(self, method, wrapper)
-
-
-class CuPyBackendMixin(NumbaCUDABackendMixin):
-    @classmethod
-    @property
-    def is_backend_supported(cls) -> bool:
-        try:
-            import cupy
-
-            return True
-        except ImportError:
-            return False
-
-    def recast(self) -> None:
-        for attr in ["states", "gstates", "bounds", "params"]:
-            for key, arr in (dct := getattr(self, attr)).items():
-                dct[key] = cp.asarray(arr)
-
-    def reset(self) -> None:
-        for attr in self.states:
-            self.states[attr].fill(self.initial_states[attr])
-        for attr in self.gstates:
-            self.states[attr].fill(0.0)
-
-    def clip(self, states: dict = None) -> None:
-        states = self.states if states is None else states
-        for var, bds in self.bounds.items():
-            cp.clip(states[var], *bds, out=states[var])

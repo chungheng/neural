@@ -1,6 +1,4 @@
 # pylint:disable=arguments-differ
-from copy import deepcopy
-from numbers import Number
 import pytest
 import numpy as np
 from scipy.integrate import cumtrapz

@@ -3,7 +3,6 @@ import numpy as np
 from neural.basemodel import Model
 from neural.backend import (
     BackendMixin,
-    CuPyBackendMixin,
     NumbaCPUBackendMixin,
     NumbaCUDABackendMixin,
 )
@@ -17,7 +16,7 @@ from neural.model.neuron import (
     Rinzel,
     ConnorStevens,
 )
-from neural.solver.base_solver import Euler
+from neural.solver.basesolver import Euler
 from neural.solver import SOLVERS
 from helper_funcs import to_cupy, to_gpuarray
 
@@ -67,7 +66,7 @@ def test_model_construction():
 
 @pytest.mark.parametrize(
     "Backend",
-    [BackendMixin, CuPyBackendMixin, NumbaCPUBackendMixin, NumbaCUDABackendMixin],
+    [BackendMixin, NumbaCPUBackendMixin, NumbaCUDABackendMixin],
 )
 @pytest.mark.parametrize("Model", NEURON_MODELS)
 def test_default_neurons(input_signal, Model, Backend):

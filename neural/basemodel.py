@@ -16,21 +16,10 @@ from tqdm.auto import tqdm
 from .solver import BaseSolver, Euler
 from . import errors as err
 from .utils.array import (
-    create_empty,
     cudaarray_to_cpu,
     get_array_module,
-    isarray,
-    iscudaarray,
-    cuda_fill,
 )
-from .backend import (
-    BackendMixin,
-    CuPyBackendMixin,
-    NumbaCPUBackendMixin,
-    NumbaCUDABackendMixin,
-)
-from ._method_dispatcher import MethodDispatcher
-
+from .backend import BackendMixin
 
 class FindDerivates(ast.NodeVisitor):
     def __init__(self):
@@ -253,22 +242,7 @@ class Model:
                         arr = arr[keep_idx]
                     if (module := get_array_module(arr)) is None:  # scalar
                         arr = np.full((num,), arr)
-                    try:
-                        arr = module.repeat(arr, num)  # numpy, cupy
-                    except AttributeError:  # pycuda, no repeat method
-                        if iscudaarray(arr):
-                            val = cudaarray_to_cpu(arr).item()
-                        elif isarray(arr):
-                            val = arr.item()
-                        else:
-                            val = arr
-                        new_arr = create_empty((num,), like=arr)
-                        cuda_fill(new_arr, val)
-                        arr = new_arr
-                    except Exception as e:
-                        raise err.NeuralModelError(
-                            f"Cannot create array for {attr}.{key}"
-                        ) from e
+                    arr = module.repeat(arr, num)  # numpy, cupy
                 dct[key] = arr
         self.num = num
 
