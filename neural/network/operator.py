@@ -2,6 +2,7 @@
 from functools import reduce
 import operator
 import numpy as np
+import cupy as cp
 from ..baseoperator import Operator
 
 
@@ -22,7 +23,8 @@ class Sqrt(Operator):
 
 class Sum(Operator):
     def update(self, input=np.array([0.0])):
-        self.output = np.sum(input)
+        xp = cp.get_array_module(input)
+        self.output = xp.sum(input)
 
 
 class BlockSum(Operator):
@@ -33,13 +35,15 @@ class BlockSum(Operator):
         super().__init__(**kwargs)
 
     def update(self, input=np.array([0.0])):
+        xp = cp.get_array_module(input)
         _input = input.reshape(-1, self.block_size)
-        self.output = np.sum(_input)
+        self.output = xp.sum(_input)
 
 
 class Mean(Operator):
     def update(self, input=np.array([0.0])):
-        self.output = np.mean(input)
+        xp = cp.get_array_module(input)
+        self.output = xp.mean(input)
 
 
 class BlockMean(Operator):
@@ -49,8 +53,9 @@ class BlockMean(Operator):
         super().__init__(**kwargs)
 
     def update(self, input=np.array([0.0])):
+        xp = cp.get_array_module(input)
         _input = input.reshape(-1, self.block_size)
-        self.output = np.mean(_input, axis=1)
+        self.output = xp.mean(_input, axis=1)
 
 
 class Repeat(Operator):
@@ -60,7 +65,8 @@ class Repeat(Operator):
         self.rep_size = rep_size
 
     def update(self, input=np.array([0.0])):
-        self.output = np.repeat(input, self.rep_size)
+        xp = cp.get_array_module(input)
+        self.output = xp.repeat(input, self.rep_size)
 
 
 class Dot(Operator):
@@ -76,5 +82,6 @@ class Dot(Operator):
         self._output = self.output.reshape(-1, batch_size, order="F")
 
     def update(self, input=np.array([0.0])):
+        xp = cp.get_array_module(input)
         _input = input.reshape(-1, self.batch_size, order="F")
-        self.output = np.dot(self.multiplier, _input)
+        self.output = xp.dot(self.multiplier, _input)
