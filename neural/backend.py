@@ -1,5 +1,6 @@
 # pylint:disable=abstract-method
 """Backend Modules for Model"""
+import copy
 from functools import cache, update_wrapper
 import hashlib
 import tempfile
@@ -78,6 +79,8 @@ class CodegenBackendMixin(BackendMixin):
         # determine which methods have yet to be implemented
         self.codegen_source += self.generate("ode")
         methods_to_implement = ["ode"]
+
+        # check if post is implemented by the child class
         post = self.__class__.post
         for cls in self.__class__.__bases__:
             if cls.__name__ == "Model" and post != cls.post:
@@ -173,9 +176,17 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
         return self._get_gridsize(self.num)
 
     def recast(self) -> None:
-        for attr in ["states", "gstates", "bounds", "params"]:
-            for key, arr in (dct := getattr(self, attr)).items():
-                dct[key] = cp.asarray(arr)
+        if numba.cuda.is_cuda_array(self._data):
+            self._data = numba.cuda.to_device(self._data)
+
+        # FIXME: This will fail for GPU arrays. Numba's support for
+        # string literal slice is poor at the moment
+        self.states = self._data[[key for key in self.Default_States]]
+        self.params = self._data[[key for key in self.Default_Params]]
+        _gstates = self._data[[f"d_{key}" for key in self.Derivates]]
+        _dtype = copy.deepcopy(_gstates.dtype)
+        _dtype.names = self.Derivates
+        self.gstates = self._data[[f"d_{key}" for key in self.Derivates]].view(_dtype)
 
     def generate(self, method: str) -> str:
         """generate source for numba kernel"""

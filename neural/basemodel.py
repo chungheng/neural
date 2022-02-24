@@ -224,7 +224,6 @@ class Model:
         Another usage of this function could be the spike detection for
         conductance-based models.
         """
-        raise NotImplementedError
 
     def recast(self) -> None:
         """Recast arrays to compatible formats"""

@@ -1,6 +1,5 @@
 # pylint:disable=invalid-name
 from dataclasses import dataclass
-from functools import wraps
 import inspect
 import ast
 import textwrap
@@ -21,26 +20,13 @@ import numba.cuda
 {%- else -%}
 @numba.njit
 {%- endif %}
-def {{ method }}_numba(
-    {{ arguments|join(',\n    ') }}
-):
+def {{ method }}{{signature}}:
     {% if target == 'cuda' -%}
-    for {{ idx }} in range(numba.cuda.grid(1), {{ N }}, numba.cuda.gridsize(1)):
+    for {{ idx }} in range(numba.cuda.grid(1), self.shape[0], numba.cuda.gridsize(1)):
     {%- else -%}
     for {{ idx }} in range({{ N }}):
     {%- endif %}
 {{ ode_expressions }}
-
-def {{ method }}{{signature}}:
-    {% if target == 'cuda' -%}
-    {{ method }}_numba[{{ grid_size }}, {{ block_size }}](
-        {{ caller_args |join(',\n        ') }}
-    )
-    {%- else -%}
-    {{ method }}_numba(
-        {{ caller_args |join(',\n        ') }}
-    )
-    {%- endif -%}
 """
 )
 
@@ -54,23 +40,12 @@ class CollectVariables(ast.NodeVisitor):
 
 
 class ReplaceAttr(ast.NodeTransformer):
-    def __init__(self, name_replacements: dict, idx_name: str = "_i"):
-        self.replacements = name_replacements
+    def __init__(self, idx_name: str = "_i"):
         self.idx_name = idx_name
 
-    def visit_Attribute(self, node: ast.Attribute) -> tp.Any:
-        self.generic_visit(node)
-        if isinstance(node.value, ast.Name) and node.value.id == "self":
-            if (old_var := f"self.{node.attr}") in self.replacements:
-                ctx = node.ctx
-                var_name = self.replacements[old_var]
-                node = ast.parse(f"{var_name}[{self.idx_name}]").body[0].value
-                node.ctx = ctx
-        return node
-
     def visit_Name(self, node: ast.Name) -> tp.Any:
-        if node.id in self.replacements:
-            node.id = self.replacements[node.id]  # inputs
+        if node.id == "self":
+            node = ast.parse(f"self[{self.idx_name}]").body[0].value
         return node
 
 
@@ -85,21 +60,13 @@ def get_numba_function_source(
     model: tpe.Model, method: str = "ode", target: tp.Literal["cpu", "cuda"] = "cpu"
 ) -> JittedFunction:
     """Return a function definition that can be jitted"""
+    if not inspect.isclass(model):
+        model = model.__class__
+
     if not callable(func := getattr(model, method, None)):
         raise err.NeuralCodeGenError(f"Method '{method}' not valid for model {model}")
 
-    inputs = [p for p in inspect.signature(func).parameters if p != "self"]
-    replacements = dict()
-    for arg in inputs:
-        replacements[arg] = f"input_{arg}"
-    for arg in model.Default_States:
-        replacements[f"self.{arg}"] = f"state_{arg}"
-    for arg in model.Default_Params:
-        replacements[f"self.{arg}"] = f"param_{arg}"
-    for arg in model.Derivates:
-        replacements[f"self.d_{arg}"] = f"gstate_{arg}"
     tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
-
     # collect local variables in the source
     vis = CollectVariables()
     vis.visit(tree)
@@ -121,24 +88,16 @@ def get_numba_function_source(
     # replace attributes self.x with states_x/params_x/gstates_x ...
     tree = ast.fix_missing_locations(
         ReplaceAttr(
-            name_replacements=replacements,
             idx_name=idx_name,
         ).visit(tree)
     )
 
     # render function source
-    args = list(replacements.values())
     func_src = NUMBA_TEMPLATE.render(
         method=method,
-        signature=str(inspect.signature(getattr(model.__class__, method))),
-        caller_args=inputs
-        + ["*self.states.values()", "*self.params.values()", "*self.gstates.values()"],
-        arguments=args,
+        signature=str(inspect.signature(func)),
         ode_expressions=textwrap.indent(unparse(tree.body[0].body), prefix=" " * 8),
         idx=idx_name,
-        N=model.num,
-        target=target,
-        grid_size=1 if target == "cuda" else None,  # FIXME: Not 1
-        block_size=1 if target == "cuda" else None,  # FIXME: Not 1
+        target=target
     )
-    return JittedFunction(name=method, src=func_src, args=replacements)
+    return func_src
