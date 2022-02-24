@@ -38,41 +38,10 @@ class FindDerivates(ast.NodeVisitor):
 
 
 class Model:
-    """Base Model Class
+    """Base Model Class"""
 
-    .. note::
-
-        This class overrides :code:`__getattr__` and :code:`__setattr__`, and hence allows
-        direct access to the subattributes contained in :code:`states` and :code:`params`,
-        for example::
-
-            # self.params = {'a': 1., 'b':1.}
-            # self.states = {'s':0., 'x':0.}
-            self.ds = self.a*(1-self.s) -self.b*self.s
-
-    Class Attributes:
-        Default_States (dict): The default value of the state variables.
-          Each items represents the name (`key`) and the default value
-          (`value`) of one state variables. If `value` is a tuple of three
-          numbers, the first number is the default value, and the last two
-          are the lower and the upper bound of the state variables.
-        Default_Params (dict): The default value of the parameters. Each items
-          represents the name (`key`) and the default value (`value`) of one
-          parameters.
-        Variables (dict): mapping of variable str name to type ['state', 'params']
-        Inputs (dict): mapping of input name to default value as defined by
-          :py:func:`Model.ode`
-
-    Attributes:
-        states (dict): the state variables, updated by the ODE.
-        params (dict): parameters of the model, can only be set during
-          contrusction.
-        gstates (dict): the gradient of the state variables.
-        bounds (dict): lower and upper bounds of the state variables.
-    """
-
-    Default_States: tp.Dict = None
-    Default_Params: tp.Dict = None
+    Default_States: dict = None
+    Default_Params: dict = None
     Time_Scale: float = 1.0
     solver: BaseSolver = Euler
     backend: BackendMixin = None
@@ -81,6 +50,7 @@ class Model:
     @property
     @cache
     def bounds(cls) -> dict:
+        """(upperbound, lowerbound) of each state variable, if specified"""
         dct = {}
         for key, val in cls.Default_States.items():
             if not np.isscalar(val):
@@ -96,16 +66,19 @@ class Model:
     @classmethod
     @property
     @cache
-    def Variables(cls) -> tuple:
+    def Variables(cls) -> dict:
+        """A dictionary mapping variable name to physical type"""
         return {
             **{var: "states" for var in cls.Default_States.keys()},
+            **{var: "gstates" for var in cls.Derivates},
             **{var: "params" for var in cls.Default_Params.keys()},
         }
 
     @classmethod
     @property
     @cache
-    def Derivates(cls) -> dict:
+    def Derivates(cls) -> tuple:
+        """Return all state variables whose gradients are defined in ode()"""
         vis = FindDerivates()
         vis.visit(ast.parse(textwrap.dedent(inspect.getsource(cls.ode))))
         return tuple([var for var in vis.Derivates if var in cls.Default_States])
@@ -114,6 +87,7 @@ class Model:
     @property
     @cache
     def Inputs(cls) -> dict:
+        """Input variables and their default values for ode() and post()"""
         # parse inputs
         inputs = dict()
         for func in [cls.ode, cls.post]:
@@ -157,14 +131,10 @@ class Model:
         Keyword Arguments:
             Are assumed to be values for states or parameters
         """
-
-        # set state variables and parameters
-        self.num = 1  # num will be set in the first set_num call
-        self.params = {}
+        dtype = []
         for key, val in self.Default_Params.items():
             _dtype = val.dtype.type if isinstance(val, np.generic) else np.float_
-            self.params[key] = np.atleast_1d(_dtype(val))
-        self.states = {}
+            dtype.append((key, _dtype))
         for key, val in self.Default_States.items():
             assert np.isscalar(val) or len(val) == 3, err.NeuralModelError(
                 f"Variable {key} should be a scalar of a iterable "
@@ -173,33 +143,33 @@ class Model:
             )
             _state = val if np.isscalar(val) else val[0]
             _dtype = _state.dtype.type if isinstance(_state, np.generic) else np.float_
-            self.states[key] = np.atleast_1d(_dtype(_state))
-        self.gstates = {
-            var: np.zeros_like(arr)
-            for var, arr in self.states.items()
-            if var in self.Derivates
-        }
-        self.initial_states = copy.deepcopy(self.states)
-        self.set_num(num)
+            dtype.append((key, _dtype))
+            if key in self.Derivates:
+                dtype.append((f"d_{key}", _dtype))
+        self.dtype = np.dtype(dtype)
+
+        # _data is a structured array containing all the variable data
+        self._data = np.zeros(num, dtype=self.dtype)
+
+        # states, params, gstates are slices of the array
+        # created in recast()
+        self.recast()
+
+        # populate params/states values
+        for key, val in self.Default_Params.items():
+            self._data[key][:] = val
+
+        # save initial states
+        for key, val in self.Default_States.items():
+            _state = val if np.isscalar(val) else val[0]
+            self._data[key][:] = _state
+        self.initial_states = copy.deepcopy(self.states[0])
 
         # set additional variables
         for key, val in kwargs.items():
-            if key not in self.states and key not in self.params:
-                raise err.NeuralModelError(f"Unexpected state or param '{key}'")
-            for name in ["states", "params"]:
-                dct = getattr(self, name)
-                if key in dct:
-                    ref_dtype = dct[key].dtype
-                    if hasattr(val, "dtype") and val.dtype != ref_dtype:
-                        warn(
-                            (
-                                f"Input for {name} {key} has dtype {val.dtype} that is "
-                                f"different from that default dtype {ref_dtype}."
-                                "Casting array to the default dtype."
-                            ),
-                            err.NeuralModelWarning,
-                        )
-                    dct[key][:] = val
+            if key not in self.dtype.names:
+                raise err.NeuralModelError(f"Unexpected variable '{key}'")
+            self._data[key][:] = val
 
         # update initial states
         self.initial_states = copy.deepcopy(self.states)
@@ -214,74 +184,25 @@ class Model:
         solver_kws = solver_kws or {}
         self.set_solver(solver, **solver_kws)
 
-    def set_num(self, num: int = None, keep_idx: tp.Iterable[int] = None) -> None:
-        """Set number of model
-
-        Arguments:
-            num: number of model components
-            keep_idx: slice original array down using these indices
-              if num is smaller than current num
-        """
-        if not (isinstance(num, int) and num >= 1):
-            raise err.NeuralModelError("num must be an integer greater than 0.")
-        if num < self.num and keep_idx is None:
-            raise err.NeuralModelError(
-                "when new num is smaller than current num, keep_idx must be specified "
-                "to perform the required slicing"
-            )
-        if num > self.num and not (self.num == 1 or isinstance(keep_idx, int)):
-            raise err.NeuralModelError(
-                "when new num is larger than current num, current num must either be "
-                "1 or keep_idx must be specified to repeat the kept slice to new num"
-            )
-        for attr in ["params", "states", "gstates", "initial_states"]:
-            for key, arr in (dct := getattr(self, attr)).items():
-                if num < self.num:
-                    dct[key] = arr[keep_idx]
-                elif num > self.num:
-                    if keep_idx is not None:
-                        arr = arr[keep_idx]
-                    if (module := get_array_module(arr)) is None:  # scalar
-                        arr = np.full((num,), arr)
-                    arr = module.repeat(arr, num)  # numpy, cupy
-                dct[key] = arr
-        self.num = num
-
     def __setattr__(self, key: str, value: tp.Any):
-        if key.startswith("d_"):
-            try:
-                self.gstates[key[2:]] = value
-            except KeyError as e:
-                raise AttributeError(
-                    f"Attribute {key} assumed to be gradient, but not found in Model.gstates"
-                ) from e
-            return
-
-        if key in ["states", "params", "bounds"]:
+        if key == '_data':
             return super().__setattr__(key, value)
-
-        if hasattr(self, "states") and key in self.states:
-            self.states[key] = value
-            return
-
-        if hasattr(self, "params") and key in self.params:
-            self.params[key] = value
-            return
-
-        super().__setattr__(key, value)
+        try:
+            self._data[key] = value
+        except (AttributeError, ValueError): # _data not created yet or key not found in _data fields
+            super().__setattr__(key, value)
 
     def __getattr__(self, key: str):
-        if key.startswith("d_"):
-            return self.gstates[key[2:]]
-
-        if key in ["states", "params", "bounds"]:
+        if key == '_data':
+            return super().__getattribute__(key)
+        try:
+            return self._data[key]
+        except ValueError: # not found in fields
             return super().__getattribute__(key)
 
-        for attr in (self.states, self.params):
-            if key in attr:
-                return attr[key]
-
-        return super().__getattribute__(key)
+    @property
+    def num(self) -> int:
+        return self._data.shape[0]
 
     @abstractmethod
     def ode(self, **input_args) -> None:
@@ -307,16 +228,18 @@ class Model:
 
     def recast(self) -> None:
         """Recast arrays to compatible formats"""
-        for attr in ["states", "gstates", "bounds", "params"]:
-            for key, arr in (dct := getattr(self, attr)).items():
-                dct[key] = cudaarray_to_cpu(arr)
+        self._data = cudaarray_to_cpu(self._data)
+        self.states = self._data[[key for key in self.Default_States]]
+        self.params = self._data[[key for key in self.Default_Params]]
+        _gstates = self._data[[f"d_{key}" for key in self.Derivates]]
+        _dtype = copy.deepcopy(_gstates.dtype)
+        _dtype.names = self.Derivates
+        self.gstates = self._data[[f"d_{key}" for key in self.Derivates]].view(_dtype)
 
     def reset(self) -> None:
         """Reset model states to initial and gstates to 0"""
-        for attr in self.states:
-            self.states[attr][:] = self.initial_states[attr]
-        for attr in self.gstates:
-            self.gstates[attr][:] = 0.0
+        self.states[:] = self.initial_states
+        self.gstates[:] = 0.0
 
     def clip(self, states: dict = None) -> None:
         """Clip state values by bounds"""
@@ -460,9 +383,8 @@ class Model:
                 raise err.NeuralBackendError("Callback is not callable\n" f"{f}")
 
         # Solve
-        res = {var: np.zeros((len(t), self.num)) for var in self.states}
-        for var, val in self.initial_states.items():
-            res[var][0] = val
+        res = np.zeros((len(t), self.num), dtype=self.states.dtype)
+        res[0] = self.initial_states
 
         # run loop
         iters = enumerate(zip(t[:-1], stimuli), start=1)
@@ -478,6 +400,5 @@ class Model:
             self.update(d_t, **_stim)
             for _func in extra_callbacks:
                 _func(self)
-            for var, val in self.states.items():
-                res[var][tt][:] = val
-        return {var: val.T for var, val in res.items()}
+            res[tt] = self.states
+        return res.T

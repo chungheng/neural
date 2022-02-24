@@ -28,20 +28,13 @@ class LeakyIAF(Model):
 def test_model():
     model = LeakyIAF()
     assert model.num == 1
-    assert all(
-        [isinstance(val, np.ndarray) and len(val) == 1 for val in model.states.values()]
-    )
-    assert all(
-        [
-            isinstance(val, np.ndarray) and len(val) == 1
-            for val in model.gstates.values()
-        ]
-    )
-    assert all(
-        [isinstance(val, np.ndarray) and len(val) == 1 for val in model.params.values()]
-    )
-    assert model.params == LeakyIAF.Default_Params
-    assert model.states == dict(spike=np.array([0]), v=np.array([-0.05]))
+    for var in model.Variables:
+        val = model._data[var]
+        assert len(val) == 1
+        assert isinstance(val, np.ndarray)
+
+    assert model.states['spike'] == np.array([0])
+    assert model.states['v'] == np.array([-0.05])
     assert model.Derivates == ("v",)
 
 
@@ -110,6 +103,8 @@ def test_model_init(klass):
     np.testing.assert_array_equal(model.params["a"], np.array([10.0]))
     np.testing.assert_array_equal(model.states["x1"], np.array([0.0]))
     np.testing.assert_array_equal(model.states["x2"], np.array([1.0]))
+    np.testing.assert_array_equal(model.gstates["x1"], np.array([0.0]))
+    np.testing.assert_array_equal(model.gstates["x2"], np.array([0.0]))
     assert model.bounds["x2"][0] == 0.0
     assert model.bounds["x2"][1] == 10.0
     with pytest.raises(KeyError):
@@ -119,6 +114,8 @@ def test_model_init(klass):
     np.testing.assert_array_equal(model.params["a"], np.full((10,), 10.0))
     np.testing.assert_array_equal(model.states["x1"], np.full((10,), 0.0))
     np.testing.assert_array_equal(model.states["x2"], np.full((10,), 1.0))
+    np.testing.assert_array_equal(model.gstates["x1"], np.full((10,), 0.0))
+    np.testing.assert_array_equal(model.gstates["x2"], np.full((10,), 0.0))
     assert model.bounds["x2"][0] == 0.0
     assert model.bounds["x2"][1] == 10.0
     with pytest.raises(KeyError):

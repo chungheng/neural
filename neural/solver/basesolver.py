@@ -36,5 +36,5 @@ class Euler(BaseSolver):
     def step(self, d_t: float, **input_args) -> None:
         """Euler's method"""
         self.model.ode(**input_args)
-        for var, grad in self.model.gstates.items():
-            self.model.states[var] += d_t * self.model.Time_Scale * grad
+        for s in self.model.gstates.dtype.names:
+            self.model.states[s] += d_t * self.model.Time_Scale * self.model.gstates[s]
