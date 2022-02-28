@@ -5,6 +5,11 @@ This pinned version of the neural package accompanies the other [repo](https://g
 ## Installation
 Python `>=3.8` is recommended.
 
+First install these dependencies:
+```
+pip install sympy, scikit-cuda, pydot
+```
+
 One in-house dependency is required: [`pycodgen`](https://github.com/chungheng/pycodegen) which can be installed as:
 ```bash
 git clone git@github.com:chungheng/pycodegen.git
