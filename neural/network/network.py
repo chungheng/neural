@@ -14,6 +14,7 @@ Examples:
 >>> nn.run(dt, s=numpy.random.rand(10000))
 """
 import sys
+import warnings
 from collections import OrderedDict
 from functools import reduce
 from numbers import Number
@@ -23,11 +24,14 @@ import numpy as np
 import pycuda.gpuarray as garray
 from tqdm.auto import tqdm
 
+# pylint:disable=relative-beyond-top-level
 from ..basemodel import Model
 from ..future import SimpleNamespace
 from ..recorder import Recorder
 from ..codegen.symbolic import SympyGenerator
 from ..utils import MINIMUM_PNG
+
+# pylint:enable=relative-beyond-top-level
 
 PY2 = sys.version_info[0] == 2
 PY3 = sys.version_info[0] == 3
@@ -55,6 +59,7 @@ class Input(object):
         self.iter = None
         self.latex_src = "External stimulus"
         self.graph_src = MINIMUM_PNG
+        self.value = None
 
     def __call__(self, data):
         self.data = data
@@ -68,6 +73,9 @@ class Input(object):
             raise TypeError()
 
         return self
+
+    def step(self):
+        self.value = next(self)
 
     def __next__(self):
         return next(self.iter)
@@ -128,7 +136,7 @@ class Container(object):
             if arg not in self._rec:
                 self._rec.append(arg)
 
-    def set_recorder(self, steps, rate=1):
+    def set_recorder(self, steps, rate=1, gpu_buffer=500):
         if not self._rec:
             self.recorder = None
         elif (
@@ -137,7 +145,7 @@ class Container(object):
             or (set(self.recorder.dct.keys()) != set(self._rec))
         ):
             self.recorder = Recorder(
-                self.obj, self._rec, steps, gpu_buffer=500, rate=rate
+                self.obj, self._rec, steps, gpu_buffer=gpu_buffer, rate=rate
             )
         return self.recorder
 
@@ -217,22 +225,14 @@ class Network(object):
         self._iscompiled = False
         return container
 
-    def run(self, dt, steps=0, rate=1, verbose=False, **kwargs):
-        solver = kwargs.pop("solver", self.solver)
-        if not self._iscompiled:
-            raise Exception("Please compile before running the network.")
-
-        # calculate number of steps
-        steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
-
+    def reset(self):
+        """Reset Network to Initial State"""
         # reset recorders
-        recorders = []
         for c in self.containers.values():
-            recorder = c.set_recorder(steps, rate)
-            if recorder is not None:
-                recorders.append(recorder)
+            if c.recorder is not None:
+                c.recorder.reset()
 
-        # reset Modle variables
+        # reset Model variables
         for c in self.containers.values():
             if isinstance(c.obj, Model):
                 c.obj.reset()
@@ -241,28 +241,69 @@ class Network(object):
         for input in self.inputs.values():
             input.reset()
 
+    def run(self, dt, steps=0, rate=1, verbose=False, **kwargs):
+        """Run the entire Network from start to stop"""
+        solver = kwargs.pop("solver", self.solver)
+        gpu_buffer = kwargs.pop("gpu_buffer", 500)
+        if not self._iscompiled:
+            raise Exception("Please compile before running the network.")
+
+        # calculate number of steps
+        steps = reduce(max, [input.steps for input in self.inputs.values()], steps)
+        for name, val in self.inputs.items():
+            if val.steps == 0:
+                warnings.warn(f"Input '{name}' has 0 steps", UserWarning)
+
+        for c in self.containers.values():
+            recorder = c.set_recorder(steps, rate, gpu_buffer=gpu_buffer)
+        self.reset()
+
         iterator = range(steps)
         if verbose:
-            iterator = tqdm(iterator)
+            if isinstance(verbose, str):
+                iterator = tqdm(iterator, desc=verbose, dynamic_ncols=True)
+            else:
+                iterator = tqdm(iterator, dynamic_ncols=True)
 
         for i in iterator:
-            for c in self.containers.values():
-                args = {}
-                for key, val in c.inputs.items():
-                    if isinstance(val, Symbol):
-                        args[key] = getattr(val.container.obj, val.key)
-                    elif isinstance(val, Input):
-                        args[key] = next(val)
-                    elif isinstance(val, Number):
-                        args[key] = val
-                    else:
-                        raise Exception()
+            self.update(dt, i)
+
+    def update(self, dt: float, idx: int):
+        """Update Network and all components
+
+        Arguments:
+            dt: time step
+            idx: time index of the update for recorder
+        """
+
+        # update inputs
+        for c in self.inputs.values():
+            c.step()
+
+        # update containers
+        for c in self.containers.values():
+            args = {}
+            for key, val in c.inputs.items():
+                if isinstance(val, Symbol):
+                    args[key] = getattr(val.container.obj, val.key)
+                elif isinstance(val, Input):
+                    args[key] = val.value
+                elif isinstance(val, Number):
+                    args[key] = val
+                else:
+                    raise Exception()
+            try:
                 if isinstance(c.obj, Model):
                     c.obj.update(dt, **args)
                 else:
                     c.obj.update(**args)
-            for recorder in recorders:
-                recorder.update(i)
+            except Exception as e:
+                raise Exception(f"Update Failed for model {c.obj}") from e
+
+        # update recorders
+        for c in self.containers.values():
+            if c.recorder is not None:
+                c.recorder.update(idx)
 
     def compile(self, dtype=None, debug=False, backend="cuda"):
         dtype = dtype or np.float64
@@ -280,8 +321,8 @@ class Network(object):
                 elif isinstance(val, Input):
                     if val.num is not None:
                         if c.num is not None and val.num != c.num:
-                            raise Exception(
-                                "Size mismatches: {} {}".format(c.name, val.name)
+                            warnings.warn(
+                                f"Size mismatches: {c.name}({c.num}) <- {val.name}({val.num})"
                             )
                         dct[key] = np.zeros(val.num)
                     else:
@@ -292,10 +333,13 @@ class Network(object):
                     raise Exception()
 
             if hasattr(c.obj, "compile"):
-                if isinstance(c.obj, Model):
-                    c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
-                else:
-                    c.obj.compile(**dct)
+                try:
+                    if isinstance(c.obj, Model):
+                        c.obj.compile(backend=backend, dtype=dtype, num=c.num, **dct)
+                    else:
+                        c.obj.compile(**dct)
+                except Exception as e:
+                    raise Exception(f"Compilation Failed for Container {c.obj}") from e
                 if debug:
                     s = "".join([", {}={}".format(*k) for k in dct.items()])
                     print(

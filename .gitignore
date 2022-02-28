@@ -5,3 +5,4 @@ examples/
 *.bak
 .ipynb_checkpoints
 .vscode/
+.tox/
