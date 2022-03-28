@@ -14,7 +14,6 @@ Examples:
     >>> nn.run(dt, s=numpy.random.rand(10000))
 """
 import inspect
-import weakref
 from functools import reduce
 from numbers import Number
 from warnings import warn
@@ -26,8 +25,7 @@ from tqdm.auto import tqdm
 # pylint:disable=relative-beyond-top-level
 from ..basemodel import Model
 from ..recorder import Recorder
-
-# from ..codegen.symbolic import SympyGenerator
+from ..backend import BackendMixin
 from .. import errors as err
 from .. import types as tpe
 from .. import utils
@@ -133,12 +131,18 @@ class Container(object):
         name: str = "",
     ):
         self.obj = obj
-        self.num = obj.num if hasattr(obj, "num") else None
         self.name = name
         self.vars = dict()
         self.inputs = dict()
         self.recorder = None
         self._rec = []
+
+    @property
+    def num(self) -> int:
+        try:
+            return self.obj.num
+        except AttributeError:
+            return None
 
     def __repr__(self) -> str:
         return f"Container[{self.obj}] - num {self.num}"
@@ -171,8 +175,8 @@ class Container(object):
                     self.inputs[key] = val
                 else:
                     raise err.NeuralContainerError(
-                        f"Attempting to set variable '{key}' of container but the "
-                        "variable is not understood"
+                        f"Attempting to set '{key}' of container but the "
+                        "it is neither a variable nor an input."
                     )
             else:
                 if not isinstance(val, (Symbol, Number, Input)):
@@ -277,10 +281,11 @@ class Container(object):
 class Network:
     """Neural Network Object"""
 
-    def __init__(self, solver: tpe.Solver = Euler):
+    def __init__(self, solver: tpe.Solver = Euler, backend: tpe.Backend = BackendMixin):
         self.containers = dict()
         self.inputs = dict()
         self.solver = self.validate_solver(solver)
+        self.backend = backend
         self._iscompiled = False
 
     @classmethod
@@ -417,8 +422,8 @@ class Network:
                 c.obj.reset()
 
         # reset inputs
-        for input in self.inputs.values():
-            input.reset()
+        for inp in self.inputs.values():
+            inp.reset()
 
     def update(self, d_t: float) -> None:
         """Update Network and all components
@@ -522,11 +527,3 @@ class Network:
                     f"{arg} needs to be an instance of Symbol."
                 )
             arg.container.record(arg.key)
-
-    def get_obj(self, name: str) -> tp.Union[Container, Input]:
-        """Return container or input from network"""
-        if name in self.containers:
-            return self.containers[name]
-        if name in self.inputs:
-            return self.inputs[name]
-        raise err.NeuralNetworkError(f"Unexpected name: '{name}'")
