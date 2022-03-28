@@ -8,17 +8,13 @@ import copy
 import ast
 import textwrap
 from abc import abstractmethod
-from warnings import warn
 from inspect import getfullargspec
 import typing as tp
 import numpy as np
 from tqdm.auto import tqdm
 from .solver import BaseSolver, Euler
 from . import errors as err
-from .utils.array import (
-    cudaarray_to_cpu,
-    get_array_module,
-)
+from .utils.array import cudaarray_to_cpu
 from .backend import BackendMixin
 
 
@@ -44,7 +40,7 @@ class Model:
     Default_Params: dict = None
     Time_Scale: float = 1.0
     solver: BaseSolver = Euler
-    backend: BackendMixin = None
+    backend: BackendMixin = BackendMixin
 
     @classmethod
     @property
@@ -69,9 +65,9 @@ class Model:
     def Variables(cls) -> dict:
         """A dictionary mapping variable name to physical type"""
         return {
-            **{var: "states" for var in cls.Default_States.keys()},
-            **{var: "gstates" for var in cls.Derivates},
-            **{var: "params" for var in cls.Default_Params.keys()},
+            **{var: "states" for var in cls.Default_States},
+            **{f"d_{var}": "gstates" for var in cls.Derivates},
+            **{var: "params" for var in cls.Default_Params},
         }
 
     @classmethod
@@ -185,19 +181,30 @@ class Model:
         self.set_solver(solver, **solver_kws)
 
     def __setattr__(self, key: str, value: tp.Any):
-        if key == '_data':
+        if key == "_data":
             return super().__setattr__(key, value)
-        try:
-            self._data[key] = value
-        except (AttributeError, ValueError): # _data not created yet or key not found in _data fields
-            super().__setattr__(key, value)
+        if hasattr(self, "_data"):
+            if key in self._data.dtype.names:
+                try:
+                    self._data[key] = value
+                    return
+                except (
+                    AttributeError,
+                    ValueError,
+                ):  # _data not created yet or key not found in _data fields
+                    return super().__setattr__(key, value)
+                except TypeError:  # FIXME: Numba DeviceArray
+                    for n in range(self.num):
+                        self._data[n][key] = value
+                    return
+        return super().__setattr__(key, value)
 
     def __getattr__(self, key: str):
-        if key == '_data':
+        if key == "_data":
             return super().__getattribute__(key)
         try:
             return self._data[key]
-        except ValueError: # not found in fields
+        except ValueError:  # not found in fields
             return super().__getattribute__(key)
 
     @property
@@ -264,9 +271,12 @@ class Model:
             func(self)
 
     def set_backend(self, new_backend: BackendMixin, **backend_options) -> None:
-        assert new_backend == BackendMixin or issubclass(
-            new_backend, BackendMixin
-        ), err.NeuralBackendError(f"backend {new_backend} not understood")
+        """Set Model backend to new backend
+
+        Backends are implemented as Mixins that directly replaces methods
+        like `ode` and `post`. Additional logic for setting up the backend is
+        wrapped in the `compile` method of the backendmixin.
+        """
         if not new_backend.is_backend_supported:
             raise err.NeuralBackendError(f"backend {new_backend} not supported.")
 
@@ -284,6 +294,10 @@ class Model:
         self.recast()  # recast array types
 
     def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
+        """Set solver of the model
+
+        Default to Euler.
+        """
         if (
             new_solver == self.solver.__class__
             and self.solver.solver_options == solver_options
