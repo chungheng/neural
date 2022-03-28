@@ -17,8 +17,11 @@ class RungeKutta(BaseSolver):
         super().__init__(model, **solver_options)
         self.model = weakref.proxy(model)
         self.gstates_cache = {
-            var: np.zeros((self.n_stages + 1,) + arr.shape, dtype=arr.dtype)
-            for var, arr in self.model.gstates.items()
+            var: np.zeros(
+                (self.n_stages + 1,) + self.model.gstates[var].shape,
+                dtype=self.model.gstates[var].dtype,
+            )
+            for var in self.model.gstates.dtype.names
         }
 
     def step(self, d_t: float, **input_args) -> None:
@@ -34,8 +37,8 @@ class RungeKutta(BaseSolver):
             input_args: input arguments for :code:`Model.ode`
         """
         curr_states = self.model.states.copy()
-        for var, grad in self.model.gstates.items():
-            self.gstates_cache[var][0] = grad
+        for var in self.model.gstates.dtype.names:
+            self.gstates_cache[var][0] = self.model.gstates[var]
         for s, a in enumerate(self.A[1:], start=1):
             for var, grad in self.gstates_cache.items():
                 dy = (grad[:s].T @ a[:s]) * d_t * self.model.Time_Scale
@@ -43,13 +46,17 @@ class RungeKutta(BaseSolver):
             self.model.ode(**input_args)
             for var, grad in self.gstates_cache.items():
                 self.gstates_cache[var][s] = self.model.gstates[var]
-        for var, val in curr_states.items():
-            self.model.states[var] = val + d_t * self.model.Time_Scale * (
-                self.gstates_cache[var][:-1].T @ self.B
-            )
+        for var in curr_states.dtype.names:
+            val = curr_states[var]
+            if var in self.gstates_cache:
+                self.model.states[var] = val + d_t * self.model.Time_Scale * (
+                    self.gstates_cache[var][:-1].T @ self.B
+                )
+            else:
+                self.model.states[var] = val
         self.model.ode(**input_args)
-        for var, grad in self.model.gstates.items():
-            self.gstates_cache[var][-1] = grad
+        for var in self.model.gstates.dtype.names:
+            self.gstates_cache[var][-1] = self.model.gstates[var]
 
 
 class RK23(RungeKutta):
