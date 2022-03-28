@@ -2,14 +2,9 @@
 Plotting functions.
 """
 import typing as tp
-import matplotlib.pyplot as plt
-from matplotlib import ticker, colors
 import numpy as np
 import matplotlib.pyplot as plt
 from .. import errors as err
-
-COLOR_NORMS = tp.Literal["none", "log", "discrete", "power"]
-
 
 def plot_multiple(
     data_x: np.ndarray,
@@ -122,11 +117,11 @@ def plot_spikes(
     dt: float = None,
     t: np.ndarray = None,
     ax: plt.Axes = None,
-    markersize: int = None,
-    color: tp.Union[str, tp.Any] = "k",
+    color: tp.Union[str, tp.Callable] = None,
+    **scatter_kwargs
 ) -> plt.Axes:
-    """
-    Plot Spikes in raster format
+    """Plot Spikes in raster format
+
     Arguments:
         spikes: the spike states in binary format, where 1 stands for a spike.
             The shape of the spikes should either be (N_times, ) or (N_trials, N_times)
@@ -142,9 +137,12 @@ def plot_spikes(
             `dt` is assumed to be 1 if not specified.
 
         ax: which axis to plot into, create one if not provided
-        markersize: size of raster
-        color: color for the raster. Any acceptable type of `matplotlib.pyplot.plot`'s
-            color argument is accepted.
+        color: color for raster
+          - `str`: if color is a string, it is assumed to be the same color for all rasters
+          - `function(t,channel)`: if color is a function, it is assumed to be a 2 argument
+            function that maps time and channel of spike times to some value. The color
+            can then be controlled by specifying `cmap` argument of the scatter plot.
+
     Returns:
         ax: the axis that the raster is plotted into
     """
@@ -173,9 +171,16 @@ def plot_spikes(
         ax = fig.add_subplot()
 
     neu_idx, t_idx = np.nonzero(spikes)
-
+    lw = scatter_kwargs.pop('linewidth', 1)
     try:
-        ax.plot(t[t_idx], neu_idx, "|", c=color, markersize=markersize)
+        ax.scatter(
+            t[t_idx],
+            neu_idx,
+            marker="|",
+            c=color(t[t_idx], neu_idx) if callable(color) else color,
+            linewidth=lw,
+            **scatter_kwargs
+        )
     except ValueError as e:
         raise err.NeuralPlotError(
             "Raster plot failed, likely an issue with color or markersize setting"

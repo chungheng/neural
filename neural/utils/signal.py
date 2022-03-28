@@ -1,48 +1,27 @@
 """Signal Generation & Analysis utilities
-
-Provides the following methods:
-
-- :func:`generate_stimulus`: generate stimuli, currently support :code:`step`,
-  :code:`ramp` and :code:`parabolic` stimuli.
-- :func:`generate_spike_from_psth`: generate spike sequences from a PSTH.
-- :func:`compute_psth`: compute PSTH from a set of spike sequences.
-- :func:`snr`: compute Signal-to-Noise-Ratio between a signal and it\'s noisy
-  version in deciBel at each data point
-- :func:`average_snr`: compute SNR for entire signals
-- :func:`fft`: compute Fourier Transform of given signal(s), and returns the
-  spectrum as well as the frequency vector
-- :func:`nextpow2`: compute next smallest power of 2 exponent for given
-  number, same as :code:`nextpow2` in MATLAB.
-- :func:`spike_detect`: detect spike in 1D/2D variable arrays and return
-  binary array as mask for where a spike has occured.
 """
 
 import typing as tp
 from warnings import warn
-import numpy as np
+from numbers import Number
 from scipy.signal import butter, lfilter, find_peaks
 from scipy.signal import convolve as scipy_convolve
-from numbers import Number
-import typing as tp
 import numpy as np
 import numpy.typing as npt
 from .. import errors as err
 
 # pylint:disable=no-member
-def create_rng(seed: tp.Union[int, np.random.RandomState]):
+def create_rng(seed: tp.Union[int, np.random.RandomState]) -> np.random.RandomState:
     if isinstance(seed, np.random.RandomState):
         return seed
     return np.random.RandomState(seed)
-
-
 # pylint:enable=no-member
 
 
 def generate_spike_from_psth(
     d_t: float, psth: np.ndarray, num: int = 1, seed: int = None
 ) -> np.ndarray:
-    """
-    Generate spike sequeces from a PSTH.
+    """Generate spike sequeces from a PSTH.
 
     Arguments:
         d_t: the sampling interval of the input waveform.
@@ -62,10 +41,9 @@ def generate_spike_from_psth(
             f"Only 1D PSTH is currently accepted, got {psth.ndim} instead"
         )
 
-    rng = np.random.RandomState(seed)  # pylint:disable=E1101
+    rng = create_rng(seed)  # pylint:disable=E1101
     shape = (len(psth), num)
     spikes = np.zeros(shape, dtype=int, order="C")
-
     randvar = rng.rand(*shape)
     spikes = randvar < d_t * psth[:, None]
 
@@ -75,8 +53,7 @@ def generate_spike_from_psth(
 def compute_psth(
     spikes: np.ndarray, d_t: float, window: float, interval: float
 ) -> tp.Tuple[np.ndarray, np.ndarray]:
-    """
-    Compute the peri-stimulus time histogram.
+    """Compute the peri-stimulus time histogram.
 
     Arguments:
         spikes: spike sequences.
@@ -86,9 +63,8 @@ def compute_psth(
 
     Returns:
         A 2-tuple of
-
-            1. the average spike rate for each windows.
-            2. the time stamp for each windows.
+          1. the average spike rate for each windows.
+          2. the time stamp for each windows.
     """
 
     if len(spikes.shape) > 1:
@@ -120,8 +96,7 @@ def generate_stimulus(
     dtype: npt.DTypeLike = np.float64,
     **kwargs,
 ) -> np.ndarray:
-    """
-    Stimuli generator
+    """Stimuli generator
 
     Arguments:
         mode: shape of the waveform.
@@ -232,10 +207,10 @@ def generate_stimulus(
 
 
 def snr(u: np.ndarray, u_rec: np.ndarray, err_bias: float = 0.0) -> np.ndarray:
-    """Compute Signal to Noise Ratio at Every Data Point
+    r"""Compute Signal to Noise Ratio at Every Data Point
 
     Computes the SNR according to the formula
-    :math:`SNR[u, u_{rec}](t) = 10\log_{10} \\frac{u(t)^2}{err_{bias} + (u(t)-u_{rec}(t))^2}`
+    :math:`SNR[u, u_{rec}](t) = 10\log_{10} \frac{u(t)^2}{err_{bias} + (u(t)-u_{rec}(t))^2}`
 
     Parameters:
         u: Clean Signal
@@ -252,15 +227,15 @@ def snr(u: np.ndarray, u_rec: np.ndarray, err_bias: float = 0.0) -> np.ndarray:
     _err = u - u_rec
     _snr = np.full(_err.shape, np.inf, dtype=u.dtype)
     mask = _err != 0
-    _snr[mask] = 10 * np.log10(u[mask] ** 2 / _err[mask] ** 2)
+    _snr[mask] = 10 * np.log10(u[mask] ** 2 / (err_bias + _err[mask] ** 2))
     return _snr
 
 
 def average_snr(u: np.ndarray, u_rec: np.ndarray, err_bias: float = 0.0) -> float:
-    """Compute Avarege Signal to Noise Ratio
+    r"""Compute Avarege Signal to Noise Ratio
 
     Compute SNR of the entire signal instead of at every point as
-    :math:`SNR[u, u_{rec}] = 10\log_{10} \\frac{E[u^2]}{err_{bias} + E[(u-u_{rec})^2]}`
+    :math:`SNR[u, u_{rec}] = 10\log_{10} \frac{E[u^2]}{err_{bias} + E[(u-u_{rec})^2]}`
 
     Parameters:
         u: Clean Signal
@@ -313,7 +288,7 @@ def random_signal(
     return sig
 
 
-def nextpow2(n: "Number") -> float:
+def nextpow2(n: Number) -> float:
     """Find Minimum Power 2 Exponent"""
     return np.ceil(np.log2(n))
 
