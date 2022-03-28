@@ -1,4 +1,5 @@
 """Utilities for Networks"""
+from multiprocessing import Condition
 import typing as tp
 import numpy as np
 import pydot
@@ -117,7 +118,12 @@ def to_graph(
         pos = node.get_pos()[1:-1]
 
         if pos is not None:
-            obj = network.get_obj(n)
+            if n in network.containers:
+                obj = network.containers[n]
+            elif n in network.inputs:
+                obj = network.inputs[n]
+            else:
+                continue
             w = float(node.get_width())
             h = float(node.get_height())
 
