@@ -16,11 +16,7 @@ class AMPA(Model):
     Default_Params = dict(ar=1e-1, ad=5e0, gmax=150.0)
 
     def ode(self, stimulus=0.0):
-
-        self.d_s = -self.ad * self.s
-
-        self.s += stimulus * self.ar * (1.0 - self.s)
-
+        self.d_s = stimulus * self.ar * (1.0 - self.s) - self.ad * self.s
         self.I = self.s * self.gmax
 
 
@@ -34,11 +30,8 @@ class NMDA(Model):
 
     def ode(self, stimulus=0.0):
 
-        self.d_x = -self.b1 * self.x
+        self.d_x = self.a1 * stimulus * (1.0 - self.x) -self.b1 * self.x
         self.d_s = self.a2 * self.x * (1.0 - self.s) - self.b2 * self.s
-
-        if stimulus:
-            self.x += self.a1 * (1.0 - self.x)
 
 
 class GABAB(Model):
@@ -51,11 +44,8 @@ class GABAB(Model):
 
     def ode(self, stimulus=0.0):
 
-        self.d_r = -self.br * self.r
+        self.d_r = stimulus * self.ar * (1.0 - self.r) - self.br * self.r
         self.d_s = self.k3 * self.r - self.k4 * self.s
-
-        if stimulus:
-            self.r += self.ar * (1.0 - self.r)
 
     def get_conductance(self):
         temp = self.s**self.n
@@ -72,11 +62,7 @@ class Exponential(Model):
     Default_Params = dict(a1=1.1e1, b1=9e0, gmax=1.0)
 
     def ode(self, stimulus=0.0):
-
-        self.d_s = -self.b1 * self.s
-
-        if stimulus:
-            self.s += self.a1
+        self.d_s = stimulus * self.a1 - self.b1 * self.s
 
     def get_conductance(self):
         return self.s
@@ -91,7 +77,6 @@ class Alpha(Model):
     Default_Params = dict(ar=1.25e1, ad=12.19, gmax=1.0)
 
     def ode(self, stimulus=0.0):
-
         self.d_s = self.u
         tmp = self.ar * self.ad
         self.d_u = -(self.ar + self.ad) * self.u - tmp * self.s
