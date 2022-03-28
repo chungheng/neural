@@ -25,7 +25,7 @@ from tqdm.auto import tqdm
 # pylint:disable=relative-beyond-top-level
 from ..basemodel import Model
 from ..recorder import Recorder
-from ..backend import BackendMixin
+from ..backend import NumbaCPUBackendMixin
 from .. import errors as err
 from .. import types as tpe
 from .. import utils
@@ -231,9 +231,14 @@ class Container(object):
     ) -> Recorder:
         """Create Recorder Instance
 
-        Keyword Arguments:
+        Arguments:
             steps: total number of steps to record
             rate: sample rate at which the results are recorded
+            gpu_bufsize: number of steps that is buffered on the gpu side.
+
+        Returns:
+            :code:`Recorder` instance or :code:`None` if no variable
+            is set to be recorded.
         """
         if not self._rec:
             self.recorder = None
@@ -281,7 +286,7 @@ class Container(object):
 class Network:
     """Neural Network Object"""
 
-    def __init__(self, solver: tpe.Solver = Euler, backend: tpe.Backend = BackendMixin):
+    def __init__(self, solver: tpe.Solver = Euler, backend: tpe.Backend = NumbaCPUBackendMixin):
         self.containers = dict()
         self.inputs = dict()
         self.solver = self.validate_solver(solver)
@@ -317,23 +322,26 @@ class Network:
         name: str = None,
         record: tp.Iterable[str] = None,
         solver: tpe.Solver = None,
+        backend: tpe.Backend = None,
         **module_args,
     ) -> Container:
         solver_kws = module_args.pop("solver_kws", {})
         solver = self.validate_solver(solver or self.solver)
+        backend = backend or self.backend
 
         if (name := name or f"obj{len(self.containers)}") in self.containers:
             raise err.NeuralNetworkError(f"Duplicate container name: '{name}'")
 
         if isinstance(module, Model):
             module.set_solver(solver, **solver_kws)
+            module.set_backend(backend)
             obj = module
             if num is not None and obj.num != num:
                 raise err.NeuralContainerError(
                     f"num argument ({num}) does not equal to num of model ({obj.num})"
                 )
         elif issubclass(module, Model):
-            obj = module(solver=solver, num=num, solver_kws=solver_kws, **module_args)
+            obj = module(solver=solver, num=num, solver_kws=solver_kws, backend=backend, **module_args)
         elif inspect.isclass(module):
             if not Container.isacceptable(module):
                 raise err.NeuralNetworkError(
@@ -471,52 +479,52 @@ class Network:
 
         FIXME: Is this function still needed?
         """
-        for c in self.containers.values():
-            dct = {}
-            for key, val in c.inputs.items():
-                if isinstance(val, Symbol):
-                    if val.container.num is not None:
-                        # if c.num is not None and val.container.num != c.num:
-                        #     raise Error("Size mismatches: {} {}".format(
-                        #         c.name, val.container.name))
-                        dct[key] = np.zeros(val.container.num)
-                    else:
-                        dct[key] = dtype(0.0)
-                elif isinstance(val, Input):
-                    if val.num is not None:
-                        if c.num is not None and val.num != c.num:
-                            warn(
-                                (
-                                    f"Size mismatches: [{c.name}:{c.num}] vs. [{val.name}: "
-                                    f"{val.num}]. Unless you are connecting Input object "
-                                    "directly to a Project container, this is likely a bug."
-                                ),
-                                err.NeuralNetworkWarning,
-                            )
-                        dct[key] = np.zeros(val.num, dtype=dtype)
-                    else:
-                        dct[key] = dtype(0.0)
-                elif isinstance(val, Number):
-                    dct[key] = dtype(val)
-                else:
-                    raise err.NeuralNetworkCompileError(
-                        f"Container wrapping [{c.obj}] input {key} value {val} not "
-                        "understood"
-                    )
+        # for c in self.containers.values():
+        #     dct = {}
+        #     for key, val in c.inputs.items():
+        #         if isinstance(val, Symbol):
+        #             if val.container.num is not None:
+        #                 # if c.num is not None and val.container.num != c.num:
+        #                 #     raise Error("Size mismatches: {} {}".format(
+        #                 #         c.name, val.container.name))
+        #                 dct[key] = np.zeros(val.container.num)
+        #             else:
+        #                 dct[key] = dtype(0.0)
+        #         elif isinstance(val, Input):
+        #             if val.num is not None:
+        #                 if c.num is not None and val.num != c.num:
+        #                     warn(
+        #                         (
+        #                             f"Size mismatches: [{c.name}:{c.num}] vs. [{val.name}: "
+        #                             f"{val.num}]. Unless you are connecting Input object "
+        #                             "directly to a Project container, this is likely a bug."
+        #                         ),
+        #                         err.NeuralNetworkWarning,
+        #                     )
+        #                 dct[key] = np.zeros(val.num, dtype=dtype)
+        #             else:
+        #                 dct[key] = dtype(0.0)
+        #         elif isinstance(val, Number):
+        #             dct[key] = dtype(val)
+        #         else:
+        #             raise err.NeuralNetworkCompileError(
+        #                 f"Container wrapping [{c.obj}] input {key} value {val} not "
+        #                 "understood"
+        #             )
 
-            if hasattr(c.obj, "compile"):
-                try:
-                    if isinstance(c.obj, Model):
-                        c.obj.compile(dtype=dtype, num=c.num, **dct)
-                    else:
-                        c.obj.compile(**dct)
-                except Exception as e:
-                    if debug:
-                        s = "".join([", {}={}".format(*k) for k in dct.items()])
-                        print(f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})")
-                    raise err.NeuralNetworkCompileError(
-                        f"Compilation Failed for Container {c.obj}"
-                    ) from e
+        #     if hasattr(c.obj, "compile"):
+        #         try:
+        #             if isinstance(c.obj, Model):
+        #                 c.obj.compile(dtype=dtype, num=c.num, **dct)
+        #             else:
+        #                 c.obj.compile(**dct)
+        #         except Exception as e:
+        #             if debug:
+        #                 s = "".join([", {}={}".format(*k) for k in dct.items()])
+        #                 print(f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})")
+        #             raise err.NeuralNetworkCompileError(
+        #                 f"Compilation Failed for Container {c.obj}"
+        #             ) from e
         self._iscompiled = True
 
     def record(self, *args: tp.Iterable[Symbol]) -> None:
