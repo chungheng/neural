@@ -36,7 +36,7 @@ def slice_or_return_impl(arr, idx):
 def {{ method }}{{signature}}:
 {% if doc_string -%}
 {{doc_string | indent(first=True) }}
-{%- endif -%}
+{%- endif %}
     {% if target == 'cuda' -%}
     for {{ idx }} in range(numba.cuda.grid(1), self.shape[0], numba.cuda.gridsize(1)):
     {%- else -%}
