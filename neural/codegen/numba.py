@@ -9,11 +9,24 @@ from jinja2 import Template
 from .. import types as tpe
 from .. import errors as err
 
-
 NUMBA_TEMPLATE = Template(
     """
 import numba
 import numba.cuda
+from numba.extending import overload
+
+def slice_or_return(arr, idx):
+    pass
+
+@overload(slice_or_return)
+def slice_or_return_impl(arr, idx):
+    if isinstance(arr, numba.types.Array):
+        def imp(arr, idx):
+            return arr[idx]
+    else:
+        def imp(arr, idx):
+            return arr
+    return imp
 
 {% if target == 'cuda' -%}
 @numba.cuda.jit
@@ -21,12 +34,20 @@ import numba.cuda
 @numba.njit
 {%- endif %}
 def {{ method }}{{signature}}:
+{% if doc_string -%}
+{{doc_string | indent(first=True) }}
+{%- endif -%}
     {% if target == 'cuda' -%}
     for {{ idx }} in range(numba.cuda.grid(1), self.shape[0], numba.cuda.gridsize(1)):
     {%- else -%}
-    for {{ idx }} in range({{ N }}):
+    for {{ idx }} in range(self.shape[0]):
+    {%- endif -%}
+    {% for var in input_args -%}
+    {% if var != 'self' %}
+        {{ var }}{{ idx }} = slice_or_return({{ var }}, {{ idx }})
     {%- endif %}
-{{ ode_expressions }}
+    {%- endfor %}
+{{ ode_expressions | indent(width=8, first=True) }}
 """
 )
 
@@ -39,27 +60,31 @@ class CollectVariables(ast.NodeVisitor):
         self.local_vars.append(node.id)
 
 
-class ReplaceAttr(ast.NodeTransformer):
-    def __init__(self, idx_name: str = "_i"):
+class UnvectorizeVars(ast.NodeTransformer):
+    """Unroll arrays in kernel"""
+
+    def __init__(self, idx_name: str = "_i", input_vars: tp.Iterable[str] = None):
         self.idx_name = idx_name
+        self.input_vars = set(input_vars) if input_vars is not None else set()
 
     def visit_Name(self, node: ast.Name) -> tp.Any:
         if node.id == "self":
             node = ast.parse(f"self[{self.idx_name}]").body[0].value
+        elif node.id in self.input_vars:
+            node = ast.parse(f"{node.id}{self.idx_name}").body[0].value
         return node
-
-
-@dataclass
-class JittedFunction:
-    name: str
-    src: str
-    args: tp.Dict[str, str]
 
 
 def get_numba_function_source(
     model: tpe.Model, method: str = "ode", target: tp.Literal["cpu", "cuda"] = "cpu"
-) -> JittedFunction:
-    """Return a function definition that can be jitted"""
+) -> str:
+    """Return a function definition that can be jitted
+
+    Arguments:
+        model: model to be generated
+        method: method name of the model to be generated
+        target: cpu or cuda for numba jit
+    """
     if not inspect.isclass(model):
         model = model.__class__
 
@@ -86,18 +111,35 @@ def get_numba_function_source(
             )
 
     # replace attributes self.x with states_x/params_x/gstates_x ...
+    input_args = list(inspect.signature(func).parameters.keys())
     tree = ast.fix_missing_locations(
-        ReplaceAttr(
-            idx_name=idx_name,
-        ).visit(tree)
+        UnvectorizeVars(idx_name=idx_name, input_vars=input_args).visit(tree)
     )
 
+    func_def = tree.body[0]
+    if not isinstance(func_def, ast.FunctionDef):
+        raise TypeError(
+            f"Function Body is not FunctionDef type, but {type(func_def)} type."
+        )
+    if (doc_string := ast.get_docstring(func_def, clean=True)) is not None:
+        doc_string = '"""\n{}\n"""'.format(doc_string)
+    else:
+        doc_string = None
+    if doc_string is not None:
+        if (
+            isinstance(func_def.body[0], ast.Expr)
+            and hasattr(func_def.body[0], "value")
+            and isinstance(func_def.body[0].value, ast.Str)
+        ):
+            del func_def.body[0]
     # render function source
     func_src = NUMBA_TEMPLATE.render(
-        method=method,
-        signature=str(inspect.signature(func)),
-        ode_expressions=textwrap.indent(unparse(tree.body[0].body), prefix=" " * 8),
-        idx=idx_name,
-        target=target
+        method=method,  # name of the method to generate
+        doc_string=doc_string,  # docstring
+        signature=str(inspect.signature(func)),  # function call signature
+        input_args=[var for var in inspect.signature(func).parameters],
+        ode_expressions=unparse(func_def.body),  # ode definition body
+        idx=idx_name,  # str variable to index each model component
+        target=target,  # cpu or cuda
     )
     return func_src
