@@ -8,7 +8,11 @@ from .. import errors as err
 
 
 def to_graph(
-    network, png: bool = False, svg: bool = False, prog="dot"
+    network,
+    png: bool = False,
+    svg: bool = False,
+    prog: str = "dot",
+    **pydot_options
 ) -> tp.Union[bytes, dict]:
     """Visualize Network instance as Graph
 
@@ -22,7 +26,10 @@ def to_graph(
         prog: program used to optimize graph layout
     """
     graph = pydot.Dot(
-        graph_type="digraph", rankdir="LR", splines="ortho", decorate=True
+        graph_type="digraph",
+        rankdir="LR",
+        decorate=True,
+        **pydot_options
     )
 
     nodes = {}
@@ -48,18 +55,18 @@ def to_graph(
                     "understood"
                 )
             u = nodes[source]
-            graph.add_edge(pydot.Edge(u, v, label=label))
+            graph.add_edge(pydot.Edge(u, v, headlabel=key, taillabel=label))
             edges.append((source, target, label))
 
     if png:  # return PNG Directly
-        png_str = graph.create_png(prog="dot")  # pylint: disable=no-member
+        png_str = graph.create_png(prog=prog)  # pylint: disable=no-member
         return png_str
     if svg:
-        svg_str = graph.create_svg(prog="dot")  # pylint: disable=no-member
+        svg_str = graph.create_svg(prog=prog)  # pylint: disable=no-member
         return svg_str
 
     # return dot
-    D_bytes = graph.create_dot(prog="dot")  # pylint: disable=no-member
+    D_bytes = graph.create_dot(prog=prog)  # pylint: disable=no-member
 
     D = str(D_bytes, encoding="utf-8")
 
