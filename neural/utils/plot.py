@@ -12,26 +12,35 @@ COLOR_NORMS = tp.Literal["none", "log", "discrete", "power"]
 
 
 def plot_multiple(
-    data_x: np.ndarray, *args, **kwargs
+    data_x: np.ndarray,
+    *args,
+    figw: float = 5,
+    figh: float = 2,
+    xlabel: str = "Time, [s]",
+    axes: tp.Iterable[plt.Axes] = None,
+    **subplots_kw,
 ) -> tp.Tuple[plt.Figure, np.ndarray]:
     """
     Plot multiple data curves against a same x-axis on mulitple subplots.
 
     Arguments:
-        datax (darray): the data point on the x-axis.
+        datax: the data point on the x-axis.
         *args: each entry of args is a list containing multiple sets of data
-            and parameters that will be plotted in the same subplot.
-            An entry should follow the format `(data_1, param_1, ...)`,
-            where each of the `data_i` is a numpy array, and each of the
-            `param_i` is a `dict` of the parameters for ploting `data_i` against
-            `data_x`. Alternatively, an entry can simply be an numpy array. In
-            this case, only one curve will be plotted in the corresponding
-            subplot.
+          and parameters that will be plotted in the same subplot.
+          An entry should follow the format `(data_1, param_1, ...)`,
+          where each of the `data_i` is a numpy array, and each of the
+          `param_i` is a `dict` of the parameters for ploting `data_i` against
+          `data_x`. Alternatively, an entry can simply be an numpy array. In
+          this case, only one curve will be plotted in the corresponding
+          subplot.
 
     Keyword Arguments:
-        figw (float): the figure width.
-        figh (float): the figure height.
-        xlabel (str): the label of the x-axis.
+        figw: the figure width.
+        figh: the figure height.
+        xlabel: the label of the x-axis.
+        axes: axes into which the data will be plotted. Must have same length as :code:`*args`.
+          If not specified, new figure and axes are created.
+        subplots_kw: any arguments for :code:`matplotlib.pyplot.subplots` call.
 
         The additional keyword arguments will propagate into the private
         plotting method `_plot`, and eventually into the `pyplot.plot` method.
@@ -79,20 +88,15 @@ def plot_multiple(
         if ylabel:
             axe.set_ylabel(ylabel)
 
-    figw = kwargs.pop("figw", 5)
-    figh = kwargs.pop("figh", 2)
-    xlabel = kwargs.pop("xlabel", "Time, [s]")
-
     num = len(args)
 
-    fig, axes = plt.subplots(num, 1, figsize=(figw, num * figh))
-    axes = np.atleast_1d(axes)
+    if axes is not None:
+        assert len(axes) == num, "axes must have same length as args"
+        fig = None
+    else:
+        fig, axes = plt.subplots(num, 1, figsize=(figw, num * figh), **subplots_kw)
 
     for i, (dataset, axe) in enumerate(zip(args, axes)):
-        axe.grid()
-        if i < num - 1:
-            axe.xaxis.set_ticklabels([])
-
         if isinstance(dataset, np.ndarray):
             param_list = [{}]
             data_list = [dataset]
@@ -102,14 +106,11 @@ def plot_multiple(
 
         has_legend = False
         for data_y, subkwargs in zip(data_list, param_list):
-            for key, val in kwargs.items():
-                if not key in subkwargs:
-                    subkwargs[key] = val
             has_legend = has_legend or ("label" in subkwargs)
             _plot(axe, data_x, data_y, **subkwargs)
         if has_legend:
             axe.legend()
-
+        axe.grid()
     axes[-1].set_xlabel(xlabel)
     plt.tight_layout()
 
@@ -255,7 +256,7 @@ def plot_mat(
     """
     mat = np.atleast_2d(mat)
     if mat.ndim != 2:
-        raise NeuralPlotError(
+        raise err.NeuralPlotError(
             "matrix need to be of ndim 1 (N_time),or ndim 2 (N_trials x N_times),"
             f" got ndim={mat.ndim}"
         )
