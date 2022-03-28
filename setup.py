@@ -11,13 +11,15 @@ with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
 requirements = [
-    "Jinja2 >= 2.11",
-    "matplotlib >= 3.3",
-    "numpy >= 1.19",
-    "scipy >= 1.5",
-    "tqdm >= 4.48",
-    "sympy >= 1.9",
-    "numba >= 0.55",
+    "Jinja2>=2.11",
+    "matplotlib>=3.3",
+    "numpy>=1.19",
+    "scipy>=1.5",
+    "tqdm>=4.48",
+    "sympy>=1.9",
+    "numba>=0.55",
+    "pragma>=0.2.5",
+    "pydot>=1.4",
 ]
 
 test_requirements = [
