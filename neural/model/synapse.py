@@ -30,7 +30,7 @@ class NMDA(Model):
 
     def ode(self, stimulus=0.0):
 
-        self.d_x = self.a1 * stimulus * (1.0 - self.x) -self.b1 * self.x
+        self.d_x = self.a1 * stimulus * (1.0 - self.x) - self.b1 * self.x
         self.d_s = self.a2 * self.x * (1.0 - self.s) - self.b2 * self.s
 
 

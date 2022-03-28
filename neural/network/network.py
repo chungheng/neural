@@ -286,7 +286,9 @@ class Container(object):
 class Network:
     """Neural Network Object"""
 
-    def __init__(self, solver: tpe.Solver = Euler, backend: tpe.Backend = NumbaCPUBackendMixin):
+    def __init__(
+        self, solver: tpe.Solver = Euler, backend: tpe.Backend = NumbaCPUBackendMixin
+    ):
         self.containers = dict()
         self.inputs = dict()
         self.solver = self.validate_solver(solver)
@@ -341,7 +343,13 @@ class Network:
                     f"num argument ({num}) does not equal to num of model ({obj.num})"
                 )
         elif issubclass(module, Model):
-            obj = module(solver=solver, num=num, solver_kws=solver_kws, backend=backend, **module_args)
+            obj = module(
+                solver=solver,
+                num=num,
+                solver_kws=solver_kws,
+                backend=backend,
+                **module_args,
+            )
         elif inspect.isclass(module):
             if not Container.isacceptable(module):
                 raise err.NeuralNetworkError(

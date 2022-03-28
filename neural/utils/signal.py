@@ -15,6 +15,8 @@ def create_rng(seed: tp.Union[int, np.random.RandomState]) -> np.random.RandomSt
     if isinstance(seed, np.random.RandomState):
         return seed
     return np.random.RandomState(seed)
+
+
 # pylint:enable=no-member
 
 

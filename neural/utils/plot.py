@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from .. import errors as err
 
+
 def plot_multiple(
     data_x: np.ndarray,
     *args,
@@ -118,7 +119,7 @@ def plot_spikes(
     t: np.ndarray = None,
     ax: plt.Axes = None,
     color: tp.Union[str, tp.Callable] = None,
-    **scatter_kwargs
+    **scatter_kwargs,
 ) -> plt.Axes:
     """Plot Spikes in raster format
 
@@ -171,7 +172,7 @@ def plot_spikes(
         ax = fig.add_subplot()
 
     neu_idx, t_idx = np.nonzero(spikes)
-    lw = scatter_kwargs.pop('linewidth', 1)
+    lw = scatter_kwargs.pop("linewidth", 1)
     try:
         ax.scatter(
             t[t_idx],
@@ -179,7 +180,7 @@ def plot_spikes(
             marker="|",
             c=color(t[t_idx], neu_idx) if callable(color) else color,
             linewidth=lw,
-            **scatter_kwargs
+            **scatter_kwargs,
         )
     except ValueError as e:
         raise err.NeuralPlotError(

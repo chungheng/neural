@@ -33,8 +33,8 @@ def test_model():
         assert len(val) == 1
         assert isinstance(val, np.ndarray)
 
-    assert model.states['spike'] == np.array([0])
-    assert model.states['v'] == np.array([-0.05])
+    assert model.states["spike"] == np.array([0])
+    assert model.states["v"] == np.array([-0.05])
     assert model.Derivates == ("v",)
 
 

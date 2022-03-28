@@ -8,11 +8,7 @@ from .. import errors as err
 
 
 def to_graph(
-    network,
-    png: bool = False,
-    svg: bool = False,
-    prog: str = "dot",
-    **pydot_options
+    network, png: bool = False, svg: bool = False, prog: str = "dot", **pydot_options
 ) -> tp.Union[bytes, dict]:
     """Visualize Network instance as Graph
 
@@ -26,10 +22,7 @@ def to_graph(
         prog: program used to optimize graph layout
     """
     graph = pydot.Dot(
-        graph_type="digraph",
-        rankdir="LR",
-        decorate=True,
-        **pydot_options
+        graph_type="digraph", rankdir="LR", decorate=True, **pydot_options
     )
 
     nodes = {}

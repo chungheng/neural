@@ -58,11 +58,14 @@ def _get_module_from_source(source: str, module_name: str) -> ModuleType:
         except Exception as e:
             raise err.NeuralBackendError(
                 "Error in loading generated code for backend \n{}".format(
-                    '\n'.join([
-                        f"{str(line_no+1) + ':':<5} {l}"
-                        for line_no,l
-                        in enumerate(source.decode("utf-8").split('\n'))
-                    ])
+                    "\n".join(
+                        [
+                            f"{str(line_no+1) + ':':<5} {l}"
+                            for line_no, l in enumerate(
+                                source.decode("utf-8").split("\n")
+                            )
+                        ]
+                    )
                 )
             ) from e
     return codegen_module
