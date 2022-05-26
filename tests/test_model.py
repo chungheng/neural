@@ -55,10 +55,20 @@ class DummyModel(Model):
 
 def test_model_construction():
     dum = DummyModel()
-    assert dum.params == {"a": 0.0}
-    assert dum.states == {"x": 0.0}
-    assert dum.initial_states == {"x": 0.0}
-    assert dum.gstates == {"x": 0.0}
+    assert dum.params['a'].item() == 0.0
+    assert dum.params.dtype.names == ('a',)
+
+    assert dum.states["x"].item() == 0.0
+    assert dum.states.dtype.names == ("x",)
+
+
+    assert dum.initial_states["x"].item() == 0.0
+    assert dum.initial_states.dtype.names == ("x",)
+
+
+    assert dum.gstates["x"].item() == 0.0
+    assert dum.gstates.dtype.names == ("x",)
+
     assert dum.bounds == {}
     assert isinstance(dum.solver, Euler)
     assert dum.callbacks == []
@@ -66,7 +76,7 @@ def test_model_construction():
 
 @pytest.mark.parametrize(
     "Backend",
-    [BackendMixin, NumbaCPUBackendMixin, NumbaCUDABackendMixin],
+    [BackendMixin, NumbaCPUBackendMixin],
 )
 @pytest.mark.parametrize("Model", NEURON_MODELS)
 def test_default_neurons(input_signal, Model, Backend):
@@ -78,7 +88,7 @@ def test_default_neurons(input_signal, Model, Backend):
 
 @pytest.mark.parametrize(
     "Backend",
-    [BackendMixin, NumbaCPUBackendMixin, NumbaCUDABackendMixin],
+    [BackendMixin, NumbaCPUBackendMixin],
 )
 @pytest.mark.parametrize("solver", [Euler])  # FIXME: need to test all solvers
 def test_solvers(input_signal, IAF_euler_result, Backend, solver):
