@@ -15,9 +15,7 @@ class BaseSolver:
 
     def __init__(self, model: tpe.Model, **solver_options) -> None:
         if self.Supported_Backends is not None and (
-            model.backend is not None
-            and
-            model.backend not in self.Supported_Backends
+            model.backend is not None and model.backend not in self.Supported_Backends
         ):
             warn(
                 f"Model backend '{model.backend}' is not supported by this solver {self.__class__}",

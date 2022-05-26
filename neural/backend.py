@@ -155,6 +155,7 @@ class CodegenBackendMixin(BackendMixin):
 
 class NumbaCPUBackendMixin(CodegenBackendMixin):
     """Numba CPU Backend compiled with `numba.jit(python=False)`"""
+
     def _generate(self, method: str) -> str:
         """generate source for numba kernel"""
         if method not in ["ode", "post"]:
@@ -173,7 +174,9 @@ class NumbaCPUBackendMixin(CodegenBackendMixin):
         super().compile()
         for method in ["ode", "post"]:
             func = getattr(self, method).__func__
-            if numba.extending.is_jitted(func) or isinstance(func, Dispatcher): # FIXME: what happens if we're going from GPU to CPU?
+            if numba.extending.is_jitted(func) or isinstance(
+                func, Dispatcher
+            ):  # FIXME: what happens if we're going from GPU to CPU?
                 setattr(self, method, MethodType(func, self._data))
 
 
@@ -187,6 +190,7 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
         This is due to limitation of str literal indexing of numba cuda array,
         and the fact that CuPY does not support structured arrays.
     """
+
     @classmethod
     @property
     def is_backend_supported(cls) -> bool:

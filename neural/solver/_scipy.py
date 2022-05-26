@@ -44,7 +44,7 @@ class SciPySolver(BaseSolver):
             **{
                 name: self.model.initial_states[name][0].item()
                 for name in self.model.initial_states.dtype.names
-            }
+            },
         )
         self._dense_output = None
         # self.jac = self.model.jacobian
@@ -69,7 +69,7 @@ class SciPySolver(BaseSolver):
         y0 = []
         for state_name in self.model.states.dtype.names:
             val = initial_states[state_name]
-            if (np.isscalar(val) or val.size == 1):
+            if np.isscalar(val) or val.size == 1:
                 val = np.repeat(val, self.model.num)
             else:
                 assert len(val) == self.model.num, (
@@ -85,12 +85,17 @@ class SciPySolver(BaseSolver):
 
     def get_wrapped_ode(self) -> tp.Callable:
         """Return a callable ode function in the scipy.solve_ivp API"""
+
         def wrapped_ode(t, y, **input_args):
             self.model.states[:] = rfn.unstructured_to_structured(
                 y.reshape((-1, self.model.num)).T, dtype=self.model.states.dtype
             )
             self.model.ode(**input_args)
-            return rfn.structured_to_unstructured(self.model.gstates).T.ravel() * self.model.Time_Scale
+            return (
+                rfn.structured_to_unstructured(self.model.gstates).T.ravel()
+                * self.model.Time_Scale
+            )
+
         return wrapped_ode
 
     def step(self, d_t: float, **input_args) -> None:
@@ -110,7 +115,9 @@ class SciPySolver(BaseSolver):
         # If new dense_output is required, recreate one
         interpolants = []
         ts = [self._solver.t]
-        while np.abs(self._solver.t - self._t) < d_t: # must step at least by d_t amount
+        while (
+            np.abs(self._solver.t - self._t) < d_t
+        ):  # must step at least by d_t amount
             msg = self._solver.step()
             if self._solver.status == "failed":
                 raise err.NeuralSolverError(f"Solver failed with message: {msg}")
@@ -123,12 +130,12 @@ class SciPySolver(BaseSolver):
         if self._solver.t == self._t:
             self.model.states[:] = rfn.unstructured_to_structured(
                 self._solver.y.reshape((-1, self.model.num)).T,
-                dtype=self.model.states.dtype
+                dtype=self.model.states.dtype,
             )
         else:
             self.model.states[:] = rfn.unstructured_to_structured(
                 self._dense_output(self._t).reshape((-1, self.model.num)).T,
-                dtype=self.model.states.dtype
+                dtype=self.model.states.dtype,
             )
 
 

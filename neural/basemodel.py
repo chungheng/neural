@@ -149,7 +149,7 @@ class Model:
 
         # states, params, gstates are slices of the array
         # created in recast()
-        self.states, self.params, self.gstates = None, None,None
+        self.states, self.params, self.gstates = None, None, None
         self.recast()
 
         # populate params/states values
@@ -250,7 +250,9 @@ class Model:
             _gstates = self._data[[f"d_{key}" for key in self.Derivates]]
             _dtype = copy.deepcopy(_gstates.dtype)
             _dtype.names = self.Derivates
-            self.gstates = self._data[[f"d_{key}" for key in self.Derivates]].view(_dtype)
+            self.gstates = self._data[[f"d_{key}" for key in self.Derivates]].view(
+                _dtype
+            )
         else:
             self.gstates = None
 
@@ -277,7 +279,7 @@ class Model:
         """
         self.solver.step(d_t, **input_args)
         try:
-            self.post() # FIXME: post_args ?
+            self.post()  # FIXME: post_args ?
         except NotImplementedError:
             pass
         self.clip()

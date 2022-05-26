@@ -78,11 +78,14 @@ def test_network_construction(single_spike_data):
         dum2 = nn.add(DummyModel, name="Dummy", num=2)
         dum(inp=inp)
 
+
 @pytest.mark.parametrize("backend", [BackendMixin, NumbaCPUBackendMixin])
 def test_network_running(single_spike_data, backend):
     dt, dur, start, stop, amp, spike = single_spike_data
     num = 2
-    wav = utils.generate_stimulus("step", dt, dur, (start, stop), np.full((num,), amp), sigma=amp)
+    wav = utils.generate_stimulus(
+        "step", dt, dur, (start, stop), np.full((num,), amp), sigma=amp
+    )
     nn = Network(backend=backend)
     inp = nn.input(name="Test", num=2)
     dum = nn.add(DummyModel, name="Dummy", num=2)
@@ -94,7 +97,9 @@ def test_network_running(single_spike_data, backend):
 
 
 @pytest.mark.parametrize("solver", SOLVERS)
-@pytest.mark.parametrize("backend", [BackendMixin]) # FIXME: test for Numba with new solvers too
+@pytest.mark.parametrize(
+    "backend", [BackendMixin]
+)  # FIXME: test for Numba with new solvers too
 def test_network_solvers(single_spike_data, solver, backend):
     dt, dur, start, stop, amp, spike = single_spike_data
     num = 2
@@ -109,7 +114,10 @@ def test_network_solvers(single_spike_data, solver, backend):
     nn.run(dt, verbose=False)
     np.testing.assert_almost_equal(dum.recorder.x, wav)
 
-@pytest.mark.parametrize("backend", [BackendMixin, NumbaCPUBackendMixin]) # FIXME: test for Numba with new solvers too
+
+@pytest.mark.parametrize(
+    "backend", [BackendMixin, NumbaCPUBackendMixin]
+)  # FIXME: test for Numba with new solvers too
 def test_recorder(single_spike_data, multi_spike_data, backend):
     dt, dur, start, stop, amp, spike = single_spike_data
     mdl = Container(DummyModel(num=1, backend=backend), name="dummy")

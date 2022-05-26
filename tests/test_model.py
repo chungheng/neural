@@ -55,16 +55,14 @@ class DummyModel(Model):
 
 def test_model_construction():
     dum = DummyModel()
-    assert dum.params['a'].item() == 0.0
-    assert dum.params.dtype.names == ('a',)
+    assert dum.params["a"].item() == 0.0
+    assert dum.params.dtype.names == ("a",)
 
     assert dum.states["x"].item() == 0.0
     assert dum.states.dtype.names == ("x",)
 
-
     assert dum.initial_states["x"].item() == 0.0
     assert dum.initial_states.dtype.names == ("x",)
-
 
     assert dum.gstates["x"].item() == 0.0
     assert dum.gstates.dtype.names == ("x",)

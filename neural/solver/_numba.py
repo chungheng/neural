@@ -28,6 +28,7 @@ class NumbaEulerSolver(NumbaSolver):
         for var, grad in self.model.gstates.items():
             self.model.states[var] += d_t * self.model.Time_Scale * grad
 
+
 def increment(
     model: tpe.Model, d_t: float, states: dict, out_states: dict = None, **input_args
 ) -> dict:
