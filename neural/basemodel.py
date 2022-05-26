@@ -149,6 +149,7 @@ class Model:
 
         # states, params, gstates are slices of the array
         # created in recast()
+        self.states, self.params, self.gstates = None, None,None
         self.recast()
 
         # populate params/states values
@@ -235,17 +236,30 @@ class Model:
     def recast(self) -> None:
         """Recast arrays to compatible formats"""
         self._data = cudaarray_to_cpu(self._data)
-        self.states = self._data[[key for key in self.Default_States]]
-        self.params = self._data[[key for key in self.Default_Params]]
-        _gstates = self._data[[f"d_{key}" for key in self.Derivates]]
-        _dtype = copy.deepcopy(_gstates.dtype)
-        _dtype.names = self.Derivates
-        self.gstates = self._data[[f"d_{key}" for key in self.Derivates]].view(_dtype)
+        if self.Default_States:
+            self.states = self._data[[key for key in self.Default_States]]
+        else:
+            self.states = None
+
+        if self.Default_Params:
+            self.params = self._data[[key for key in self.Default_Params]]
+        else:
+            self.params = None
+
+        if self.Derivates:
+            _gstates = self._data[[f"d_{key}" for key in self.Derivates]]
+            _dtype = copy.deepcopy(_gstates.dtype)
+            _dtype.names = self.Derivates
+            self.gstates = self._data[[f"d_{key}" for key in self.Derivates]].view(_dtype)
+        else:
+            self.gstates = None
 
     def reset(self) -> None:
         """Reset model states to initial and gstates to 0"""
-        self.states[:] = self.initial_states
-        self.gstates[:] = 0.0
+        if self.states is not None:
+            self.states[:] = self.initial_states
+        if self.gstates is not None:
+            self.gstates[:] = 0.0
 
     def clip(self, states: dict = None) -> None:
         """Clip state values by bounds"""
@@ -263,14 +277,14 @@ class Model:
         """
         self.solver.step(d_t, **input_args)
         try:
-            self.post()
+            self.post() # FIXME: post_args ?
         except NotImplementedError:
             pass
         self.clip()
         for func in self.callbacks:
             func(self)
 
-    def set_backend(self, new_backend: BackendMixin, **backend_options) -> None:
+    def set_backend(self, new_backend: BackendMixin) -> None:
         """Set Model backend to new backend
 
         Backends are implemented as Mixins that directly replaces methods
@@ -324,7 +338,7 @@ class Model:
         verbose: tp.Union[bool, str] = True,
         extra_callbacks: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
         **input_args,
-    ) -> tp.Dict:
+    ) -> np.ndarray:
         """Solve model equation for entire input
 
         Positional Arguments:

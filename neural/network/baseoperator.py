@@ -1,7 +1,7 @@
 """Base Class of Operators
 """
 import numpy as np
-from .utils.array import cudaarray_to_cpu
+from ..utils.array import cudaarray_to_cpu
 
 
 class Operator:

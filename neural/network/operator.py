@@ -2,8 +2,7 @@
 from functools import reduce
 import operator
 import numpy as np
-import cupy as cp
-from ..baseoperator import Operator
+from .baseoperator import Operator
 
 
 class Add(Operator):
@@ -22,9 +21,8 @@ class Sqrt(Operator):
 
 
 class Sum(Operator):
-    def update(self, input=np.array([0.0])):
-        xp = cp.get_array_module(input)
-        self.output = xp.sum(input)
+    def update(self, input=0.):
+        self.output = np.sum(input)
 
 
 class BlockSum(Operator):
@@ -34,16 +32,14 @@ class BlockSum(Operator):
         kwargs["output_size"] = int(kwargs["size"] // block_size)
         super().__init__(**kwargs)
 
-    def update(self, input=np.array([0.0])):
-        xp = cp.get_array_module(input)
+    def update(self, input=0.):
         _input = input.reshape(-1, self.block_size)
-        self.output = xp.sum(_input)
+        self.output = np.sum(_input)
 
 
 class Mean(Operator):
-    def update(self, input=np.array([0.0])):
-        xp = cp.get_array_module(input)
-        self.output = xp.mean(input)
+    def update(self, input=0.):
+        self.output = np.mean(input)
 
 
 class BlockMean(Operator):
@@ -52,11 +48,9 @@ class BlockMean(Operator):
         kwargs["output_size"] = int(kwargs["size"] // block_size)
         super().__init__(**kwargs)
 
-    def update(self, input=np.array([0.0])):
-        xp = cp.get_array_module(input)
+    def update(self, input=0.):
         _input = input.reshape(-1, self.block_size)
-        self.output = xp.mean(_input, axis=1)
-
+        self.output = np.mean(_input, axis=1)
 
 class Repeat(Operator):
     def __init__(self, rep_size, **kwargs):
@@ -64,9 +58,8 @@ class Repeat(Operator):
         super().__init__(**kwargs)
         self.rep_size = rep_size
 
-    def update(self, input=np.array([0.0])):
-        xp = cp.get_array_module(input)
-        self.output = xp.repeat(input, self.rep_size)
+    def update(self, input=0.):
+        self.output = np.repeat(input, self.rep_size)
 
 
 class Dot(Operator):
@@ -81,7 +74,7 @@ class Dot(Operator):
         self.batch_size = batch_size
         self._output = self.output.reshape(-1, batch_size, order="F")
 
-    def update(self, input=np.array([0.0])):
-        xp = cp.get_array_module(input)
+    def update(self, input=0.):
+
         _input = input.reshape(-1, self.batch_size, order="F")
         self.output = xp.dot(self.multiplier, _input)

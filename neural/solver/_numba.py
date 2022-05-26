@@ -4,10 +4,9 @@ Numba CPU Solvers
 import numba
 import typing as tp
 import numpy as np
-from scipy.integrate import solve_ivp
 from .. import types as tpe
 from .basesolver import BaseSolver
-from ..backend import NumbaCPUBackendMixin, NumbaCUDABackendMixin
+from ..backend import NumbaCPUBackendMixin
 
 
 class NumbaSolver(BaseSolver):
@@ -28,37 +27,6 @@ class NumbaEulerSolver(NumbaSolver):
         self.model.ode(**input_args)
         for var, grad in self.model.gstates.items():
             self.model.states[var] += d_t * self.model.Time_Scale * grad
-
-
-# def _dict_iadd_(dct_a: dict, dct_b: dict) -> dict:
-#     """Add dictionaries inplace"""
-#     for key in dct_a.keys():
-#         dct_a[key] += dct_b[key]
-#     return dct_a
-
-
-# def _dict_add_(dct_a: dict, dct_b: dict, out: dict = None) -> dict:
-#     """Add dictionaries"""
-#     if out is None:
-#         out = dct_a.copy()
-#     else:
-#         for key, val in dct_a.items():
-#             out[key] = val
-#     _dict_iadd_(out, dct_b)
-#     return out
-
-
-# def _dict_add_scalar_(dct_a: dict, dct_b: dict, sal: float, out: dict = None) -> dict:
-#     """Add dictionaries with scaling"""
-#     if out is None:
-#         out = dct_a.copy()
-#     else:
-#         for key, val in dct_a.items():
-#             out[key] = val
-#     for key in dct_a.keys():
-#         out[key] += sal * dct_b[key]
-#     return out
-
 
 def increment(
     model: tpe.Model, d_t: float, states: dict, out_states: dict = None, **input_args

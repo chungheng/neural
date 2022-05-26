@@ -90,7 +90,8 @@ class Input:
                 )
             if data.ndim == 2 and self.num != data.shape[1]:
                 raise err.NeuralNetworkInputError(
-                    f"Input '{self.name}' is specified with num={self.num} but was "
+                    f"Input '{self.name}' is specified with num={self.num} , expecting 2D data "
+                    f"array of shape (steps, num={self.num}) but was "
                     f"given data of shape={data.shape}"
                 )
             steps = len(data)
@@ -293,7 +294,6 @@ class Network:
         self.inputs = dict()
         self.solver = self.validate_solver(solver)
         self.backend = backend
-        self._iscompiled = False
 
     @classmethod
     def validate_solver(cls, solver: tp.Union[str, BaseSolver]) -> BaseSolver:
@@ -314,7 +314,6 @@ class Network:
         """Create input object"""
         name = name or f"input{len(self.inputs)}"
         self.inputs[name] = Input(num=num, name=name)
-        self._iscompiled = False
         return self.inputs[name]
 
     def add(
@@ -368,7 +367,6 @@ class Network:
         if record is not None:
             container.record(*list(record))
 
-        self._iscompiled = False
         return container
 
     def run(
@@ -391,11 +389,6 @@ class Network:
             gpu_bufsize: gpu buffer size for recorder before transfering to cpu. only applicable
               for solvers that use gpu
         """
-        if not self._iscompiled:
-            raise err.NeuralNetworkCompileError(
-                "Please compile before running the network."
-            )
-
         if solver is not None:
             solver = self.validate_solver(solver)
             for name, cont in self.containers.items():
@@ -480,60 +473,6 @@ class Network:
         for c in self.containers.values():
             if c.recorder is not None:
                 c.recorder.update()
-
-    def compile(self, dtype: npt.DTypeLike = np.float_, debug: bool = False) -> None:
-        """Compile the module
-        compile backend for every model
-
-        FIXME: Is this function still needed?
-        """
-        # for c in self.containers.values():
-        #     dct = {}
-        #     for key, val in c.inputs.items():
-        #         if isinstance(val, Symbol):
-        #             if val.container.num is not None:
-        #                 # if c.num is not None and val.container.num != c.num:
-        #                 #     raise Error("Size mismatches: {} {}".format(
-        #                 #         c.name, val.container.name))
-        #                 dct[key] = np.zeros(val.container.num)
-        #             else:
-        #                 dct[key] = dtype(0.0)
-        #         elif isinstance(val, Input):
-        #             if val.num is not None:
-        #                 if c.num is not None and val.num != c.num:
-        #                     warn(
-        #                         (
-        #                             f"Size mismatches: [{c.name}:{c.num}] vs. [{val.name}: "
-        #                             f"{val.num}]. Unless you are connecting Input object "
-        #                             "directly to a Project container, this is likely a bug."
-        #                         ),
-        #                         err.NeuralNetworkWarning,
-        #                     )
-        #                 dct[key] = np.zeros(val.num, dtype=dtype)
-        #             else:
-        #                 dct[key] = dtype(0.0)
-        #         elif isinstance(val, Number):
-        #             dct[key] = dtype(val)
-        #         else:
-        #             raise err.NeuralNetworkCompileError(
-        #                 f"Container wrapping [{c.obj}] input {key} value {val} not "
-        #                 "understood"
-        #             )
-
-        #     if hasattr(c.obj, "compile"):
-        #         try:
-        #             if isinstance(c.obj, Model):
-        #                 c.obj.compile(dtype=dtype, num=c.num, **dct)
-        #             else:
-        #                 c.obj.compile(**dct)
-        #         except Exception as e:
-        #             if debug:
-        #                 s = "".join([", {}={}".format(*k) for k in dct.items()])
-        #                 print(f"{c.name}.cuda_compile(dtype=dtype, num={c.num}{s})")
-        #             raise err.NeuralNetworkCompileError(
-        #                 f"Compilation Failed for Container {c.obj}"
-        #             ) from e
-        self._iscompiled = True
 
     def record(self, *args: tp.Iterable[Symbol]) -> None:
         """Record symbols (container.variables)"""

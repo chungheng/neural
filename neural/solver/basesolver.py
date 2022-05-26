@@ -15,13 +15,15 @@ class BaseSolver:
 
     def __init__(self, model: tpe.Model, **solver_options) -> None:
         if self.Supported_Backends is not None and (
-            model.backend is not None and model.backed not in self.Supported_Backends
+            model.backend is not None
+            and
+            model.backend not in self.Supported_Backends
         ):
             warn(
                 f"Model backend '{model.backend}' is not supported by this solver {self.__class__}",
                 err.NeuralSolverWarning,
             )
-        self.model = weakref.proxy(model)
+        self.model = model
 
         # cache options in case reinstantiation is
         # required for initial value setting
@@ -36,5 +38,5 @@ class Euler(BaseSolver):
     def step(self, d_t: float, **input_args) -> None:
         """Euler's method"""
         self.model.ode(**input_args)
-        for s in self.model.gstates.dtype.names:
+        for s in self.model.Derivates:
             self.model.states[s] += d_t * self.model.Time_Scale * self.model.gstates[s]

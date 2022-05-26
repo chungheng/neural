@@ -1,5 +1,7 @@
+from turtle import back
 import pytest
 import numpy as np
+from neural.backend import BackendMixin, NumbaCPUBackendMixin
 from neural.basemodel import Model
 from neural.recorder import Recorder
 from neural.network import Container, Network, Symbol
@@ -59,17 +61,15 @@ def test_container():
         dum(inp="not_Symbol_or_Input_or_Number")
 
 
-def test_network_construction_compilation(single_spike_data):
+def test_network_construction(single_spike_data):
     dt, dur, start, stop, amp, spike = single_spike_data
     nn = Network()
     inp = nn.input(name="Test", num=2)
     dum = nn.add(DummyModel, name="Dummy", num=2)
     dum(inp=inp)
-    nn.compile()
 
     assert "Dummy" in nn.containers
     assert len(nn.inputs) and "Test" in nn.inputs
-    assert nn._iscompiled == True
 
     with pytest.raises(errors.NeuralNetworkError, match="Duplicate container name: .*"):
         nn = Network()
@@ -77,65 +77,42 @@ def test_network_construction_compilation(single_spike_data):
         dum = nn.add(DummyModel, name="Dummy", num=2)
         dum2 = nn.add(DummyModel, name="Dummy", num=2)
         dum(inp=inp)
-        nn.compile()
 
-    with pytest.warns(errors.NeuralNetworkWarning, match="Size mismatches"):
-        nn = Network()
-        inp = nn.input(name="Test", num=2)
-        dum = nn.add(DummyModel, name="Dummy", num=1)
-        dum(inp=inp)
-        nn.compile()
-
-    with pytest.raises(
-        errors.NeuralNetworkCompileError,
-        match="Please compile before running the network.",
-    ):
-        nn = Network()
-        inp = nn.input(name="Test", num=2)
-        dum = nn.add(DummyModel, name="Dummy", num=1)
-        nn.run(dt, verbose=False)
-
-
-@pytest.mark.parametrize("conversion_f", [to_cupy, to_gpuarray])
-def test_network_running(single_spike_data, conversion_f):
+@pytest.mark.parametrize("backend", [BackendMixin, NumbaCPUBackendMixin])
+def test_network_running(single_spike_data, backend):
     dt, dur, start, stop, amp, spike = single_spike_data
     num = 2
-    wav = utils.generate_stimulus("step", dt, dur, (start, stop), np.full((num,), amp))
-    wav_g = conversion_f(np.ascontiguousarray(wav.T))
-
-    nn = Network()
+    wav = utils.generate_stimulus("step", dt, dur, (start, stop), np.full((num,), amp), sigma=amp)
+    nn = Network(backend=backend)
     inp = nn.input(name="Test", num=2)
     dum = nn.add(DummyModel, name="Dummy", num=2)
     dum(inp=inp)
-    nn.compile()
     dum.record("x")
-    inp(wav_g)
+    inp(np.ascontiguousarray(wav.T))
     nn.run(dt, verbose=False)
     np.testing.assert_almost_equal(dum.recorder.x, wav)
 
 
-@pytest.mark.parametrize("solver", [SOLVERS.euler])  # FIXME: need to test all solvers
-@pytest.mark.parametrize("conversion_f", [to_cupy, to_gpuarray])
-def test_network_solvers(single_spike_data, solver, conversion_f):
+@pytest.mark.parametrize("solver", SOLVERS)
+@pytest.mark.parametrize("backend", [BackendMixin]) # FIXME: test for Numba with new solvers too
+def test_network_solvers(single_spike_data, solver, backend):
     dt, dur, start, stop, amp, spike = single_spike_data
     num = 2
     wav = utils.generate_stimulus("step", dt, dur, (start, stop), np.full((num,), amp))
-    wav_g = conversion_f(np.ascontiguousarray(wav.T))
 
-    nn = Network(solver=solver)
+    nn = Network(solver=solver, backend=backend)
     inp = nn.input(name="Test", num=num)
     dum = nn.add(DummyModel, name="Dummy", num=num)
     dum(inp=inp)
-    nn.compile()
     dum.record("x")
-    inp(wav_g)
+    inp(np.ascontiguousarray(wav.T))
     nn.run(dt, verbose=False)
     np.testing.assert_almost_equal(dum.recorder.x, wav)
 
-
-def test_recorder(single_spike_data, multi_spike_data):
+@pytest.mark.parametrize("backend", [BackendMixin, NumbaCPUBackendMixin]) # FIXME: test for Numba with new solvers too
+def test_recorder(single_spike_data, multi_spike_data, backend):
     dt, dur, start, stop, amp, spike = single_spike_data
-    mdl = Container(DummyModel(num=1), name="dummy")
+    mdl = Container(DummyModel(num=1, backend=backend), name="dummy")
     mdl.record("x")
     rec = mdl.set_recorder(steps=spike.shape[-1], rate=1)
     for tt, ss in enumerate(spike):
@@ -143,7 +120,7 @@ def test_recorder(single_spike_data, multi_spike_data):
         rec.update(index=tt)
     np.testing.assert_equal(rec.x, spike[None, :])
 
-    mdl = Container(DummyModel(num=1), name="dummy")
+    mdl = Container(DummyModel(num=1, backend=backend), name="dummy")
     mdl.record("x")
     rec = mdl.set_recorder(steps=spike.shape[-1], rate=5)
     for tt, ss in enumerate(spike):
@@ -154,7 +131,7 @@ def test_recorder(single_spike_data, multi_spike_data):
     # DEBUG: This currently does not work because the container instantiation
     # is not aware of the `num` argument.
     dt, dur, start, stop, amps, spikes = multi_spike_data
-    mdl = Container(DummyModel(num=len(amps)), name="dummy")
+    mdl = Container(DummyModel(num=len(amps), backend=backend), name="dummy")
     mdl.record("x")
     rec = mdl.set_recorder(steps=spikes.shape[-1], rate=1)
     for tt, ss in enumerate(spikes.T):

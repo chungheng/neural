@@ -47,7 +47,7 @@ class SciPySolver(BaseSolver):
             }
         )
         self._dense_output = None
-        self.jac = self.model.jacobian
+        # self.jac = self.model.jacobian
 
     def set_initial_value(self, t0: float = 0, **initial_states) -> None:
         """Change initial value of solver

@@ -18,7 +18,6 @@ requirements = [
     "tqdm>=4.48",
     "sympy>=1.9",
     "numba>=0.55",
-    "pragma>=0.2.5",
     "pydot>=1.4",
 ]
 
@@ -41,7 +40,7 @@ setup(
     ],
     description="A simple python package for neuron and synapse models.",
     install_requires=requirements,
-    extras_require={"cuda": ["cupy >= 10.1"]},
+    extras_require={"dev": ["pylint", "black"]},
     license="BSD license",
     long_description=readme + "\n\n" + history,
     include_package_data=True,

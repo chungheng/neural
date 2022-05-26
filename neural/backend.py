@@ -13,7 +13,7 @@ from warnings import warn
 import numba
 import numba.extending
 import numba.cuda
-from numba.cuda.dispatcher import Dispatcher
+from numba.cuda.compiler import Dispatcher
 from . import errors as err
 from .codegen.numba import get_numba_function_source
 
@@ -32,6 +32,14 @@ def _get_per_user_string():
 
 
 def _get_module_from_source(source: str, module_name: str) -> ModuleType:
+    """Load a module form source file
+
+    This is useful for when codegen saves source into a given file
+
+    Arguments:
+        source: path to the source
+        module_name: name of the module to load
+    """
     cache_dir = (
         pathlib.Path(tempfile.gettempdir())
         / f"neural-compiler-cache-{_get_per_user_string()}"
@@ -74,9 +82,6 @@ def _get_module_from_source(source: str, module_name: str) -> ModuleType:
 class BackendMixin:
     """Base Backend Implementation
 
-    Properties:
-        is_backend_supported
-
     Methods:
         clip() -> None
         reset() -> None
@@ -88,6 +93,10 @@ class BackendMixin:
     @classmethod
     @property
     def is_backend_supported(cls) -> bool:
+        """Check if backend is supported
+
+        Relevant for CUDA backends as availability of resources is checked
+        """
         return True
 
 
@@ -145,6 +154,7 @@ class CodegenBackendMixin(BackendMixin):
 
 
 class NumbaCPUBackendMixin(CodegenBackendMixin):
+    """Numba CPU Backend compiled with `numba.jit(python=False)`"""
     def _generate(self, method: str) -> str:
         """generate source for numba kernel"""
         if method not in ["ode", "post"]:
@@ -163,11 +173,20 @@ class NumbaCPUBackendMixin(CodegenBackendMixin):
         super().compile()
         for method in ["ode", "post"]:
             func = getattr(self, method).__func__
-            if numba.extending.is_jitted(func) or isinstance(func, Dispatcher):
+            if numba.extending.is_jitted(func) or isinstance(func, Dispatcher): # FIXME: what happens if we're going from GPU to CPU?
                 setattr(self, method, MethodType(func, self._data))
 
 
 class NumbaCUDABackendMixin(CodegenBackendMixin):
+    """Numba CUDA Backend compiled with `numba.cuda.jit`
+
+    .. warning::
+
+        This backend is not supported yet.
+
+        This is due to limitation of str literal indexing of numba cuda array,
+        and the fact that CuPY does not support structured arrays.
+    """
     @classmethod
     @property
     def is_backend_supported(cls) -> bool:
@@ -192,37 +211,30 @@ class NumbaCUDABackendMixin(CodegenBackendMixin):
         return self._get_gridsize(self.num)
 
     def recast(self) -> None:
-        """
-        FIXME:
-            Due to limitation of str literal indexing of numba cuda array,
-            and the fact that CuPY does not support structured arrays.
-            The `states, gstates, params` variables will have to be
-            return as host-side numpy arrays
-        """
-        if not numba.cuda.is_cuda_array(self._data):
-            self._data = numba.cuda.to_device(self._data)
-        # allocate pinned array for fast copy
-        # self._data_cpu = numba.cuda.pinned_array_like(
-        #     self._data.copy_to_host()
-        # )
+        raise NotImplementedError
+        # if not numba.cuda.is_cuda_array(self._data):
+        #     self._data = numba.cuda.to_device(self._data)
 
     @property
     def states(self) -> np.ndarray:
-        state_vars = list(self.Default_States.keys())
-        self._data.copy_to_host(to=self._data_cpu)
-        return self._data_cpu[state_vars]
+        raise NotImplementedError
+        # state_vars = list(self.Default_States.keys())
+        # self._data.copy_to_host(to=self._data_cpu)
+        # return self._data_cpu[state_vars]
 
     @property
     def gstates(self) -> np.ndarray:
-        gstate_vars = [f"d_{s}" for s in self.Derivates]
-        self._data.copy_to_host(to=self._data_cpu)
-        return self._data_cpu[gstate_vars]
+        raise NotImplementedError
+        # gstate_vars = [f"d_{s}" for s in self.Derivates]
+        # self._data.copy_to_host(to=self._data_cpu)
+        # return self._data_cpu[gstate_vars]
 
     @property
     def params(self) -> np.ndarray:
-        param_vars = list(self.Default_Params.keys())
-        self._data.copy_to_host(to=self._data_cpu)
-        return self._data_cpu[param_vars]
+        raise NotImplementedError
+        # param_vars = list(self.Default_Params.keys())
+        # self._data.copy_to_host(to=self._data_cpu)
+        # return self._data_cpu[param_vars]
 
     def _generate(self, method: str) -> str:
         """generate source for numba kernel"""
