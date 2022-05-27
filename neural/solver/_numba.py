@@ -8,160 +8,84 @@ from .. import types as tpe
 from .basesolver import BaseSolver
 from ..backend import NumbaCPUBackendMixin
 
-
 class NumbaSolver(BaseSolver):
     Supported_Backends = (NumbaCPUBackendMixin,)
 
     @numba.njit
     def _step(self, d_t: float, **input_args) -> None:
-        pass
+        raise NotImplementedError
 
     def step(self, d_t: float, **input_args) -> None:
-        """Euler's method"""
+        """Perform one integration step of size d_t"""
         return self._step(d_t, **input_args)
 
+class RungeKutta(NumbaSolver):
+    """Base class for explicit Runge-Kutta methods.
+
+    Attributes:
+        A: ndarray, shape (n_stages, n_stages)
+            Coefficients for combining previous RK stages to compute the next
+            stage. For explicit methods the coefficients at and above the main
+            diagonal are zeros.
+        B: ndarray, shape (n_stages,)
+            Coefficients for combining RK stages for computing the final
+            prediction.
+        C: ndarray, shape (n_stages,)
+            Coefficients for incrementing time for consecutive RK stages.
+            The value for the first stage is always zero.
+        K: ndarray, shape (n_stages + 1, num)
+            Storage array for putting RK stages here. Stages are stored in rows.
+            The last row is a linear combination of the previous rows with
+            coefficients
+    """
+    A: np.ndarray = NotImplemented
+    B: np.ndarray = NotImplemented
+    C: np.ndarray = NotImplemented
+
+    def __init__(self, model: tpe.Model, **solver_options) -> None:
+        super().__init__(model=model, **solver_options)
+        self.n_stages = len(self.A)
+        assert len(self.A) == len(self.B) == len(self.C)
+        self.K = np.recarray((self.n_stages, self.model.num), dtype=self.model.gstates.dtype)
+
+    @numba.njit
+    def _step(self, d_t: float, **input_args) -> None:
+        self.K[0] = self.model.gstates
+        curr_states = self.model.states.copy()
+        for s, (a, c) in enumerate(zip(self.A[1:], self.C[1:]), start=1):
+            gstates = self.K[:s].T @ a[:s]
+            self.model.states = curr_states + d_t * self.model.Time_Scale * gstates
+            self.model.ode(**input_args)
+            self.K[s] = self.model.gstates
+
+        self.model.states = curr_states + d_t * self.model.Time_Scale * (self.K[:-1].T @ self.B)
+        self.model.ode(**input_args)
+        self.K[-1] = self.model.gstates
+
+class NumbaRK23Solver(RungeKutta):
+    C = np.array([0, 1/2, 3/4])
+    A = np.array([
+        [0, 0, 0],
+        [1/2, 0, 0],
+        [0, 3/4, 0]
+    ])
+    B = np.array([2/9, 1/3, 4/9])
+
+class NumbaRK45Solver(RungeKutta):
+    C = np.array([0, 1/5, 3/10, 4/5, 8/9, 1])
+    A = np.array([
+        [0, 0, 0, 0, 0],
+        [1/5, 0, 0, 0, 0],
+        [3/40, 9/40, 0, 0, 0],
+        [44/45, -56/15, 32/9, 0, 0],
+        [19372/6561, -25360/2187, 64448/6561, -212/729, 0],
+        [9017/3168, -355/33, 46732/5247, 49/176, -5103/18656]
+    ])
+    B = np.array([35/384, 0, 500/1113, 125/192, -2187/6784, 11/84])
 
 class NumbaEulerSolver(NumbaSolver):
     @numba.njit
     def _step(self, d_t: float, **input_args) -> None:
         self.model.ode(**input_args)
-        for var, grad in self.model.gstates.items():
-            self.model.states[var] += d_t * self.model.Time_Scale * grad
-
-
-def increment(
-    model: tpe.Model, d_t: float, states: dict, out_states: dict = None, **input_args
-) -> dict:
-    """
-    Compute the increment of state variables.
-
-    This function is used for advanced numerical methods.
-
-    Arguments:
-        d_t: time steps
-        states: state variables
-        out_states: output states
-
-    Keyword Arguments:
-        Arguments for :py:func:`model.ode`.
-
-    Returns:
-        A dictionary that contains
-    """
-    if out_states is None:
-        out_states = states.copy()
-
-    gstates = ode_wrapper(model, states, **input_args)
-
-    for key in gstates:
-        out_states[key] = d_t * gstates[key]
-
-    return out_states
-
-
-def _increment(
-    model: tpe.Model, d_t: float, states: dict, out_states: dict = None, **input_args
-) -> dict:
-    """
-    Compute the increment of state variables.
-
-    This function is used for advanced numerical methods.
-
-    Arguments:
-        d_t: time steps
-        states: state variables
-        out_states: output states
-
-    Keyword Arguments:
-        Arguments for :py:func:`model.ode`.
-
-    Returns:
-        A dictionary that contains
-    """
-    if out_states is None:
-        out_states = states.copy()
-
-    gstates = ode_wrapper(model, states, **input_args)
-
-    for key in gstates:
-        out_states[key] = d_t * gstates[key]
-
-    return out_states
-
-
-def _forward_euler(
-    model, d_t: float, states: dict, out_states: dict = None, **input_args
-) -> dict:
-    """
-    Forward Euler method with arbitrary variable than `model.states`.
-
-    This function is used for advanced numerical methods.
-
-    Arguments:
-        d_t (float): time steps.
-        states (dict): state variables.
-    """
-    if out_states is None:
-        out_states = states.copy()
-
-    increment(d_t, states, out_states, **input_args)
-
-    for key in out_states:
-        out_states[key] += states[key]
-
-    model.clip(out_states)
-    return out_states
-
-
-class NumbaMidpointSolver(NumbaSolver):
-    @numba.njit
-    def _step(self, d_t: float, **input_args) -> None:
-        states = self.model.states.copy()  # freeze state
-
-        _forward_euler(0.5 * d_t, model.states, states, **input_args)
-        _forward_euler(d_t, states, model.states, **input_args)
-
-
-@register_solver("heun")
-def heun(model, d_t: float, **input_args) -> None:
-    """
-    Heun's method.
-
-    Arguments:
-        d_t (float): time steps.
-    """
-    incr1 = increment(d_t, model.states, **input_args)
-    tmp = _dict_add_(model.states, incr1)
-    incr2 = increment(d_t, tmp, **input_args)
-
-    for key in model.states.keys():
-        model.states[key] += 0.5 * incr1[key] + 0.5 * incr2[key]
-    model.clip()
-
-
-def runge_kutta_4(model, d_t: float, **input_args) -> None:
-    """
-    Runge Kutta method.
-
-    Arguments:
-        d_t (float): time steps.
-    """
-    tmp = model.states.copy()
-    k1 = increment(d_t, model.states, **input_args)
-
-    _dict_add_scalar_(model.states, k1, 0.5, out=tmp)
-    model.clip(tmp)
-    k2 = increment(d_t, tmp, **input_args)
-
-    _dict_add_scalar_(model.states, k2, 0.5, out=tmp)
-    model.clip(tmp)
-    k3 = increment(d_t, tmp, **input_args)
-
-    _dict_add_(model.states, k3, out=tmp)
-    model.clip(tmp)
-    k4 = increment(d_t, tmp, **input_args)
-
-    for key in model.states.keys():
-        incr = (k1[key] + 2.0 * k2[key] + 2.0 * k3[key] + k4[key]) / 6.0
-        model.states[key] += incr
-    model.clip()
+        for var in self.model.Derivates:
+            self.model.states[var] += d_t * self.model.Time_Scale * self.model.gstates[var]

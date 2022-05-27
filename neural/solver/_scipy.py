@@ -77,7 +77,7 @@ class SciPySolver(BaseSolver):
                     f"but model number is {self.model.num}, cannot broadcast."
                 )
             y0.append(val)
-        y0 = np.vstack(val).ravel()
+        y0 = np.vstack(y0).ravel()
         if not self.model.Derivates:  # no gradients, no need for solver:
             self._solver = None
         else:

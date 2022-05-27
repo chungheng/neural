@@ -1,11 +1,14 @@
 import pytest
 import numpy as np
+from neural.backend import NumbaCPUBackendMixin
 from neural.basemodel import Model
 from helper_funcs import assert_snr
 from scipy.integrate import odeint, solve_ivp, ode, trapz
 from scipy.interpolate import interp1d
 from neural.utils.signal import generate_stimulus
-from neural.solver import SOLVERS
+from neural.solver._numba import (
+    NumbaEulerSolver, NumbaRK23Solver, NumbaRK45Solver
+)
 from neural.model.neuron import (
     IAF,
     LeakyIAF,
@@ -15,7 +18,7 @@ from neural.model.neuron import (
     HodgkinHuxley,
 )
 
-
+SOLVERS = [NumbaEulerSolver, NumbaRK23Solver, NumbaRK45Solver]
 MIN_SNR = 25
 DECIMAL = 0
 
@@ -71,6 +74,7 @@ def exact_solution_inp(t, a, y0, u):
 
 
 class Exp(Model):
+    backend = NumbaCPUBackendMixin
     Default_Params = dict(a=1.0)
     Default_States = dict(y=0.0)
 
@@ -83,6 +87,7 @@ class Exp(Model):
 
 
 class ExpInp(Model):
+    backend = NumbaCPUBackendMixin
     Default_Params = dict(a=1.0)
     Default_States = dict(y=0.0)
 
@@ -94,24 +99,6 @@ class ExpInp(Model):
     def jacobian(self, t, states, I_ext):
         d_y = -self.a * states + I_ext
         return np.diag(d_y)
-
-
-@pytest.mark.parametrize("solver", ["RK45", "RK23", "DOP853", "LSODA"])
-def test_ivp_solver(data, solver):
-    t, a, y0, u = data
-    exact_sol = exact_solution(t, a, y0)
-
-    ivp_sol = solve_ivp(
-        fun=exp_f,
-        t_span=(t.min(), t.max()),
-        y0=[y0],
-        t_eval=t,
-        args=(a,),
-        method=solver,
-        max_step=t[1] - t[0],
-    ).y
-    # assert_snr(exact_sol, np.squeeze(ivp_sol), MIN_SNR)
-    np.testing.assert_almost_equal(exact_sol, np.squeeze(ivp_sol), decimal=DECIMAL)
 
 
 @pytest.mark.parametrize("solver", SOLVERS)
@@ -130,44 +117,6 @@ def test_neural_solver(data, solver):
     np.testing.assert_almost_equal(
         exact_sol, np.squeeze(neural_sol)[0], decimal=DECIMAL
     )
-
-
-@pytest.mark.parametrize("solver", ["vode", "lsoda", "dopri5", "dop853"])
-def test_ode_solver(data, solver):
-    t, a, y0, u = data
-    dt = t[1] - t[0]
-    exact_sol = exact_solution(t, a, y0)
-
-    ode_sol = np.zeros_like(t)
-    ode_sol[0] = y0
-    ode_solver = ode(exp_f).set_integrator(solver)
-    ode_solver.set_initial_value([y0], t.min()).set_f_params(a)
-
-    tt = 0
-    while ode_solver.successful() and ode_solver.t < t.max():
-        ode_sol[tt + 1] = ode_solver.integrate(ode_solver.t + dt)
-        tt += 1
-
-    # assert_snr(exact_sol, np.squeeze(ode_sol), MIN_SNR)
-    np.testing.assert_almost_equal(exact_sol, ode_sol, decimal=DECIMAL)
-
-
-@pytest.mark.parametrize("solver", ["RK45", "RK23", "DOP853", "LSODA"])
-def test_ivp_solver_inp(data, solver):
-    t, a, y0, u = data
-    exact_sol = exact_solution_inp(t, a, y0, u)
-
-    ivp_sol = solve_ivp(
-        fun=exp_inp_f,
-        t_span=(t.min(), t.max()),
-        y0=[y0],
-        t_eval=t,
-        args=(a,),
-        method=solver,
-        max_step=(t[1] - t[0]),
-    ).y
-    # assert_snr(exact_sol, np.squeeze(ivp_sol), MIN_SNR)
-    np.testing.assert_almost_equal(exact_sol, np.squeeze(ivp_sol), decimal=DECIMAL)
 
 
 @pytest.mark.parametrize("solver", SOLVERS)
@@ -190,27 +139,6 @@ def test_neural_solver_inp(data, solver):
         exact_sol, np.squeeze(neural_sol)[0], decimal=DECIMAL
     )
 
-
-@pytest.mark.parametrize("solver", ["vode", "lsoda", "dopri5", "dop853"])
-def test_ode_solver_inp(data, solver):
-    t, a, y0, u = data
-    dt = t[1] - t[0]
-    exact_sol = exact_solution_inp(t, a, y0, u)
-
-    ode_sol = np.zeros_like(t)
-    ode_sol[0] = y0
-    ode_solver = ode(exp_inp_f).set_integrator(solver, max_step=t[1] - t[0])
-    ode_solver.set_initial_value([y0], t.min()).set_f_params(a)
-
-    tt = 0
-    while ode_solver.successful() and ode_solver.t < t.max():
-        ode_sol[tt + 1] = ode_solver.integrate(ode_solver.t + dt)
-        tt += 1
-
-    # assert_snr(exact_sol, np.squeeze(ode_sol), MIN_SNR)
-    np.testing.assert_almost_equal(exact_sol, np.squeeze(ode_sol), decimal=DECIMAL)
-
-
 @pytest.mark.parametrize(
     "Model",
     [
@@ -228,5 +156,5 @@ def test_model_solver(neuron_data, Model, solver):
     dt = t[1] - t[0]
 
     # test that the Model runs
-    neuron = Model(num=1, solver=solver)
-    res = neuron.solve(t, stimulus=u, verbose=False)
+    neuron = Model(backend=NumbaCPUBackendMixin, num=1, solver=solver)
+    euler_res = neuron.solve(t, stimulus=u, verbose=False)
