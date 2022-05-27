@@ -3,9 +3,9 @@
 
 # You can set these variables from the command line.
 SPHINXOPTS    =
-SPHINXBUILD   = sphinx-build
-SPHINXPROJ    = pyneural
-SOURCEDIR     = .
+SPHINXBUILD   = python -msphinx
+SPHINXPROJ    = neural
+SOURCEDIR     = source
 BUILDDIR      = _build
 
 # Put it first so that "make" without argument is like "make help".
@@ -13,6 +13,13 @@ help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
 .PHONY: help Makefile
+
+clean:
+	rm -rf $(BUILDDIR)/*
+
+# compile the docs watching for changes
+serve:
+	sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)/html" --watch ../neural
 
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).

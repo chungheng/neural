@@ -2,275 +2,148 @@
 """
 Utility modules for recording data from Neural models
 """
-import sys
-from abc import abstractmethod
+import numbers
 from numbers import Number
+import typing as tp
 import numpy as np
-from pycuda.compiler import SourceModule
-import pycuda.gpuarray as garray
-import pycuda.driver as cuda
-
-PY2 = sys.version_info[0] == 2
-PY3 = sys.version_info[0] == 3
-
-src_cuda = """
-__global__ void copy(
-    int num,
-    int idx,
-    int len,
-    %(type)s *dst,
-    %(type)s *src
-)
-{
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    int total_threads = gridDim.x * blockDim.x;
-
-    for (int i = tid; i < num; i += total_threads) {
-        idx += len * i;
-        dst[idx] = src[i];
-    }
-    return;
-}
-"""
-
-_copy = {"float": None, "double": None}
-
-for _key, val in _copy.items():
-    mod = SourceModule(src_cuda % {"type": _key}, options=["--ptxas-options=-v"])
-    func = mod.get_function("copy")
-    func.prepare("iiiPP")
-    _copy[_key] = func
+from . import errors as err
+from . import types as tpe
+from .utils import isarray, iscudaarray, get_array_module, cudaarray_to_cpu
 
 
-class Recorder(object):
+class Recorder:
     """
     Base recorder module.
 
     Attributes:
     """
 
-    def __new__(cls, obj, attrs, steps, rate=1, **kwargs):
-        if cls is Recorder:
-            attr = getattr(obj, attrs[0])
-            if isinstance(attr, Number):
-                return super(Recorder, cls).__new__(ScalarRecorder)
-            elif isinstance(attr, np.ndarray):
-                return super(Recorder, cls).__new__(NumpyRecorder)
-            elif isinstance(attr, garray.GPUArray):
-                return super(Recorder, cls).__new__(CUDARecorder)
-            else:
-                raise TypeError("{} of type: {}".format(attr, type(attr)))
-        return super(Recorder, cls).__new__(cls)
-
-    def __init__(self, obj, attrs, steps, rate=1, **kwargs):
+    def __init__(
+        self,
+        obj: tp.Union[tpe.Model, tpe.Operator],
+        attrs: tp.Iterable[str],
+        steps: int,
+        rate: int = 1,
+        gpu_bufsize: int = np.inf,
+    ):
+        """
+        Arguments:
+            obj: object to record rom
+            attrs: attribute names to record
+            steps: number of steps to record
+            rate: record rate
+            gpu_bufsize: size (number of steps) of gpu buffer for each gpu variable.
+              If value is numpy.inf or True, then everything is recorded.
+        """
         self.obj = obj
         self.total_steps = steps
         self.rate = rate
-        self.steps = len(np.arange(steps)[::rate])
+        self.steps = len(np.arange(steps)[:: self.rate])
+        self.curr_step = -1  # internal counter for current step
 
         self.dct = {key: None for key in attrs}
-        self.init_dct()
-
-        # get spike_variables
+        self.gpu_bufsize = self.steps if gpu_bufsize in [np.inf, True] else gpu_bufsize
+        self.gpu_buf = {}
         self.spike_vars = tuple([key for key in attrs if "spike" in key.lower()])
 
-        callback = kwargs.pop("callback", False)
-        if callback:
-            self.iter = iter(self)
-            self.obj.add_callback(self)
+        for key in attrs:
+            src = getattr(self.obj, key)
+            if isinstance(src, Number):
+                shape = (self.steps,)
+                gpu_shape = (self.gpu_bufsize,)
+                try:
+                    dtype = src.dtype
+                except AttributeError:
+                    if isinstance(src, int):
+                        dtype = np.int_
+                    elif isinstance(src, numbers.Complex):
+                        dtype = np.complex_
+                    else:
+                        dtype = np.float_
+            elif isarray(src):
+                shape = (len(src), self.steps)
+                gpu_shape = (len(src), self.gpu_bufsize)
+                dtype = cudaarray_to_cpu(src).dtype
+            else:
+                raise err.NeuralRecorderError(
+                    f"Attribute {key} is neither a number nor an array"
+                )
 
-    def __call__(self):
-        return next(self.iter)
+            self.dct[key] = np.zeros(shape, order="F", dtype=dtype)
+            if iscudaarray(src) and gpu_bufsize > 0:
+                try:
+                    self.gpu_buf[key] = get_array_module(src).zeros(
+                        gpu_shape, dtype=src.dtype, order="F"
+                    )
+                except Exception as e:
+                    raise err.NeuralRecorderError(
+                        "Creating gpu buffer for CUDA array failed, "
+                        f"source array is {self.obj}.{key}."
+                    ) from e
 
-    def reset(self):
-        self.iter = iter(self)
+    def reset(self) -> None:
+        for arr in self.dct.values():
+            arr.fill(0.0)
+        for arr in self.gpu_buf.values():
+            arr.fill(0.0)
+        self.curr_step = -1
 
-    @abstractmethod
-    def init_dct(self):
+    def update(self, index: int = None) -> None:
+        """Update the content of the recorder dictionaries
+
+        .. note::
+
+            Storing binary variables like spike counts should
+            accumulate across time bins. As such, all
+            spike variables are updated every time step regardless
+            of the :code:`rate` attribute. All other attributes
+            are updated once every `rate` steps.
         """
-        initialize the dict that contains the numpy arrays
-        """
+        self.curr_step += 1
+        step = index or self.curr_step
+        d_index = int(step // self.rate)  # downsample index
+        b_index = d_index % self.gpu_bufsize  # buffer index
 
-    @abstractmethod
-    def update(self, index):
-        """
-        update the record
-        """
+        if d_index >= self.steps:
+            raise err.NeuralRecorderError(
+                "Attempting to step beyond total number of steps "
+                f"({self.steps}) of recorder"
+            )
+        # 1. increment spike count on every step directly if spike var is not None
+        for attr in self.spike_vars:
+            if attr in self.gpu_buf:
+                self.gpu_buf[attr][..., b_index] += getattr(self.obj, attr)
+            else:
+                self.dct[attr][..., d_index] += cudaarray_to_cpu(
+                    getattr(self.obj, attr)
+                )
 
-    def __iter__(self):
-        for i in range(self.total_steps):
-            self.update(i)
-            yield i
+        # return if not time to update
+        if (step % self.rate) != 0:
+            return
 
-    def __getitem__(self, key):
+        for attr in self.dct.keys():
+            if attr in self.spike_vars:
+                continue
+            # 2. increment gpu_buf if attribute is cuda array
+            if attr in self.gpu_buf:
+                self.gpu_buf[attr][..., b_index] = getattr(self.obj, attr)
+                continue
+            # 3. increment dct if attribute is not cuda array or not created in gpu_buf
+            # (could be due to error)
+            self.dct[attr][..., d_index] = cudaarray_to_cpu(getattr(self.obj, attr))
+
+        # 4. dump gpu_buf to dct if gpu_buf is full or if all steps have been exhausted
+        if (d_index == self.steps - 1) or (b_index == self.gpu_bufsize - 1):
+            for attr, arr_g in self.gpu_buf.items():
+                cudaarray_to_cpu(
+                    arr_g, out=self.dct[attr][..., d_index - b_index : d_index + 1]
+                )
+
+    def __getitem__(self, key: str):
         return self.dct[key]
 
-    def __getattr__(self, key):
+    def __getattr__(self, key: str):
         if key in self.dct:
             return self.dct[key]
         return super(Recorder, self).__getattribute__(key)
-
-
-class ScalarRecorder(Recorder):
-    """
-    Recorder for scalar data.
-
-    Attributes:
-    """
-
-    def init_dct(self):
-        for key in self.dct.keys():
-            src = getattr(self.obj, key)
-            assert isinstance(src, Number)
-            self.dct[key] = np.zeros(self.steps, dtype=type(src))
-
-    def update(self, index):
-        d_index = int(index / self.rate)  # downsample index
-
-        # increment spike count directly in dct
-        for key in self.spike_vars:
-            self.dct[key][d_index] += getattr(self.obj, key)
-
-        if (index % self.rate) != 0:
-            return
-
-        for key in self.dct.keys():
-            if key in self.spike_vars:
-                continue
-            else:
-                self.dct[key][d_index] = getattr(self.obj, key)
-
-
-class NumpyRecorder(Recorder):
-    """
-    Recorder for reading Numpy arrays of Neural models.
-
-    Attributes:
-    """
-
-    def init_dct(self):
-        for key in self.dct.keys():
-            src = getattr(self.obj, key)
-            assert isinstance(src, np.ndarray)
-            shape = (src.size, self.steps)
-            self.dct[key] = np.zeros(shape, order="F", dtype=src.dtype)
-
-    def update(self, index):
-        d_index = int(index / self.rate)  # downsample index
-
-        # increment spike count directly in dct
-        for key in self.spike_vars:
-            self.dct[key][:, d_index] += getattr(self.obj, key)
-
-        if (index % self.rate) != 0:
-            return
-
-        for key in self.dct.keys():
-            if key in self.spike_vars:
-                continue
-            else:
-                self.dct[key][:, d_index] = getattr(self.obj, key)
-
-
-class CUDARecorder(Recorder):
-    """
-    Recorder for reading CUDA arrays of Neural models.
-
-    Attributes:
-    """
-
-    def __init__(self, obj, attrs, steps, **kwargs):
-
-        super(CUDARecorder, self).__init__(obj, attrs, steps, **kwargs)
-
-        gpu_buffer = kwargs.pop("gpu_buffer", False)
-        if gpu_buffer:
-            self.buffer_length = self._get_buffer_length(gpu_buffer)
-            self.gpu_dct = {}
-            for key in attrs:
-                src = getattr(self.obj, key)
-                shape = (self.buffer_length, src.size)
-                self.gpu_dct[key] = garray.zeros(shape, dtype=src.dtype)
-            self._update = self._copy_memory_dtod
-        else:
-            self._update = self._copy_memory_dtoh
-
-        if PY2:
-            self.get_buffer = self._py2_get_buffer
-        if PY3:
-            self.get_buffer = self._py3_get_buffer
-
-    def init_dct(self):
-        for key in self.dct.keys():
-            src = getattr(self.obj, key)
-            assert isinstance(src, garray.GPUArray)
-            shape = (src.size, self.steps)
-            self.dct[key] = np.zeros(shape, order="F", dtype=src.dtype)
-
-    def update(self, index):
-        self._update(index)
-
-    def _get_buffer_length(self, gpu_buffer):
-        if gpu_buffer == "full" or gpu_buffer == "whole" or gpu_buffer is True:
-            return self.steps
-        else:
-            return min(gpu_buffer, self.steps)
-
-    def _copy_memory_dtod(self, index):
-        # downsample index
-        d_index = int(index / self.rate)
-
-        # buffer index
-        b_index = d_index % self.buffer_length
-
-        for key in self.spike_vars:
-            src = getattr(self.obj, key)
-            self.gpu_dct[key][b_index] += src
-
-        if index % self.rate != 0:
-            return
-
-        for key in self.dct.keys():
-            src = getattr(self.obj, key)
-            if key in self.spike_vars:
-                continue
-            else:
-                dst = int(self.gpu_dct[key].gpudata) + b_index * src.nbytes
-                cuda.memcpy_dtod(dst, src.gpudata, src.nbytes)
-
-        # dump data to CPU if simulation complete or buffer full
-        if (d_index == self.steps - 1) or (b_index == self.buffer_length - 1):
-            for key in self.dct.keys():
-                buffer = self.get_buffer(key, d_index)
-                cuda.memcpy_dtoh(buffer, self.gpu_dct[key].gpudata)
-            for key in self.spike_vars:
-                self.gpu_dct[key].fill(0.0)
-
-    def _copy_memory_dtoh(self, index):
-        # downsample index
-        d_index = int(index / self.rate)
-
-        # increment spike count directly in dct
-        for key in self.spike_vars:
-            self.dct[key][:, d_index] += getattr(self.obj, key).get()
-
-        if (index % self.rate) != 0:
-            return
-
-        for key in self.dct.keys():
-            if key in self.spike_vars:
-                continue
-            else:
-                self.dct[key][:, d_index] = getattr(self.obj, key).get()
-
-    def _py2_get_buffer(self, key, index):
-        beg = int(index / self.buffer_length) * self.buffer_length
-        nbytes = self.gpu_dct[key].nbytes / self.buffer_length
-        offset = int(beg * nbytes)
-        size = int((index - beg + 1) * nbytes)
-        return np.getbuffer(self.dct[key], offset, size)
-
-    def _py3_get_buffer(self, key, index):
-        mem_view = memoryview(self.dct[key].T)
-        beg = int(index / self.buffer_length) * self.buffer_length
-        return mem_view[beg : index + 1]

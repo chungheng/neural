@@ -1,56 +1,28 @@
-"""
-Base model class for neurons and synapses.
-"""
-from __future__ import print_function
-from itertools import chain
-from numbers import Number
-import sys
-from types import MethodType
-
-PY2 = sys.version_info[0] == 2
-PY3 = sys.version_info[0] == 3
-
-from six import StringIO, get_function_globals
+# pylint:disable=abstract-method
+"""Backend Modules for Model"""
 import numpy as np
-
-try:
-    from .codegen.optimizer import FuncGenerator
-except ImportError:
-    FuncGenerator = None
-
-try:
-    from .codegen.optimizer import NumpyKernelGenerator
-except ImportError:
-    NumpyKernelGenerator = None
-
-try:
-    import pycuda
-    import pycuda.driver as drv
-    import pycuda.gpuarray as garray
-    from pycuda.compiler import SourceModule
-    from .codegen.cuda import CudaKernelGenerator
-except ImportError:
-    CudaKernelGenerator = None
-
-# copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
-def _new_md5():
-    try:
-        import hashlib
-
-        return hashlib.md5()
-    except ImportError:
-        # for Python << 2.5
-        import md5
-
-        return md5.new()
-
+from functools import cache, update_wrapper
+import hashlib
+import tempfile
+import pathlib
+import sys
+from abc import abstractmethod
+import importlib.util
+from types import MethodType, ModuleType
+from warnings import warn
+import numba
+import numba.extending
+import numba.cuda
+from numba.cuda.compiler import Dispatcher
+from . import errors as err
+from .codegen.numba import get_numba_function_source
 
 # copied from https://github.com/minrk/PyCUDA/blob/master/pycuda/compiler.py
 def _get_per_user_string():
     try:
         from os import getuid
     except ImportError:
-        checksum = _new_md5()
+        checksum = hashlib.md5()
         from os import environ
 
         checksum.update(environ["HOME"])
@@ -59,362 +31,235 @@ def _get_per_user_string():
         return "uid%d" % getuid()
 
 
-class Backend(object):
-    def __new__(cls, model, **kwargs):
-        """
-        Factory for instantiating different backends.
-        """
-        if cls is Backend:
-            backend = kwargs.pop("backend", None)
-            if backend == "scalar":
-                assert FuncGenerator is not None, "PyCodegen is not installed."
-                return super(Backend, cls).__new__(ScalarBackend)
-            elif backend == "numpy":
-                assert NumpyKernelGenerator is not None, "PyCodegen is not installed."
-                return super(Backend, cls).__new__(NumpyBackend)
-            elif backend == "cuda":
-                assert (
-                    CudaKernelGenerator is not None
-                ), "Either PyCUDA or PyCodegen is not installed."
-                return super(Backend, cls).__new__(CUDABackend)
-            else:
-                raise TypeError("Unexpected backend '{}'".format(backend))
-        return super(Backend, cls).__new__(cls)
+def _get_module_from_source(source: str, module_name: str) -> ModuleType:
+    """Load a module form source file
 
-    def __init__(self, model, **kwargs):
+    This is useful for when codegen saves source into a given file
+
+    Arguments:
+        source: path to the source
+        module_name: name of the module to load
+    """
+    cache_dir = (
+        pathlib.Path(tempfile.gettempdir())
+        / f"neural-compiler-cache-{_get_per_user_string()}"
+    )
+    try:
+        cache_dir.mkdir(parents=False, exist_ok=False)
+    except FileExistsError:
         pass
+    except Exception as e:
+        raise err.NeuralBackendError(f"Cannot creat cache dir {cache_dir}") from e
+
+    checksum = hashlib.md5()
+    checksum.update(source)
+    cache_file = checksum.hexdigest()
+    cache_path = cache_dir / f"{cache_file}.py"
+    with open(cache_path, "w+b") as f:
+        f.write(source)
+        f.flush()
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, cache_path)
+            codegen_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(codegen_module)
+            sys.modules[module_name] = codegen_module
+        except Exception as e:
+            raise err.NeuralBackendError(
+                "Error in loading generated code for backend \n{}".format(
+                    "\n".join(
+                        [
+                            f"{str(line_no+1) + ':':<5} {l}"
+                            for line_no, l in enumerate(
+                                source.decode("utf-8").split("\n")
+                            )
+                        ]
+                    )
+                )
+            ) from e
+    return codegen_module
+
+
+class BackendMixin:
+    """Base Backend Implementation
+
+    Methods:
+        clip() -> None
+        reset() -> None
+        recast() -> None
+        compile() -> None
+        _generate() -> None
+    """
+
+    @classmethod
+    @property
+    def is_backend_supported(cls) -> bool:
+        """Check if backend is supported
+
+        Relevant for CUDA backends as availability of resources is checked
+        """
+        return True
+
+
+class CodegenBackendMixin(BackendMixin):
+    """Backends with code generation into str
+
+    For this backend, `_generate()` populate :code:`self.source` with
+    a :code:`str` definition of the compiled kernel functions.
+    The functions are assumed to have the same same as the methods of
+    :py:class:`neural.basemodel.Model`.
+
+    If self.ode and/or self.post are defined, they are automatically populated
+    """
+
+    codegen_source = ""  # source code for module
+    codegen_module = None  # ModuleType that is defined from the generated source code
 
     def compile(self):
-        pass
+        self.codegen_source = ""
+        self.codegen_module = None
+        module_name = f"CodegenBackendMixin_For_{self.__class__.__name__}"
 
+        # determine which methods have yet to be implemented
+        self.codegen_source += self._generate("ode")
+        methods_to_implement = ["ode"]
 
-class ScalarBackend(Backend):
-    def __init__(self, model, **kwargs):
-        ostream = StringIO()
-        code_gen = FuncGenerator(model, model.ode, offset=4, ostream=ostream)
-        code_gen.generate()
-
-        post = model.__class__.post
-        for cls in model.__class__.__bases__:
+        # check if post is implemented by the child class
+        post = self.__class__.post
+        for cls in self.__class__.__bases__:
             if cls.__name__ == "Model" and post != cls.post:
-                code_gen = FuncGenerator(model, post, offset=4, ostream=ostream)
-                code_gen.generate()
+                methods_to_implement.append("post")
+                self.codegen_source += self._generate("post")
                 break
 
-        self.source = ostream.getvalue()
-        self.func_globals = get_function_globals(model.ode)
-        self.name = "Optimized{}".format(model.__class__.__name__)
-        self.compile()
+        # write source to temp file and load as module
+        source = self.codegen_source.encode("utf-8")
+        self.codegen_module = _get_module_from_source(source, module_name)
 
-        self.ode = MethodType(self.module.ode, model)
-        if "post" in self.module.__dict__:
-            self.post = MethodType(self.module.post, model)
+        # set globals for the module to match original function definition
+        for method in methods_to_implement:
+            for key, val in getattr(self, method).__globals__.items():
+                setattr(self.codegen_module, key, val)
+
+        # save method to backend referencing method to model
+        for method in methods_to_implement:
+            if not callable(func := getattr(self.codegen_module, method, None)):
+                raise err.NeuralCodeGenError(
+                    f"Method '{method}' not found in codegen module"
+                )
+            setattr(self, method, MethodType(func, self))
+
+    @abstractmethod
+    def _generate(self, method: str) -> str:
+        """Return generated str for a particular method"""
+
+
+class NumbaCPUBackendMixin(CodegenBackendMixin):
+    """Numba CPU Backend compiled with `numba.jit(python=False)`"""
+
+    def _generate(self, method: str) -> str:
+        """generate source for numba kernel"""
+        if method not in ["ode", "post"]:
+            raise err.NeuralCodeGenError(
+                f"Only .ode and .post support codegen with numba, got '{method}'"
+            )
+        # jit target function
+        try:
+            return get_numba_function_source(self, method, target="numpy")
+        except Exception as e:
+            raise err.NeuralCodeGenError(
+                f"Code Generation for Method {method} failed"
+            ) from e
 
     def compile(self):
-
-        from os import mkdir
-        from os.path import join, isfile
-        from tempfile import gettempdir
-
-        cache_dir = join(
-            gettempdir(), "pyneural-compiler-cache-%s" % _get_per_user_string()
-        )
-
-        try:
-            mkdir(cache_dir)
-        except OSError as e:
-            from errno import EEXIST
-
-            if e.errno != EEXIST:
-                raise
-
-        source = self.source.encode("utf-8")
-
-        checksum = _new_md5()
-
-        checksum.update(source)
-
-        cache_file = checksum.hexdigest()
-        cache_path = join(cache_dir, cache_file + ".py")
-
-        if not isfile(cache_path):
-            outf = open(cache_path, "wb")
-            outf.write(source)
-            outf.close()
-
-        if PY2:
-            import imp
-
-            self.module = imp.load_source(self.name, cache_path)
-
-        elif PY3:
-            import importlib.util
-
-            spec = importlib.util.spec_from_file_location(self.name, cache_path)
-            self.module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(self.module)
-
-        for key, val in self.func_globals.items():
-            setattr(self.module, key, val)
+        super().compile()
+        for method in ["ode", "post"]:
+            func = getattr(self, method).__func__
+            if numba.extending.is_jitted(func) or isinstance(
+                func, Dispatcher
+            ):  # FIXME: what happens if we're going from GPU to CPU?
+                setattr(self, method, MethodType(func, self._data))
 
 
-class NumpyBackend(ScalarBackend):
-    def __init__(self, model, **kwargs):
-        self.num = kwargs.pop("num", None)
+class NumbaCUDABackendMixin(CodegenBackendMixin):
+    """Numba CUDA Backend compiled with `numba.cuda.jit`
 
-        ostream = StringIO()
-        code_gen = NumpyKernelGenerator(model, model.ode, offset=4, ostream=ostream)
-        code_gen.generate()
+    .. warning::
 
-        post = model.__class__.post
-        for cls in model.__class__.__bases__:
-            if cls.__name__ == "Model" and post != cls.post:
-                code_gen = NumpyKernelGenerator(model, post, offset=4, ostream=ostream)
-                code_gen.generate()
-                break
+        This backend is not supported yet.
 
-        self.source = ostream.getvalue()
-        self.func_globals = get_function_globals(model.ode)
-        self.name = "Numpy{}".format(model.__class__.__name__)
-        self.compile()
+        This is due to limitation of str literal indexing of numba cuda array,
+        and the fact that CuPY does not support structured arrays.
+    """
 
-        self.ode = MethodType(self.module.ode, model)
-        if "post" in self.module.__dict__:
-            self.post = MethodType(self.module.post, model)
-
-    def reset(self, **kwargs):
-        """
-        reset the numpy data.
-
-        Reset the Numpy data to default values.
-
-        Arguments:
-            kwargs (dict): keyward arguments.
-        """
-        params = []
-        items = chain(self.model.params.items())
-        for key, val in self.model.params.items():
-            val = kwargs.pop(key, val)
-            if hasattr(val, "__len__"):  # params with __len__
-                assert self.num == len(
-                    val
-                ), "Instance has {} units, but '{}' has {} entires".format(
-                    self.num, key, len(val)
-                )
-                if not isinstance(val, np.ndarray):
-                    self.model.params[key] = np.asarray(val)
-
-        for key, val in self.model.states.items():
-            val = kwargs.pop(key, val)
-
-            if hasattr(val, "__len__"):  # params with __len__
-                assert self.num == len(
-                    val
-                ), "Instance has {} units, but '{}' has {} entires".format(
-                    self.num, key, len(val)
-                )
-                self.model.states[key] = np.asarray(val, dtype=self.dtype)
-            elif isinstance(val, Number):
-                self.model.states[key] = np.ones(self.num, dtype=self.dtype) * val
-            else:
-                raise TypeError("Invalid {0} variable: {1}".format(attr, key))
-
-
-class CUDABackend(Backend):
-    def __init__(self, model, **kwargs):
-        self.backend = kwargs.pop("backend", None)
-        self.num = kwargs.pop("num", None)
-        self.data = dict()
-        self.model = model
-        self.dtype = kwargs.pop("dtype", np.float64)
-        self.compile(**kwargs)
-
-    def _allocate_cuda_memory(self, key):
-        """
-        allocate GPU memroy for variable
-        """
-        if key in self.data and len(self.data[key]) != self.num:
-            del self.data[key]
-
-        if key not in self.data:
-            array = garray.empty(self.num, dtype=self.dtype)
-            self.data[key] = array
-
-    def reset(self, **kwargs):
-        """
-        reset the gpu data.
-
-        Reset the GPU data to default values.
-
-        Arguments:
-            kwargs (dict): keyward arguments.
-        """
-        params = []
-        items = chain(self.model.states.items(), self.model.params.items())
-        for key, val in items:
-            val = kwargs.pop(key, val)
-
-            # allocate GPU memory
-            if key in self.model.states:
-                self._allocate_cuda_memory(key)
-            elif hasattr(val, "__len__"):  # params with __len__
-                self._allocate_cuda_memory(key)
-                params.append(key)
-
-            if isinstance(val, np.ndarray):
-                if val.dtype != self.dtype:
-                    val = val.astype(self.dtype)
-                drv.memcpy_htod(self.data[key].gpudata, val)
-            elif isinstance(val, garray.GPUArray):
-                if key in self.model.params:
-                    assert val.dtype == self.dtype
-                    self.data[key] = val
-                    continue
-                if val.dtype != self.dtype:
-                    val = val.get()
-                    val = val.astype(self.dtype)
-                    drv.memcpy_htod(self.data[key].gpudata, val)
-                else:
-                    drv.memcpy_dtod(self.data[key].gpudata, val.gpudata, val.nbytes)
-            elif isinstance(val, Number):
-                if key in self.model.params:
-                    self.model.params[key] = val
-                    continue
-                self.data[key].fill(val)
-            else:
-                raise TypeError("Invalid {0} variable: {1}".format(attr, key))
-        return params
-
-    def compile(self, **kwargs):
-        """
-        compile the cuda kernel.
-
-        Keyword Arguments:
-        """
-
-        # decide the number of threads:
-        keys = chain(self.model.states.keys(), self.model.params.keys())
-        for key in keys:
-            val = getattr(self.model, key)
-            val = kwargs.get(key, val)
-            if hasattr(val, "__len__"):
-                _num = len(val)
-                self.num = self.num or _num
-                assert self.num == _num, "Mismatch in data size: %s" % key
-        else:
-            assert self.num, "Please give the number of models to run"
-
-        # reset gpu data
-        params = self.reset(**kwargs)
-
-        # assume the rest of kwargs are input-related
-        inputs = kwargs.copy()
-        for key in inputs.keys():
-            assert key in self.model.Inputs, "Unexpected input '{}'".format(key)
-
-        # generate cuda kernel, a.k.a self.cuda.kernel
-        self.get_cuda_kernel(inputs_gdata=inputs, params_gdata=params)
-
-        if self.has_random:
-            self.seed = drv.mem_alloc(self.num * 48)
-            self.init_random_seed.prepared_async_call(
-                self.grid, self.block, None, self.num, self.seed
+    @classmethod
+    @property
+    def is_backend_supported(cls) -> bool:
+        if not (supported := numba.cuda.is_available()):
+            warn(
+                "CUDA Backend requires CUDA-compatible GPU.",
+                err.NeuralBackendWarning,
             )
+        return supported
 
-    def update(self, d_t, **kwargs):
-        """"""
-        st = kwargs.pop("st", None)
-        args = []
-        for key, dtype in zip(self.args, self.arg_ctype[2:]):
-            if key == "seed":
-                args.append(self.seed)
-                continue
+    @property
+    def blocksize(self) -> int:
+        return 256
 
-            val = self.data.get(key, None)
-            if val is None:
-                val = kwargs[key]
-            if hasattr(val, "__len__"):
-                assert dtype == "P", "Expect GPU array but get a scalar input: %s" % key
-                assert val.dtype == self.dtype, (
-                    "GPU array float type mismatches: %s" % key
-                )
-            else:
-                assert dtype != "P", "Expect GPU array but get a scalar input: %s" % key
+    @cache
+    def _get_gridsize(self, num: int) -> int:
+        COUNT = numba.cuda.get_current_device().MULTIPROCESSOR_COUNT
+        return int(min(6 * COUNT, (num - 1) // self.blocksize + 1))
 
-            args.append(val.gpudata if dtype == "P" else val)
+    @property
+    def gridsize(self) -> int:
+        return self._get_gridsize(self.num)
 
-        self.kernel.prepared_async_call(self.grid, self.block, st, self.num, d_t, *args)
+    def recast(self) -> None:
+        raise NotImplementedError
+        # if not numba.cuda.is_cuda_array(self._data):
+        #     self._data = numba.cuda.to_device(self._data)
 
-    def cuda_profile(self, **kwargs):
-        num = kwargs.pop("num", 1000)
-        niter = kwargs.pop("niter", 1000)
-        dtype = kwargs.pop("dtype", np.float64)
+    @property
+    def states(self) -> np.ndarray:
+        raise NotImplementedError
+        # state_vars = list(self.Default_States.keys())
+        # self._data.copy_to_host(to=self._data_cpu)
+        # return self._data_cpu[state_vars]
 
-        self.cuda_compile(num=num, dtype=dtype)
+    @property
+    def gstates(self) -> np.ndarray:
+        raise NotImplementedError
+        # gstate_vars = [f"d_{s}" for s in self.Derivates]
+        # self._data.copy_to_host(to=self._data_cpu)
+        # return self._data_cpu[gstate_vars]
 
-        args = {key: garray.empty(num, dtype) for key in self.cuda.args}
+    @property
+    def params(self) -> np.ndarray:
+        raise NotImplementedError
+        # param_vars = list(self.Default_Params.keys())
+        # self._data.copy_to_host(to=self._data_cpu)
+        # return self._data_cpu[param_vars]
 
-        start = drv.Event()
-        end = drv.Event()
-        secs = 0.0
-
-        for i in range(niter):
-            start.record()
-            self._cuda_update(0.0, **args)
-            end.record()
-            end.synchronize()
-            secs += start.time_till(end)
-
-        for key in args:
-            args[key].gpudata.free()
-
-        name = self.__class__.__name__
-        print("Average run time of {}: {} ms".format(name, secs / niter))
-
-    def get_cuda_kernel(self, **kwargs):
-        code_generator = CudaKernelGenerator(self.model, dtype=self.dtype, **kwargs)
-        code_generator.generate()
-
-        try:
-            mod = SourceModule(
-                code_generator.cuda_src,
-                options=["--ptxas-options=-v", "--expt-relaxed-constexpr"],
-                no_extern_c=code_generator.has_random,
+    def _generate(self, method: str) -> str:
+        """generate source for numba kernel"""
+        if method not in ["ode", "post"]:
+            raise err.NeuralCodeGenError(
+                f"Only .ode and .post support codegen with numba, got '{method}'"
             )
-            func = mod.get_function(self.model.__class__.__name__)
-        except:
-            lines = code_generator.cuda_src.split("\n")
-            num_digits = 1 + int(np.floor(np.log10(len(lines))))
-            for index, line in enumerate(lines):
-                print("{: >{}}: {}".format(index, num_digits, line))
-            raise
+        # jit target function
+        try:
+            return get_numba_function_source(self, method, target="cuda")
+        except Exception as e:
+            raise err.NeuralCodeGenError(
+                f"Code Generation for Method {method} failed"
+            ) from e
 
-        self.src = code_generator.cuda_src
-        self.args = code_generator.args
-        self.arg_ctype = code_generator.arg_type
+    def compile(self):
+        super().compile()
 
-        func.prepare(self.arg_ctype)
-        self.kernel = func
-
-        self.has_random = code_generator.has_random
-        if self.has_random:
-            init_random_seed = mod.get_function("generate_seed")
-            init_random_seed.prepare(code_generator.init_random_seed_arg)
-            self.init_random_seed = init_random_seed
-
-        deviceData = pycuda.tools.DeviceData()
-        maxThreads = int(np.float(deviceData.registers // func.num_regs))
-        maxThreads = int(2 ** int(np.log(maxThreads) / np.log(2)))
-        threadsPerBlock = int(min(256, maxThreads, deviceData.max_threads))
-        self.block = (threadsPerBlock, 1, 1)
-        self.grid = (
-            int(
-                min(
-                    6 * drv.Context.get_device().MULTIPROCESSOR_COUNT,
-                    (self.num - 1) / threadsPerBlock + 1,
-                )
-            ),
-            1,
-        )
-
-        return func
+        # save method to backend referencing method to model
+        for method in ["ode", "post"]:
+            func = getattr(self, method).__func__
+            if numba.extending.is_jitted(func) or isinstance(func, Dispatcher):
+                func = func.configure(self.gridsize, self.blocksize)
+                setattr(self, method, MethodType(func, self._data))

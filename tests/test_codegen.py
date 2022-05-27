@@ -3,9 +3,9 @@ import numpy as np
 import random
 
 # pylint:disable=import-error
-from neural import Model
-from neural.codegen.symbolic import SympyGenerator
+from neural.basemodel import Model
 
+# from neural.codegen.symbolic import SympyGenerator
 # pylint:enable=import-error
 
 
@@ -24,6 +24,7 @@ class FakeModel(Model):
 
         self.y = np.exp(np.cbrt(np.sqrt(self.z))) + random.gauss(0.0, self.c)
         self.y = (self.y > self.z) * self.y
+        tmp = (self.y > self.z) * self.y
         self.y = (self.y < self.z) * self.y
         self.y = (self.y >= self.z) * self.y
         self.y = (self.y <= self.z) * self.y
@@ -44,5 +45,8 @@ def model():
     return FakeModel()
 
 
-def test_sympy_gen(model):
-    sg = SympyGenerator(model)
+# def test_sympy_gen(model):
+#     sg = SympyGenerator(model)
+#     assert sg.sympy_src is not None
+#     assert sg.latex_src is not None
+#     model.compile(backend="cuda" if CUDA else "scalar")

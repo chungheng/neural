@@ -2,31 +2,41 @@
 Plotting functions.
 """
 import typing as tp
-import matplotlib.pyplot as plt
-from matplotlib import ticker
 import numpy as np
-from . import errors as err
+import matplotlib.pyplot as plt
+from .. import errors as err
 
 
-def plot_multiple(data_x, *args, **kwargs):
+def plot_multiple(
+    data_x: np.ndarray,
+    *args,
+    figw: float = 5,
+    figh: float = 2,
+    xlabel: str = "Time, [s]",
+    axes: tp.Iterable[plt.Axes] = None,
+    **subplots_kw,
+) -> tp.Tuple[plt.Figure, np.ndarray]:
     """
     Plot multiple data curves against a same x-axis on mulitple subplots.
 
     Arguments:
-        datax (darray): the data point on the x-axis.
+        datax: the data point on the x-axis.
         *args: each entry of args is a list containing multiple sets of data
-            and parameters that will be plotted in the same subplot.
-            An entry should follow the format `(data_1, param_1, ...)`,
-            where each of the `data_i` is a numpy array, and each of the
-            `param_i` is a `dict` of the parameters for ploting `data_i` against
-            `data_x`. Alternatively, an entry can simply be an numpy array. In
-            this case, only one curve will be plotted in the corresponding
-            subplot.
+          and parameters that will be plotted in the same subplot.
+          An entry should follow the format `(data_1, param_1, ...)`,
+          where each of the `data_i` is a numpy array, and each of the
+          `param_i` is a `dict` of the parameters for ploting `data_i` against
+          `data_x`. Alternatively, an entry can simply be an numpy array. In
+          this case, only one curve will be plotted in the corresponding
+          subplot.
 
     Keyword Arguments:
-        figw (float): the figure width.
-        figh (float): the figure height.
-        xlabel (str): the label of the x-axis.
+        figw: the figure width.
+        figh: the figure height.
+        xlabel: the label of the x-axis.
+        axes: axes into which the data will be plotted. Must have same length as :code:`*args`.
+          If not specified, new figure and axes are created.
+        subplots_kw: any arguments for :code:`matplotlib.pyplot.subplots` call.
 
         The additional keyword arguments will propagate into the private
         plotting method `_plot`, and eventually into the `pyplot.plot` method.
@@ -74,22 +84,15 @@ def plot_multiple(data_x, *args, **kwargs):
         if ylabel:
             axe.set_ylabel(ylabel)
 
-    figw = kwargs.pop("figw", 5)
-    figh = kwargs.pop("figh", 2)
-    xlabel = kwargs.pop("xlabel", "Time, [s]")
-
     num = len(args)
 
-    fig, axes = plt.subplots(num, 1, figsize=(figw, num * figh))
-
-    if not hasattr(axes, "__len__"):
-        axes = [axes]
+    if axes is not None:
+        assert len(axes) == num, "axes must have same length as args"
+        fig = None
+    else:
+        fig, axes = plt.subplots(num, 1, figsize=(figw, num * figh), **subplots_kw)
 
     for i, (dataset, axe) in enumerate(zip(args, axes)):
-        axe.grid()
-        if i < num - 1:
-            axe.xaxis.set_ticklabels([])
-
         if isinstance(dataset, np.ndarray):
             param_list = [{}]
             data_list = [dataset]
@@ -99,14 +102,11 @@ def plot_multiple(data_x, *args, **kwargs):
 
         has_legend = False
         for data_y, subkwargs in zip(data_list, param_list):
-            for key, val in kwargs.items():
-                if not key in subkwargs:
-                    subkwargs[key] = val
             has_legend = has_legend or ("label" in subkwargs)
             _plot(axe, data_x, data_y, **subkwargs)
         if has_legend:
             axe.legend()
-
+        axe.grid()
     axes[-1].set_xlabel(xlabel)
     plt.tight_layout()
 
@@ -118,11 +118,11 @@ def plot_spikes(
     dt: float = None,
     t: np.ndarray = None,
     ax: plt.Axes = None,
-    markersize: int = None,
-    color: tp.Union[str, tp.Any] = "k",
+    color: tp.Union[str, tp.Callable] = None,
+    **scatter_kwargs,
 ) -> plt.Axes:
-    """
-    Plot Spikes in raster format
+    """Plot Spikes in raster format
+
     Arguments:
         spikes: the spike states in binary format, where 1 stands for a spike.
             The shape of the spikes should either be (N_times, ) or (N_trials, N_times)
@@ -138,9 +138,12 @@ def plot_spikes(
             `dt` is assumed to be 1 if not specified.
 
         ax: which axis to plot into, create one if not provided
-        markersize: size of raster
-        color: color for the raster. Any acceptable type of `matplotlib.pyplot.plot`'s
-            color argument is accepted.
+        color: color for raster
+          - `str`: if color is a string, it is assumed to be the same color for all rasters
+          - `function(t,channel)`: if color is a function, it is assumed to be a 2 argument
+            function that maps time and channel of spike times to some value. The color
+            can then be controlled by specifying `cmap` argument of the scatter plot.
+
     Returns:
         ax: the axis that the raster is plotted into
     """
@@ -169,9 +172,16 @@ def plot_spikes(
         ax = fig.add_subplot()
 
     neu_idx, t_idx = np.nonzero(spikes)
-
+    lw = scatter_kwargs.pop("linewidth", 1)
     try:
-        ax.plot(t[t_idx], neu_idx, "|", c=color, markersize=markersize)
+        ax.scatter(
+            t[t_idx],
+            neu_idx,
+            marker="|",
+            c=color(t[t_idx], neu_idx) if callable(color) else color,
+            linewidth=lw,
+            **scatter_kwargs,
+        )
     except ValueError as e:
         raise err.NeuralPlotError(
             "Raster plot failed, likely an issue with color or markersize setting"
@@ -189,13 +199,15 @@ def plot_spikes(
 def plot_mat(
     mat: np.ndarray,
     dt: float = None,
+    dy: float = None,
     t: np.ndarray = None,
+    y: np.ndarray = None,
     ax: plt.Axes = None,
     cax=None,
     vmin: float = None,
     vmax: float = None,
     cbar_kw: dict = None,
-    cmap: tp.Any = None,
+    **pcolormesh_kwargs,
 ) -> tp.Union[tp.Tuple[plt.Axes, tp.Any], plt.Axes]:
     """
     Plot Matrix with formatted time axes
@@ -203,7 +215,8 @@ def plot_mat(
     Arguments:
         mat: the matrix to be plotted, it should of shape (N, Time)
         dt: time resolution of the time axis.
-        t: time axes for the spikes, use arange if not provided.
+        dy: resolution of the Y-axis
+        t: time axes for the matrix, use arange if not provided.
 
         .. note::
 
@@ -213,6 +226,16 @@ def plot_mat(
             not specified, the time-axis is formated by resolution `dt`.
             If neither are specified, `dt` is assumed to be 1.
 
+        y: spatial axes of the matrix, use arange if not provided.
+
+        .. note::
+
+            If `y` is specified, it is assumed to have the same
+            length as `mat.shape[0]`. Consequently, the y-axis will be formatted
+            to take the corresponding values from `y` based on index. If `y` is
+            not specified, the time-axis is formated by resolution `dy`.
+            If neither are specified, `dy` is assumed to be 1.
+
         ax: which axis to plot into, create one if not provided
         cax: which axis to plot colorbar into
             - if instance of axis, plot into that axis
@@ -220,7 +243,9 @@ def plot_mat(
         vmin: minimum value for the imshow
         vmax: maximum value for the imshow
         cbar_kw: keyword arguments to be passed into the colorbar creation
-        cmap: colormap to use
+
+    Keyword Arguments:
+        **pcolormesh_kwargs: Keyword Arguments to be passed into the :py:func:`matplotlib.pyplot.pcolormesh` function.
 
     Returns:
         ax: the axis that the raster is plotted into
@@ -247,33 +272,30 @@ def plot_mat(
                 "Time vector 't' does not have the same shape as the matrix."
                 f" Expected length {mat.shape[1]} but got {len(t)}"
             )
-
-        @ticker.FuncFormatter
-        def major_formatter(x, pos):
-            return "{:.1f}".format(np.interp(x, np.arange(len(t)), t))
-
     else:
         if dt is None:
             dt = 1
+        t = np.arange(mat.shape[1]) * dt
 
-        @ticker.FuncFormatter
-        def major_formatter(x, pos):
-            return "{:.1f}".format(dt * x)
+    if y is not None:
+        if len(y) != mat.shape[0]:
+            raise err.NeuralPlotError(
+                "Spatial vector 'y' does not have the same shape as the matrix."
+                f" Expected length {mat.shape[0]} but got {len(y)}"
+            )
+    else:
+        if dy is None:
+            dy = 1
+        y = np.arange(mat.shape[0]) * dy
 
     if ax is None:
         fig = plt.gcf()
         ax = fig.add_subplot()
 
-    cim = ax.imshow(
-        mat,
-        aspect="auto",
-        interpolation="none",
-        origin="lower",
-        vmin=vmin,
-        vmax=vmax,
-        cmap=cmap,
+    shading = pcolormesh_kwargs.pop("shading", "auto")
+    cim = ax.pcolormesh(
+        t, y, mat, vmin=vmin, vmax=vmax, shading=shading, **pcolormesh_kwargs
     )
-    ax.xaxis.set_major_formatter(major_formatter)
 
     if cax:
         if cbar_kw is None:
@@ -303,6 +325,6 @@ def yyaxis(ax: plt.Axes, c: "color" = "red") -> plt.Axes:
     """
     ax2 = ax.twinx()
     ax2.spines["right"].set_color(c)
-    ax2.tick_params(axis="y", colors=c)
+    ax2.tick_params(axis="y", colors=c, which="both")
     ax2.yaxis.label.set_color(c)
     return ax2

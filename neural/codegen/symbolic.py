@@ -1,480 +1,484 @@
-import copy
-from functools import wraps
+"""Parse BaseModel
+"""
+import re
+import typing as tp
+from dataclasses import dataclass
+from numbers import Number
+import ast
+import inspect
+import textwrap
+import math
 import random
-
 import numpy as np
-import os
-from six import StringIO, get_function_code, get_function_globals
-from six import with_metaclass
-from sympy import *
-import types
-
-from pycodegen.codegen import CodeGenerator
-from pycodegen.utils import get_func_signature
-
+import sympy as sp
+import sympy.codegen.cfunctions
+import sympy.codegen.ast
+from sympy.codegen.ast import Assignment
+import sympy.stats
+from sympy.printing.latex import LatexPrinter
+from ast import unparse
+from .. import types as tpe
 from .. import errors as err
+from .ufuncs import _numpy as NUMPY_FUNCTIONS
+from .ufuncs import _random as RANDOM_FUNCTIONS
+from .ufuncs import _math as MATH_FUNCTIONS
 
 
-class _Variable(object):
-    default = {
-        "type": None,
-        "integral": None,
-        "derivative": None,
-        "dependencies": set(),
-    }
-
-    def __init__(self, **kwargs):
-        for key, val in self.default.items():
-            if key in kwargs:
-                self.__dict__[key] = kwargs.pop(key)
-            else:
-                self.__dict__[key] = copy.copy(val)
-        if len(kwargs):
-            raise AttributeError("Invalid attribute: %s" % kwargs.keys()[0])
-
-    def __setattribute__(self, key, val):
-        if key not in self.__dict__:
-            raise KeyError("Unrecognized key: %s" % key)
-        self.__dict__[key] = val
+def _get_function_module(func: tp.Callable) -> str:
+    """Get the name of the module"""
+    if inspect.getmodule(func) is not None:
+        return inspect.getmodule(func)
+    if isinstance(func, np.ufunc):
+        return np
+    return None
 
 
-class MetaClass(type):
-    def __new__(cls, clsname, bases, dct):
-        py2sympy = dict()
-        for key, val in dct.items():
-            if callable(val) and hasattr(val, "_source_funcs"):
-                for func in val._source_funcs:
-                    py2sympy[func] = val
-        dct["pyfunc_to_sympyfunc"] = py2sympy
-        return super(MetaClass, cls).__new__(cls, clsname, bases, dct)
+class NumPy2SymPy(ast.NodeTransformer):
+    """Convert function calls to SymPy calls
 
+    For Calls:
 
-class VariableAnalyzer(CodeGenerator):
-    """
-    Analyze the variables in a set of ODEs
+        1. Builtin function calls
+        2. NumPy calls that exist in SymPy's default namespace
+        3. `random` calls that exist in `sympy.stats` module.
+
+    For IfExp:
+        Convert IfExp to sympy.Piecewise
+
+    Arguments:
+
     """
 
-    def __init__(self, model, **kwargs):
-        self.model = model
-        self._dependencies = set()
+    _rng_ctr = 0
+    _globals = dict()
 
-        _, self.signature, self.kwargs = self._extract_signature(self.model.ode)
-        with open(os.devnull, "w") as f:
-            code = get_function_code(model.ode)
-            CodeGenerator.__init__(self, code, ostream=f)
-            self.variables = {}
-            self.generate()
-            self.generate()
-        for key, val in self.variables.items():
-            if val.integral is None:
-                continue
-            self.variables[val.integral].dependencies.update(val.dependencies)
+    def __init__(self, global_dct=None):
+        if global_dct is not None:
+            self._globals.update(global_dct)
 
-    def _extract_signature(self, func):
-        old_signature = get_func_signature(func)
-        new_signature = []
+    def visit_Assign(self, node: ast.Assign) -> tp.Any:
+        """Convert Tuple assignment to multiple single assignments
 
-        kwargs = None
-        for key in old_signature:
-            if key == "self":
-                continue
-            elif key[:2] == "**":
-                kwargs = key[2:]
-                continue
-            elif key[1] == "*":
-                raise
+        a = 1
+        a,b = x
+        a = b = 1
+        a,b = 1, 0
+        a = a,b = x, y
+        """
+        self.generic_visit(node)
+        if len(node.targets) == 1 and not isinstance(node.targets[0], ast.Tuple):
+            return node
+        nodes = []
+        for target in node.targets:
+            if isinstance(target, ast.Tuple):
+                if isinstance(node.value, ast.Tuple):  # a,b = 0,1
+                    if len(target.elts) != len(node.value.elts):
+                        raise err.NeuralCodeGenError(
+                            f"Number of targets is different from number of values in assingment: {unparse(node)}"
+                        )
+                    nodes += [
+                        ast.Assign(targets=[_tgt], value=_val)
+                        for _tgt, _val in zip(target.elts, node.value.elts)
+                    ]
+                else:
+                    val = unparse(node.value)
+                    nodes += [
+                        ast.parse(f"{unparse(_tgt)} = {val}[{n}]").body[0]
+                        for n, _tgt in enumerate(target.elts)
+                    ]
             else:
-                new_signature.append(key.split("=")[0])
-        return old_signature, new_signature, kwargs
+                nodes += [ast.Assign(targets=[target], value=node.value)]
+        return nodes
 
-    def handle_call_function(self, ins):
-        narg = int(ins.arg)
-        args = [] if narg == 0 else [str(x) for x in self.var[-narg:]]
-        func_name = self.var[-(narg + 1)]
-        self.var[-(narg + 1)] = "{}({})".format(func_name, ",".join(args))
-
-        if narg:
-            del self.var[-narg:]
-
-    def handle_store_fast(self, ins):
-        """
-        symbol1 = rvalue
-        """
-        key = ins.argval
-        if key not in self.variables:
-            self.variables[key] = _Variable(type="local")
-        self.var[-1] = "{} = {}".format(key, self.var[-1])
-        self.variables[key].dependencies.update(self._dependencies)
-        self._dependencies = set()
-
-    def handle_load_attr(self, ins):
-        """
-        ... symbol1.symbol2 ...
-        """
-        key = ins.argval
-        if self.var[-1] == "self":
-            if key[:2] == "d_":
-                key = key.split("d_")[-1]
-                self._set_variable(key, type="state")
-            elif key not in self.variables:
-                self._set_variable(key, type="parameter")
-            if self.variables[key].type != "parameter":
-                self._dependencies.add(key)
-
-            self.var[-1] = key
-        else:
-            self.var[-1] += "." + ins.argval
-
-    def handle_load_fast(self, ins):
-        if ins.argval in self.signature or ins.argval in self.variables:
-            self._dependencies.add(ins.argval)
-        self.var.append(ins.argval)
-
-    def handle_store_attr(self, ins):
-        """
-        symbol1.symbol2 = rvalue
-        """
-        key = ins.argval
-        if self.var[-1] == "self":
-            if key[:2] == "d_":
-                key = key.split("d_")[-1]
-                self._set_variable(key, type="state")
-                if self.var[-2] in self.variables:
-                    self.variables[key].derivative = self.var[-2]
-                    self.variables[self.var[-2]].integral = key
-            elif key not in self.variables or self.variables[key] != "state":
-                self._set_variable(key, type="intermediate")
-            self.var[-1] = key
-            self.variables[key].dependencies.update(self._dependencies)
-            self._dependencies = set()
-
-        else:
-            self.var[-1] = "{}.{}".format(self.var[-1], ins.argval)
-        self.var[-2] = "{} = {}".format(self.var[-1], self.var[-2])
-        del self.var[-1]
-
-    def _set_variable(self, variable, **kwargs):
-        if variable not in self.variables:
-            self.variables[variable] = _Variable()
-
-        for key, val in kwargs.items():
-            setattr(self.variables[variable], key, val)
-
-    def to_graph(self, local=False):
-        """
-        Parameters:
-        local (boolean): Include local variables or not.
-        """
-
-        # sort out dependencies for local variables
-        locals = [k for k, v in self.variables.items() if v.type == "local"]
-        flags = dict.fromkeys(locals, False)
-        locals = {k: copy.copy(self.variables[k].dependencies) for k in locals}
-        for key, val in locals.items():
-            if key in val:
-                val.remove(key)
-
-        check_is_local = (
-            lambda x: x in self.variables and self.variables[x].type != "local"
+    def visit_Compare(self, node: ast.Compare) -> tp.Any:
+        self.generic_visit(node)
+        return ast.Call(
+            func=ast.parse("sympy.Piecewise").body[0].value,
+            args=[
+                ast.Tuple(elts=[ast.Constant(value=1), node]),
+                ast.Tuple(
+                    elts=[
+                        ast.Constant(value=0),
+                        ast.Constant(value=True),
+                    ]
+                ),
+            ],
+            keywords=[],
         )
-        for i in range(len(self.variables)):
-            flag = True
-            for key, val in locals.items():
-                flags[key] = all(map(check_is_local, val))
-                flag = flag and flags[key]
-            if flag:
-                break
-            for key, val in locals.items():
-                _set = set()
-                for v in val:
-                    if flags.get(v, False):
-                        _set.update(locals[v])
-                    else:
-                        _set.add(v)
-                locals[key] = _set
 
-        import pydot
+    def visit_Constant(self, node: ast.Constant) -> tp.Any:
+        """Convert constant numeric value to unevaluated expressions in sympy to prevent simplification"""
+        self.generic_visit(node)
+        if isinstance(node.value, Number):
+            return ast.Call(
+                func=ast.parse("sympy.UnevaluatedExpr").body[0].value,
+                args=[node],
+                keywords=[],
+            )
+        return node
 
-        graph = pydot.Dot(graph_type="digraph", rankdir="LR")
+    def visit_Call(self, node: ast.Call) -> tp.Any:
+        """Handle Call Node
 
-        node_attrs = dict(shape="rect", style="rounded", fontname="sans-serif")
-        nodes = {}
-        for key in self.signature:
-            node = pydot.Node(key, **node_attrs, color="#ff5000")
-            nodes[key] = node
-            graph.add_node(node)
+        For each Call, we:
+        1. determine the module of the function being called
+        2. find the sympy equivalent function if necessary
+        """
+        self.generic_visit(node)
+        try:
+            func = eval(unparse(node.func), self._globals)
+        except Exception as e:
+            raise err.NeuralCodeGenError(
+                f"Function '{unparse(node.func)}' not understood"
+            ) from e
+        func_module = _get_function_module(func)
 
-        for key, val in self.variables.items():
-            if val.type == "parameter" or val.integral is not None:
-                continue
-            if local is False and val.type == "local":
-                continue
-            node = pydot.Node(key, **node_attrs, color="#ff5000")
-            nodes[key] = node
-            graph.add_node(node)
+        if func_module == np:
+            if func not in NUMPY_FUNCTIONS.MAPPING:
+                raise err.NeuralCodeGenError(
+                    f"Function {func} not supported, "
+                    f"use one of {NUMPY_FUNCTIONS.SUPPORTED}"
+                )
+            node.func = ast.parse(NUMPY_FUNCTIONS.MAPPING[func]).body[0].value
+            return node
+        if func_module == math:
+            if func not in MATH_FUNCTIONS.MAPPING:
+                raise err.NeuralCodeGenError(
+                    (
+                        f"Function {func} not supported, "
+                        f"use one of {MATH_FUNCTIONS.SUPPORTED}"
+                    )
+                )
+            node.func = ast.parse(MATH_FUNCTIONS.MAPPING[func]).body[0].value
+            return node
+        if func_module == random:  # random number generators
+            if func not in RANDOM_FUNCTIONS.MAPPING:
+                raise err.NeuralCodeGenError(
+                    (
+                        f"Function {func} not supported, "
+                        f"use one of {RANDOM_FUNCTIONS.SUPPORTED}"
+                    )
+                )
+            _random_args = RANDOM_FUNCTIONS.MAPPING[func]["random_params"]
+            _sympy_args = RANDOM_FUNCTIONS.MAPPING[func]["sympy_params"]
+            for kwarg in node.keywords:
+                _arg_idx = list(_random_args.keys()).index(kwarg.arg)
+                kwarg.arg = list(_sympy_args.keys())[_arg_idx]
+            node.args = [ast.Constant(value=f"rng_{self._rng_ctr}")] + node.args
+            self._rng_ctr += 1
+            node.func = ast.parse(RANDOM_FUNCTIONS.MAPPING[func]["func"]).body[0].value
+            return node
+        # do not change node if the function calls a builtin method.
+        if inspect.isbuiltin(func):
+            return node
 
-        for target, val in self.variables.items():
-            if target not in nodes:
-                continue
-            _set = copy.copy(val.dependencies)
-            for v in val.dependencies:
-                if local is False and v in locals:
-                    _set.remove(v)
-                    _set.update(locals[v])
-            for source in _set:
-                if source in nodes:
-                    graph.add_edge(pydot.Edge(source, target, color="#ffbf00"))
+        # Other functions
+        raise NotImplementedError(f"Function '{unparse(node)}' not understood.")
 
-        png_str = graph.create_png(prog="dot")
+    def visit_If(self, node):
+        raise NotImplementedError(
+            (
+                "If/Else clauses detected. For conditional assignment to variables, "
+                "please use 'x = a if cond1 else b if cond2 else c' syntax instead. "
+                f"\nSource Code:\n{textwrap.indent(unparse(node), prefix=' '*4)}"
+            )
+        )
 
-        return png_str
+    def visit_IfExp(self, node):
+        """Handle RHS of conditional assignments"""
+        if not isinstance(node.parent, ast.IfExp):
+            self._ifexp_cases = []
+        self._ifexp_cases.append(ast.Tuple(elts=[node.body, node.test], ctx=ast.Load()))
+        if isinstance(node.orelse, ast.IfExp):
+            self.visit_IfExp(node.orelse)
+        else:
+            self._ifexp_cases.append(
+                ast.Tuple(elts=[node.orelse, ast.Constant(value=True)], ctx=ast.Load())
+            )
+        return ast.Call(
+            func=ast.parse("sympy.Piecewise").body[0].value,
+            args=self._ifexp_cases,
+            keywords=[],
+        )
 
 
-class SympyGenerator(with_metaclass(MetaClass, VariableAnalyzer)):
-    def __init__(self, model, **kwargs):
+class AlignedEquationPrinter(LatexPrinter):
+    """Create alinged LaTeX equations based on parsed model"""
 
-        self.has_random = False
-        VariableAnalyzer.__init__(self, model, **kwargs)
-        # for attr in ['state', 'parameter', 'input']:
-        #     lst = [k for k, v in self.variables.items() if v.type == attr]
-        #     lst.sort()
-        #     setattr(self, attr+'s', lst)
-        self.ode_src = StringIO()
-        self.symbol_src = StringIO()
-        self.ostream = self.ode_src
-        self.equations = []
+    def _print_list(self, expr) -> str:
+        items = []
+        for _exp in expr:
+            line = self._print(_exp)
+            if "&=" not in line:
+                line = "&" + line
+                items.append(line)
+        return r"\begin{aligned} %s \end{aligned}" % r" \\ ".join(items)
 
-        for key in dir(self):
-            if key[:8] == "_handle_":
-                setattr(self, key[1:], getattr(self, key))
+    def _print_Equality(self, d) -> str:
+        return rf"{self._print(d.lhs)} &= {self._print(d.rhs)}"
 
-        self.generate()
-        self.get_symbols()
-        self.sympy_dct = {}
-        self.latex_src = None
-        self.compile_sympy()
+    def _print_Symbol(self, expr, style="plain"):
+        if expr.name.startswith("local_"):  # internal variables
+            res = super()._print_Symbol(sp.Symbol(expr.name[6:]), style=style)
+        else:
+            res = super()._print_Symbol(expr, style=style)
+        res = re.sub(r"((?:infty|inf|infinity))", r"\\infty", res)
 
-        self.to_latex()
+        return res
+
+
+class RerouteGetattrSetattr:
+    """A context to reroute BaseModel.__getattr__ to return sympy symbols"""
+
+    def __init__(self, parsedmodel: tpe.ParsedModel):
+        self.model = parsedmodel
+        self.old_getattr = None
+        self.old_setattr = None
+
+    def __enter__(self):
+        self.old_getattr = self.model.model.__class__.__getattr__
+        self.old_setattr = self.model.model.__class__.__setattr__
+
+        def temp_getattr(_self, key):
+            if key[:2] == "d_":
+                return self.model.gstates[key[2:]].sym
+
+            if key in _self.states:
+                return self.model.states[key].sym
+
+            if key in _self.params:
+                return self.model.params[key].sym
+
+            raise KeyError(f"Attribute {key} not found model gstates/states/params.")
+
+        def temp_setattr(_self, key, val):
+            self.model._local_dict[key] = val
+
+        self.model.model.__class__.__getattr__ = temp_getattr
+        self.model.model.__class__.__setattr__ = temp_setattr
+        return self.model.model
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.model.model.__class__.__getattr__ = self.old_getattr
+        self.model.model.__class__.__setattr__ = self.old_setattr
+
+
+@dataclass(repr=False)
+class Symbol:
+    name: str  # original string name in the model
+    sym: sp.Symbol  # sympy symbol
+    value: sp.Symbol = None  # numerical value
+    default: Number = None  # default numerical value
+
+    def __repr__(self):
+        return repr(self.sym)
+
+
+class ParsedModel:
+    def __init__(self, model: tpe.Model):
+        """Parsed Model Specification
+
+        This module takes instances or class definitions of
+        :py:class:`neural.Model` and returns a representation of the
+        parsed model.
+
+        Parameters:
+            model: instance or subclass or `BaseModel`.
+
+        Attributes:
+            model: reference to neural.BaseModel instance
+            states: a dictionary mapping Model.Default_States variable names to sympy symbols
+            gstates: a dictionary mapping Model.Derivates variable names to sympy symbols
+            params: a dictionary mapping Model.Default_Params variable names to sympy symbols
+            locals: a dictionary mapping local variables in Model.ode to sympy symbols
+            raw_exprs: a list of tuple of str specifying (lhs, rhs) of each equality in Model.ode.
+              If expression is not an equality in Model.ode, the entry is (None, expr)
+            ode: a list of sympy expressions corresponding to every line in Model.ode.
+              - This list of expressions is used for code generation and display
+            gradients: a dictionary mapping state variables d_state to gradients after evaluating
+              the entire Model.ode symbolically.
+              -  This dictionary of expressions can be used for computing jacobian
+
+        Methods:
+            F(**sub_vars): return the right hand side of dx/dt = F(x) as a column vector. sub_vars
+              correspond to substitutions of variables (states, g_states, params, inputs) into
+              the expression
+            jacobian(**sub_vars): Jacobian of the ode in each variable. sub_vars are used by
+              F(**sub_vars) to first create the gradient vector.
+            pprint(gradients=False): pretty print the expressions. If gradients=True, the self.gradients
+              are printed. Otherwise the self.disp_exprs is printed in the condensed form.
+              - Only supported in IPython kernels (IPython, Jupyter Notebook, JupyterLab)
+        """
+        if inspect.isclass(model):
+            model = model()
+        self.model = model
+
+        # create sympy variables
+        # get the str name of `self` in case it's different
+        _self = inspect.getfullargspec(model.ode).args[0]
+        func_args = inspect.signature(model.ode)
+        self.inputs = {}
+        for arg in func_args.parameters.values():
+            if arg.default == inspect.Parameter.empty:
+                raise ValueError(f"Only keyword arguments are supported: '{arg}'")
+            self.inputs[arg.name] = Symbol(
+                name=arg.name, sym=sp.Symbol(arg.name), default=arg.default
+            )
+        self.t_sym = sp.Symbol("t")
+        self.states = {  # map model state name to sympy function
+            key: Symbol(
+                name=key,
+                sym=sp.Function(key)(self.t_sym),  # pylint:disable=not-callable
+                default=default,
+                value=model.states[key],
+            )
+            for key, default in model.Default_States.items()
+        }
+        self.gstates = {
+            key: Symbol(
+                name=key,
+                sym=sp.Derivative(self.states[key].sym, self.t_sym),
+                value=value,
+            )
+            for key, value in model.gstates.items()
+        }
+        self.params = {
+            key: Symbol(
+                name=key, sym=sp.Symbol(key), default=default, value=model.params[key]
+            )
+            for key, default in model.Default_Params.items()
+        }
+        self.internals = dict()  # internal variables to be populated during parsing
+        self.bounds = {  # map model state name to sympy function
+            key: Symbol(name=key, sym=self.states[key].sym, value=value)
+            for key, value in model.bounds.items()
+        }
+
+        # Parse ODE as AST
+        raw_source = inspect.getsource(model.ode)
+        tree = ast.parse(textwrap.dedent(raw_source))
+        assert isinstance(
+            tree.body[0], ast.FunctionDef
+        ), f"""Model ODE does not start with function definition:
+            {raw_source}
+            """
+        for node in ast.walk(tree):
+            for child in ast.iter_child_nodes(node):
+                child.parent = node
+
+        # Mutate AST to be SymPy-Compatible
+        tree = ast.fix_missing_locations(
+            NumPy2SymPy(global_dct=model.ode.__globals__).visit(tree)
+        )
+
+        # loop over ast tree nodes
+        self.raw_exprs = []
+        for n, node in enumerate(tree.body[0].body):
+            # unparse expression
+            if isinstance(node, ast.Assign):
+                tgt = unparse(node.targets)
+                src = unparse(node.value)
+                if tgt not in self.Variables:
+                    self.internals[tgt] = Symbol(
+                        name=tgt,
+                        sym=sp.Symbol(
+                            f"local_{tgt}"
+                        ),  # prefix with local to avoid duplicate name
+                    )
+                self.raw_exprs.append((tgt, src))
+            else:
+                self.raw_exprs.append((None, src))
+
+        # reroute getattr of model to return sympy symbols defined above
+        self.ode = []  # display expressions sympy.Eq(target, source)
+        self._local_dict = dict()  # evaluate expressions
+        # with self._reroute_getattr_setattr() as model:
+        with RerouteGetattrSetattr(self) as model:
+            variable_dict = {
+                **model.ode.__globals__,
+                **{var: val.sym for var, val in self.inputs.items()},
+                **{var: val.sym for var, val in self.internals.items()},
+                **{_self: model, "sympy": sympy, "Assignment": Assignment},
+            }
+            for n, (tgt, src) in enumerate(self.raw_exprs):
+                _expr = f"sympy.Eq({tgt}, {src})" if tgt is not None else src
+                _exec_expr = f"{tgt} = {src}" if tgt is not None else src
+                try:
+                    self.ode.append(eval(_expr, variable_dict))
+                except Exception as e:
+                    raise err.NeuralCodeGenError(
+                        f"Evaluating Display Expression Failed:\n\t{_expr}"
+                    ) from e
+
+                try:
+                    exec(_exec_expr, variable_dict, self._local_dict)
+                except Exception as e:
+                    raise err.NeuralCodeGenError(
+                        f"Evaluating Evaluated Expression Failed:\n\t{_exec_expr}"
+                    ) from e
+
+        self.gradients = {var: self._local_dict[f"d_{var}"] for var in self.gstates}
 
     @property
-    def sympy_src(self):
-        return self.symbol_src.getvalue() + self.ode_src.getvalue()
+    def Variables(self):
+        return {
+            **{key: "states" for key in self.states},
+            **{f"d_{key}": "gstates" for key in self.gstates},
+            **{key: "params" for key in self.params},
+            **{key: "inputs" for key in self.inputs},
+        }
 
-    def get_symbols(self):
-        if self.has_random:
-            self.symbol_src.write("N = Function('N')%c" % self.newline)
-        self.symbol_src.write("t = Symbol('t')%c" % self.newline)
-        for key, val in self.variables.items():
-            src = "{0} = Symbol('{0}'){1}".format(key, self.newline)
-            self.symbol_src.write(src)
-        for key in self.signature:
-            src = "{0} = Symbol('{0}'){1}".format(key, self.newline)
-            self.symbol_src.write(src)
+    def F(self, **sub_vars) -> "sympy.Matrix":
+        """Evaluate the RHS of ODE dx/dt = F(x)"""
+        variable_dict = {
+            **{key: val.sym for key, val in self.states.items()},
+            **{f"d_{key}": val.sym for key, val in self.gstates.items()},
+            **{key: val.sym for key, val in self.params.items()},
+            **{key: val.sym for key, val in self.inputs.items()},
+        }
+        sub_vars_sp = [
+            (variable_dict[str_varname], val) for str_varname, val in sub_vars.items()
+        ]
+        return sp.Matrix(list(self.gradients.values())).subs(sub_vars_sp)
 
-    def compile_sympy(self):
-        try:
-            exec(self.sympy_src, globals(), self.sympy_dct)
-        except:
-            for n, line in enumerate(self.sympy_src.split("\n")):
-                try:
-                    exec(line, globals(), self.sympy_dct)
-                except IndentationError as e:
-                    raise err.NeuralSymPyCodeGenError(
-                        "SymPy Compilation Failed for model"
-                        f" '{self.model.__class__.__name__}' on:"
-                        f" Line {n}: \n{line}"
-                        "\n This is likely an issue with using 'elif' statement"
-                        " , avoid 'elif' and prefer binary masking operators"
-                        " like '(x>0)*x' in general."
-                    ) from e
-                except Exception as e:
-                    raise err.NeuralSymPyCodeGenError(
-                        "SymPy Compilation Failed for model"
-                        f" '{self.model.__class__.__name__}' on:"
-                        f" Line {n}: \n{line}"
-                    ) from e
+    def pprint(self, gradients=False):
+        """Pretty Print Model in IPython Environments"""
+        from IPython.display import Math  # pylint:disable=import-outside-toplevel
 
-    def to_latex(self):
-        cond = lambda v: v.type == "state" and v.integral is None
-        states = [k for k, v in self.variables.items() if cond(v)]
-        states.sort()
-        states_src = ",~".join([latex(self.sympy_dct[x]) for x in states])
-        params = [k for k, v in self.variables.items() if v.type == "parameter"]
-        params.sort()
-        params_src = ",~".join([latex(self.sympy_dct[x]) for x in params])
-        template_src = r"\mbox{State Variables: }%s\\\mbox{Parameters: }%s\\"
-        self.latex_src = template_src % (states_src, params_src)
+        if gradients:
+            return Math(
+                "=".join(
+                    [
+                        sp.latex(
+                            sp.Matrix([symbol.sym for symbol in self.gstates.values()])
+                        ),
+                        sp.latex(self.F()),
+                    ]
+                )
+            )
 
-        self.latex_src = ""
-        self.latex_src += r"\begin{eqnarray}"
-        for eq in self.equations:
-            try:
-                tmp = latex(self.sympy_dct[eq], mul_symbol="dot")
-            except Exception as e:
-                raise err.NeuralSymPyCodeGenError(
-                    "Failed to Generate Sympy Code for model"
-                    f" {self.model.__class__.__name__}"
-                ) from e
-            self.latex_src += tmp.replace("=", " &=& ") + r"\\"
-        self.latex_src += r"\end{eqnarray}"
-
-    def _handle_call_function(self, ins):
-        narg = int(ins.arg)
-
-        # hacky way to handle keyword arguments
-        if self.kwargs and self.var[-(narg + 1)] == (self.kwargs + ".pop"):
-            arg = self.var[-narg][1:-1]
-            self.var[-(narg + 1)] = arg
-            new_arg = "%s" % arg
-            self.signature.append(new_arg)
-
-        else:
-            args = [] if narg == 0 else [str(x) for x in self.var[-narg:]]
-            func_name = self.var[-(narg + 1)]
-            func_globals = get_function_globals(self.model.ode)
-            pyfunc = eval(func_name, func_globals)
-            sympyfunc = self.pyfunc_to_sympyfunc.get(pyfunc)
-            if sympyfunc is not None:
-                self.var[-(narg + 1)] = sympyfunc(self, args)
+        exprs = self.ode.copy()
+        for n, expr in enumerate(self.ode):
+            if isinstance(expr, str):
+                exprs[n] = sp.parsing.parse_expr(expr)
             else:
-                self.var[-(narg + 1)] = "{}({})".format(func_name, ",".join(args))
+                continue
+        return Math(AlignedEquationPrinter().doprint(exprs))
 
-        if narg:
-            del self.var[-narg:]
+    def jacobian(self, **sub_vars) -> sp.Symbol:
+        """Compute Jacobian of the Model"""
+        jacc = self.F(**sub_vars).jacobian(
+            [symbol.sym for symbol in self.states.values()]
+        )
+        return jacc
 
-    def _handle_load_attr(self, ins):
-        key = ins.argval
-        if self.var[-1] == "self":
-            if key[:2] == "d_":
-                key = key.split("d_")[-1]
-                depth = 1
-            else:
-                depth = 0
-            if self.variables[key].integral:
-                while self.variables[key].integral is not None:
-                    depth += 1
-                    key = self.variables[key].integral
-            if depth > 0:
-                key = "Derivative(%s%s)" % (key, ", t" * depth)
-            self.var[-1] = key
-        else:
-            self.var[-1] += "." + key
+    def get_lambidified_jacobian(self) -> tp.Callable:
+        arguments = [
+            val if name != "states" else tuple(self.states.values())
+            for name, val in self.inputs.items()
+        ]
+        jacc_f = sp.lambdify(arguments, self.jacobian())
+        return jacc_f
 
-    def _handle_store_attr(self, ins):
-        self.handle_load_attr(ins)
-        rval, lval = self.var[-2:]
-        del self.var[-1]
-        if rval != lval:
-            eqn = "Eq(%s, %s)" % (lval, rval)
-            self.equations.append("eqn_%d" % len(self.equations))
-            self.var[-1] = "%s = %s" % (self.equations[-1], eqn)
-        else:
-            del self.var[-1]
-
-    def _handle_store_fast(self, ins):
-        key = ins.argval
-
-        prefix, indent = "", ""
-
-        if ins.argval == self.var[-1]:
-            del self.var[-1]
-            return
-        elif self.variables[key].type == "local":
-
-            eqn = "Eq(%s, %s)" % (key, self.var[-1])
-            self.equations.append("eqn_%d" % len(self.equations))
-            indent = " " * (self.space + self.indent)
-            prefix = "with evaluate(False):" + self.newline
-            self.var[-1] = "{}{}{} = {}".format(prefix, indent, self.equations[-1], eqn)
-        else:
-            self.var[-1] = "{} = {}".format(key, self.var[-1])
-
-    def handle_pop_jump_if_true(self, ins):
-        self.jump_targets.append(ins.arg)
-        self.enter_indent = True
-        self.var[-1] = "if not UnevaluatedExpr({0}):".format(self.var[-1])
-
-    def handle_pop_jump_if_false(self, ins):
-        self.jump_targets.append(ins.arg)
-        self.enter_indent = True
-        self.var[-1] = "if UnevaluatedExpr({0}):".format(self.var[-1])
-
-    def handle_jump_forward(self, ins):
-        self.leave_indent = True
-        self.output_statement()
-
-        target, old_target = ins.argval, self.jump_targets.pop()
-
-        if target != old_target:
-            self.var.append("")
-            self.enter_indent = True
-            self.jump_targets.append(target)
-        else:
-            self.var.append("")
-            self.output_statement()
-
-    def handle_compare_op(self, ins):
-        """Convert Comparison Operation to Heaviside Expressions"""
-        op = ins.argval
-        if op in [">", ">="]:
-            diff = f"{self.var[-2]} - {self.var[-1]}"
-        elif op in ["<", "<="]:
-            diff = f"{self.var[-1]} - {self.var[-2]}"
-        else:
-            raise ValueError(f"Comparison with Operator '{op}' not understood.")
-
-        thres = 1 if "=" in op else 0
-
-        self.var[-2] = f"Heaviside({diff}, {thres})"
-        del self.var[-1]
-
-    def _handle_return_value(self, ins):
-        self.var[-1] = ""
-
-    def _py2sympy(*source_funcs):
-        def wrapper(func):
-            func._source_funcs = source_funcs
-            return func
-
-        return wrapper
-
-    def _random_func(func):
-        """
-        A decorator for registering random functions
-        """
-
-        @wraps(func)
-        def wrap(self, args):
-            self.has_random = True
-            return func(self, args)
-
-        return wrap
-
-    def _generate_sympy_func(self, func, args):
-        return "%s(%s)" % (func, ", ".join(args))
-
-    @_py2sympy(np.exp)
-    def _np_exp(self, args):
-        return self._generate_sympy_func("exp", args)
-
-    @_py2sympy(np.log)
-    def _np_log(self, args):
-        return self._generate_sympy_func("log", args)
-
-    @_py2sympy(np.power)
-    def _np_power(self, args):
-        return self._generate_sympy_func("pow", args)
-
-    @_py2sympy(np.cbrt)
-    def _np_cbrt(self, args):
-        return self._generate_sympy_func("cbrt", args)
-
-    @_py2sympy(np.sqrt)
-    def _np_sqrt(self, args):
-        return self._generate_sympy_func("sqrt", args)
-
-    @_py2sympy(random.gauss, np.random.normal)
-    @_random_func
-    def _random_gauss(self, args):
-
-        return "N({0}, {1})".format(args[0], args[1])
+    def __repr__(self):
+        return f"Parsed Model of {self.model.__class__.__name__}"

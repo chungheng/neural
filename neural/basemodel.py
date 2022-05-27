@@ -1,601 +1,433 @@
+# pylint:disable=method-hidden
 """
 Base model class for neurons and synapses.
 """
-from __future__ import print_function
+from functools import cache
+import inspect
+import copy
+import ast
+import textwrap
 from abc import abstractmethod
-from collections import OrderedDict
-from numbers import Number
-import sys
-
-from six import StringIO, with_metaclass
+from inspect import getfullargspec
+import typing as tp
 import numpy as np
-from scipy.integrate import solve_ivp
-from pycuda.gpuarray import GPUArray
-
-PY2 = sys.version_info[0] == 3
-PY3 = sys.version_info[0] == 3
-
-if PY2:
-    from inspect import getargspec as _getfullargspec
-
-    varkw = "keywords"
-if PY3:
-    from inspect import getfullargspec as _getfullargspec
-
-    varkw = "varkw"
-
-from .backend import Backend
+from tqdm.auto import tqdm
+from .solver import BaseSolver, Euler
+from . import errors as err
+from .utils.array import cudaarray_to_cpu
+from .backend import BackendMixin
 
 
-def _dict_iadd_(dct_a, dct_b):
-    for key in dct_a.keys():
-        dct_a[key] += dct_b[key]
-    return dct_a
+class FindDerivates(ast.NodeVisitor):
+    def __init__(self):
+        self.Derivates = []
+
+    def visit_Assign(self, node: ast.Assign) -> tp.Any:
+        for t in node.targets:
+            if (
+                isinstance(t, ast.Attribute)
+                and isinstance(t.value, ast.Name)
+                and t.value.id == "self"
+                and t.attr.startswith("d_")
+            ):
+                self.Derivates.append(t.attr[2:])
 
 
-def _dict_add_(dct_a, dct_b, out=None):
-    if out is None:
-        out = dct_a.copy()
-    else:
-        for key, val in dct_a.items():
-            out[key] = val
-    _dict_iadd_(out, dct_b)
-    return out
+class Model:
+    """Base Model Class"""
 
+    Default_States: dict = None
+    Default_Params: dict = None
+    Time_Scale: float = 1.0
+    solver: BaseSolver = Euler
+    backend: BackendMixin = BackendMixin
 
-def _dict_add_scalar_(dct_a, dct_b, sal, out=None):
-    if out is None:
-        out = dct_a.copy()
-    else:
-        for key, val in dct_a.items():
-            out[key] = val
-    for key in dct_a.keys():
-        out[key] += sal * dct_b[key]
-    return out
-
-
-class ModelMetaClass(type):
-    def __new__(cls, clsname, bases, dct):
-
-        bounds = dict()
-        states = dict()
-        variables = dict()
-        if "Default_States" in dct:
-            for key, val in dct["Default_States"].items():
-                if hasattr(val, "__len__"):
-                    assert len(val) == 3, (
-                        "Variable {} ".format(key)
-                        + "should be a scalar of a iterable of 3 elements "
-                        + "(initial value, upper bound, lower bound), "
-                        + "but {} is given.".format(val)
+    @classmethod
+    @property
+    @cache
+    def bounds(cls) -> dict:
+        """(upperbound, lowerbound) of each state variable, if specified"""
+        dct = {}
+        for key, val in cls.Default_States.items():
+            if not np.isscalar(val):
+                if len(val) != 3:
+                    raise err.NeuralModelError(
+                        f"Variable {key} should be a scalar of a iterable "
+                        "of 3 elements (initial value, upper bound, lower bound) "
+                        f"but {val} is given."
                     )
-                    bounds[key] = val[1:]
-                    states[key] = val[0]
-                else:
-                    states[key] = val
-                variables[key] = "states"
-        dct["Default_Bounds"] = bounds
-        dct["Default_States"] = states
+                dct[key] = np.asarray(val[1:])
+        return dct
 
-        if "Default_Params" not in dct:
-            dct["Default_Params"] = dict()
-        variables.update({key: "params" for key in dct["Default_Params"]})
+    @classmethod
+    @property
+    @cache
+    def Variables(cls) -> dict:
+        """A dictionary mapping variable name to physical type"""
+        return {
+            **{var: "states" for var in cls.Default_States},
+            **{f"d_{var}": "gstates" for var in cls.Derivates},
+            **{var: "params" for var in cls.Default_Params},
+        }
 
-        # run ode once to get a list of state variables with derivative
-        obj = type(clsname, (object,), dct["Default_Params"])()
-        for key in states.keys():
-            setattr(obj, key, 0.0)
-            setattr(obj, "d_" + key, None)
-        # call ode method, pass obj into argument as `self`
-        dct["ode"](obj)
-        # record gradients
-        d = {key: getattr(obj, "d_" + key) for key in states}
-        # store gradients, filter out `None`
-        dct["Derivates"] = [key for key, val in d.items() if val is not None]
-        # store variables
-        dct["Variables"] = variables
+    @classmethod
+    @property
+    @cache
+    def Derivates(cls) -> tuple:
+        """Return all state variables whose gradients are defined in ode()"""
+        vis = FindDerivates()
+        vis.visit(ast.parse(textwrap.dedent(inspect.getsource(cls.ode))))
+        return tuple([var for var in vis.Derivates if var in cls.Default_States])
 
-        if "Time_Scale" not in dct:
-            dct["Time_Scale"] = 1.0
-
-        if clsname == "Model":
-            solvers = dict()
-            for key, val in dct.items():
-                if callable(val) and hasattr(val, "_solver_names"):
-                    for name in val._solver_names:
-                        solvers[name] = val.__name__
-            dct["solver_alias"] = solvers
-
+    @classmethod
+    @property
+    @cache
+    def Inputs(cls) -> dict:
+        """Input variables and their default values for ode() and post()"""
+        # parse inputs
         inputs = dict()
-        func_list = [x for x in ["ode", "post"] if x in dct]
-        for key in func_list:
-            argspec = _getfullargspec(dct[key])
+        for func in [cls.ode, cls.post]:
+            argspec = getfullargspec(func)
             if argspec.defaults is None:
                 continue
             if argspec.varargs is not None:
-                raise TypeError(
-                    "Variable positional argument is not allowed"
-                    " in {}.{}".format(clsname, key)
+                raise err.NeuralModelError(
+                    f"Variable positional argument is not allowed in {func}"
                 )
-            if getattr(argspec, varkw, None) is not None:
-                raise TypeError(
-                    "Variable keyword argument is not allowed in"
-                    " {}.{}".format(clsname, key)
+            if getattr(argspec, "varkw", None) is not None:
+                raise err.NeuralModelError(
+                    f"Variable keyword argument is not allowed in {func}"
                 )
             for val, key in zip(argspec.defaults[::-1], argspec.args[::-1]):
-                inputs[key] = val
-        dct["Inputs"] = inputs
+                dtype = val.dtype if isinstance(val, np.generic) else np.float_
+                inputs[key] = dtype(val)
+        return inputs
 
-        return super(ModelMetaClass, cls).__new__(cls, clsname, bases, dct)
-
-
-def register_solver(*args):
-    # when there is no args
-    if len(args) == 1 and callable(args[0]):
-        args[0]._solver_names = [args[0].__name__]
-        return args[0]
-    else:
-
-        def wrapper(func):
-            func._solver_names = [func.__name__] + list(args)
-            return func
-
-        return wrapper
-
-
-class Model(with_metaclass(ModelMetaClass, object)):
-    """
-    The base model class.
-
-    This class overrides `__getattr__` and `__setattr__`, and hence allows
-    direct access to the subattributes contained in `states` and `params`,
-    for example::
-
-    # self.params = {'a': 1., 'b':1.}
-    # self.states = {'s':0., 'x':0.}
-    self.ds = self.a*(1-self.s) -self.b*self.s
-
-    The child class of `Model` class must define the
-
-    Methods:
-        ode: a set of ODEs defining the dynamics of the system.
-        update: wrapper function to the numeric solver for each time step.
-        post: computation after calling the numerical solver.
-        clip: clip the state variables.
-        forwardEuler: forward Euler method.
-
-    Class Attributes:
-        Default_States (dict): The default value of the state varaibles.
-            Each items represents the name (`key`) and the default value
-            (`value`) of one state variables. If `value` is a tuple of three
-            numbers, the first number is the default value, and the last two
-            are the lower and the upper bound of the state variables.
-        Default_Params (dict): The default value of the parameters. Each items
-            represents the name (`key`) and the default value (`value`) of one
-            parameters.
-        Default_Inters (dict): Optional. The default value of the intermediate
-            variables. Each items represents the name (`key`) and the default value of one intermediate variable.
-            (`value`) of one state variables.
-        Default_Bounds (dict): The lower and the upper bound of the state
-            variables. It is created through the `ModelMetaClass`.
-        Variables (dict):
-        Inputs (dict):
-
-    Attributes:
-        states (dict): the state variables, updated by the ODE.
-        params (dict): parameters of the model, can only be set during
-            contrusction.
-        gstates (dict): the gradient of the state variables.
-        bounds (dict): lower and upper bounds of the state variables.
-    """
-
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        num: int = 1,
+        callback: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
+        backend: BackendMixin = BackendMixin,
+        backend_kws: dict = None,
+        solver: BaseSolver = Euler,
+        solver_kws: dict = None,
+        **kwargs,
+    ):
         """
-        Initialize the model.
+        Arguments:
+            num: number of components for the model
+            callback: iterable of callback functions.
+              callback functions should have model instance as first and
+              only argument.
+            backend: which backend class to use for the model
+            backend_kws: keyword arguments for initializing the backend
+            solver: solver class to use for the model
+            solver_kws: keyword arguments for initializing the solver
 
-        Keyword arguments:
-            optimize (bool): optimize the `ode` function.
-            float (type): The data type of float point.
+        Keyword Arguments:
+            Are assumed to be values for states or parameters
         """
-        optimize = kwargs.pop("optimize", False) and (Backend is not None)
-        solver = kwargs.pop("solver", "forward_euler")
-        float = kwargs.pop("float", np.float32)
-        callback = kwargs.pop("callback", [])
+        dtype = []
+        for key, val in self.Default_Params.items():
+            _dtype = val.dtype.type if isinstance(val, np.generic) else np.float_
+            dtype.append((key, _dtype))
+        for key, val in self.Default_States.items():
+            assert np.isscalar(val) or len(val) == 3, err.NeuralModelError(
+                f"Variable {key} should be a scalar of a iterable "
+                "of 3 elements (initial value, upper bound, lower bound) "
+                f"but {val} is given."
+            )
+            _state = val if np.isscalar(val) else val[0]
+            _dtype = _state.dtype.type if isinstance(_state, np.generic) else np.float_
+            dtype.append((key, _dtype))
+            if key in self.Derivates:
+                dtype.append((f"d_{key}", _dtype))
+        self.dtype = np.dtype(dtype)
 
-        # set state variables and parameters
-        self.params = self.Default_Params.copy()
-        self.states = self.Default_States.copy()
-        self.bounds = self.Default_Bounds.copy()
+        # _data is a structured array containing all the variable data
+        self._data = np.zeros(num, dtype=self.dtype)
+
+        # states, params, gstates are slices of the array
+        # created in recast()
+        self.states, self.params, self.gstates = None, None, None
+        self.recast()
+
+        # populate params/states values
+        for key, val in self.Default_Params.items():
+            self._data[key][:] = val
+
+        # save initial states
+        for key, val in self.Default_States.items():
+            _state = val if np.isscalar(val) else val[0]
+            self._data[key][:] = _state
+        self.initial_states = copy.deepcopy(self.states[0])
 
         # set additional variables
         for key, val in kwargs.items():
-            if key in self.states:
-                self.states[key] = val
-            elif key in self.params:
-                self.params[key] = val
-            else:
-                raise AttributeError("Unexpected variable '{}'".format(key))
+            if key not in self.dtype.names:
+                raise err.NeuralModelError(f"Unexpected variable '{key}'")
+            self._data[key][:] = val
 
-        self.initial_states = self.states.copy()
-        self.gstates = {key: 0.0 for key in self.Derivates}
-
-        # set numerical solver
-        if "scipy_ivp" in solver:  # scipy_ivp can take form `scipy_ivp:method`
-            all_scipy_solvers = ("RK45", "RK23", "Radau", "BDF", "LSODA")
-            _scipy_solver = solver.split("scipy_ivp:")[-1]
-            self._scipy_solver = (
-                _scipy_solver if _scipy_solver in all_scipy_solvers else "RK45"
-            )
-            solver = self.solver_alias["scipy_ivp"]
-        else:
-            solver = self.solver_alias[solver]
-        self.solver = getattr(self, solver)
-
-        self._update = self._scalar_update
-        self._reset = self._scalar_reset
+        # update initial states
+        self.initial_states = copy.deepcopy(self.states)
         self.callbacks = []
+
+        callback = [] if callback is None else callback
         self.add_callback(callback)
 
-        # optimize the ode function
-        if optimize:
-            self.compile(backend="scalar")
+        backend_kws = backend_kws or {}
+        self.set_backend(backend, **backend_kws)
 
-    def compile(self, **kwargs):
-        """
-        compile the cuda kernel.
+        solver_kws = solver_kws or {}
+        self.set_solver(solver, **solver_kws)
 
-        Keyword Arguments:
-            num (int): The number of units for CUDA kernel excution.
-            dtype (type): The default type of floating point for CUDA.
-        """
-        self.backend = Backend(model=self, **kwargs)
+    def __setattr__(self, key: str, value: tp.Any):
+        if key == "_data":
+            return super().__setattr__(key, value)
+        if hasattr(self, "_data"):
+            if key in self._data.dtype.names:
+                try:
+                    self._data[key] = value
+                    return
+                except (
+                    AttributeError,
+                    ValueError,
+                ):  # _data not created yet or key not found in _data fields
+                    return super().__setattr__(key, value)
+                except TypeError:  # FIXME: Numba DeviceArray
+                    for n in range(self.num):
+                        self._data[n][key] = value
+                    return
+        return super().__setattr__(key, value)
 
-        for attr in ("ode", "post"):
-            if hasattr(self.backend, attr):
-                setattr(self, attr, getattr(self.backend, attr))
+    def __getattr__(self, key: str):
+        if key == "_data":
+            return super().__getattribute__(key)
+        try:
+            return self._data[key]
+        except ValueError:  # not found in fields
+            return super().__getattribute__(key)
 
-        for attr in ("data", "reset", "update"):
-            if hasattr(self.backend, attr):
-                setattr(self, "_" + attr, getattr(self.backend, attr))
-
-    def add_callback(self, callbacks):
-        if not hasattr(callbacks, "__len__"):
-            callbacks = [
-                callbacks,
-            ]
-        for func in callbacks:
-            assert callable(func)
-            self.callbacks.append(func)
-
-    def reset(self, **kwargs):
-        """
-        reset state and intermediate variables to their initial condition.
-
-        Notes:
-            This function is a wrapper to the underlying `_reset`.
-        """
-        # '_reset' depends on the 'backend'
-        self._reset(**kwargs)
-
-    def update(self, d_t, **kwargs):
-        """
-        Wrapper function for each iteration of update.
-
-        ``update`` is a proxy to one of ``_cpu_update`` or ``_cuda_update``.
-
-        Arguments:
-            d_t (float): time steps.
-            kwargs (dict): Arguments for input(s) or other purposes. For
-            example, one can use an extra boolean flag to indicate the
-            period for counting spikes.
-
-        Notes:
-            The signature of the function does not specify _stimulus_
-            arguments. However, the developer should provide the stimulus
-            to the model, ex. `input` or `spike`. If mulitple stimuli are
-            required, the developer could specify them as `input1` and `input2`.
-
-            This function is a wrapper to the underlying `_update`.
-        """
-        # '_update' depends on the 'backend'
-        self._update(d_t * self.Time_Scale, **kwargs)
-        for func in self.callbacks:
-            func()
+    @property
+    def num(self) -> int:
+        return self._data.shape[0]
 
     @abstractmethod
-    def ode(self, **kwargs):
+    def ode(self, **input_args) -> None:
         """
         The set of ODEs defining the dynamics of the model.
 
-        TODO: enable using different state varaibles than self.states
+        .. note::
+
+            ODE implements a scalar (element-wise) implementation
+            of the model
         """
-        pass
 
-    def _ode_wrapper(self, states=None, gstates=None, **kwargs):
-        """
-        A wrapper for calling `ode` with arbitrary varaible than `self.states`
+    def post(self, **post_args) -> None:
+        """Post Processing
 
-        Arguments:
-            states (dict): state variables.
-            gstates (dict): gradient of state variables.
-        """
-        if states is not None:
-            _states = self.states
-            self.states = states
-        if gstates is not None:
-            _gstates = self.gstates
-            self.gstates = gstates
-
-        self.ode(**kwargs)
-
-        if states is not None:
-            self.states = _states
-
-        if gstates is not None:
-            self.gstates = _gstates
-        else:
-            return self.gstates
-
-    def post(self):
-        """
         Post-computation after each iteration of numerical update.
 
         For example, the hard reset for the IAF neuron must be implemented here.
         Another usage of this function could be the spike detection for
         conductance-based models.
         """
-        pass
 
-    def clip(self, states=None):
+    def recast(self) -> None:
+        """Recast arrays to compatible formats"""
+        self._data = cudaarray_to_cpu(self._data)
+        if self.Default_States:
+            self.states = self._data[[key for key in self.Default_States]]
+        else:
+            self.states = None
+
+        if self.Default_Params:
+            self.params = self._data[[key for key in self.Default_Params]]
+        else:
+            self.params = None
+
+        if self.Derivates:
+            _gstates = self._data[[f"d_{key}" for key in self.Derivates]]
+            _dtype = copy.deepcopy(_gstates.dtype)
+            _dtype.names = self.Derivates
+            self.gstates = self._data[[f"d_{key}" for key in self.Derivates]].view(
+                _dtype
+            )
+        else:
+            self.gstates = None
+
+    def reset(self) -> None:
+        """Reset model states to initial and gstates to 0"""
+        if self.states is not None:
+            self.states[:] = self.initial_states
+        if self.gstates is not None:
+            self.gstates[:] = 0.0
+
+    def clip(self, states: dict = None) -> None:
+        """Clip state values by bounds"""
+        states = self.states if states is None else states
+        for var, bds in self.bounds.items():
+            states[var].clip(*bds, out=states[var])
+
+    def update(self, d_t: float, **input_args) -> None:
+        """Update model value
+
+        Arguments:
+            d_t (float): time steps.
+            input_args (dict): Arguments for input(s), must match
+              call signature of :py:func:`Model.ode`.
         """
-        Clip the state variables after calling the numerical solver.
-
-        The state varaibles are usually bounded, for example, binding
-        varaibles are bounded between 0 and 1. However, numerical sovlers
-        might cause the value of state varaibles exceed its bounds. A hard
-        clip is forced here to ensure the state variables remain in the
-        given bounds.
-        """
-        if states is None:
-            states = self.states
-
-        for key, val in self.bounds.items():
-            states[key] = np.clip(states[key], val[0], val[1])
-
-    @classmethod
-    def to_graph(cls, local=False):
-        """
-        Generate block diagram of the model
-
-        Parameters:
-            local (boolean): Include local variable or not.
-        """
+        self.solver.step(d_t, **input_args)
         try:
-            from .codegen.symbolic import VariableAnalyzer
-        except ImportError as e:
-            raise e("'to_graph' requires 'pycodegen'")
+            self.post()  # FIXME: post_args ?
+        except NotImplementedError:
+            pass
+        self.clip()
+        for func in self.callbacks:
+            func(self)
 
-        g = VariableAnalyzer(cls)
-        return g.to_graph(local=local)
+    def set_backend(self, new_backend: BackendMixin) -> None:
+        """Set Model backend to new backend
 
-    @classmethod
-    def to_latex(cls):
+        Backends are implemented as Mixins that directly replaces methods
+        like `ode` and `post`. Additional logic for setting up the backend is
+        wrapped in the `compile` method of the backendmixin.
         """
-        Generate latex source code for the  model
+        if not new_backend.is_backend_supported:
+            raise err.NeuralBackendError(f"backend {new_backend} not supported.")
 
-        """
+        new_supers = [new_backend, self.__class__] + [
+            B
+            for B in self.__class__.__bases__
+            if not isinstance(B, BackendMixin) or B != object
+        ]
+        self.__class__ = type(self.__class__.__name__, tuple(new_supers), {})
         try:
-            from .codegen.symbolic import SympyGenerator
-        except ImportError as e:
-            raise e("'to_latex' requires 'pycodegen'")
+            self.compile()  # compile model if the new backend has compile method defined
+        except AttributeError:
+            pass
 
-        g = SympyGenerator(cls)
-        return g.latex_src
+        self.recast()  # recast array types
 
-    def _increment(self, d_t, states, out_states=None, **kwargs):
+    def set_solver(self, new_solver: BaseSolver, **solver_options) -> None:
+        """Set solver of the model
+
+        Default to Euler.
         """
-        Compute the increment of state variables.
+        if (
+            new_solver == self.solver.__class__
+            and self.solver.solver_options == solver_options
+        ):
+            return  # no-op
 
-        This function is used for advanced numerical methods.
+        self.solver = new_solver(self, **solver_options)
 
-        Arguments:
-            d_t (float): time steps.
-            states (dict): state variables.
+    def add_callback(self, callbacks: tp.Iterable[tp.Callable]) -> None:
+        """Add callback to Model's `callbacks` list"""
+        callbacks = list(callbacks)
+        for func in callbacks:
+            if not callable(func):
+                raise err.NeuralModelError(
+                    f"Function {func} is not callable but should be."
+                )
+            self.callbacks.append(func)
+
+    def solve(
+        self,
+        t: np.ndarray,
+        *,
+        reset: bool = True,
+        verbose: tp.Union[bool, str] = True,
+        extra_callbacks: tp.Union[tp.Callable, tp.Iterable[tp.Callable]] = None,
+        **input_args,
+    ) -> np.ndarray:
+        """Solve model equation for entire input
+
+        Positional Arguments:
+            t: 1d numpy array of time vector of the simulation
+
+        Keyword-Only Arguments:
+            reset: whether to reset the initial state value of the
+              model to the values in :code:`Default_State`. Default to True.
+            verbose: If is not `False` a progress bar will be created. If is `str`,
+              the value will be set to the description of the progress bar.
+            extra_callbacks: functions of the signature :code:`function(self)` that is
+              executed at every step.
+
+        Keyword Arguments:
+            input_args: Key value pair of input arguments that matches the signature
+              of the :func:`ode` function.
+
+        Returns:
+            An structured numpy array with shape :code:`(len(t), num)` and dtype
+            :code:`self.dtypes['states']`. Contains simulation results.
         """
-        if out_states is None:
-            out_states = states.copy()
+        # whether to reset initial state to `self.initial_states`
+        if reset:
+            self.reset()
+        d_t = t[1] - t[0]
 
-        gstates = self._ode_wrapper(states, **kwargs)
+        # check external current dimension. It has to be either 1D array the
+        # same shape as `t`, or a 2D array of shape `(len(t), self.num)`
+        for var_name, stim in input_args.items():
+            if var_name not in self.Inputs:
+                raise err.NeuralModelError(
+                    f"Extraneous input argument '{var_name}', "
+                    f"support arguments are {self.Inputs.keys()}."
+                )
+            if np.isscalar(stim):
+                continue
+            stim = np.squeeze(stim)
+            if not (
+                (stim.ndim == 1 and len(stim) == len(t))
+                or (stim.ndim == 2 and stim.shape == (len(t), self.num))
+            ):
+                raise err.NeuralModelError(
+                    f"Stimulus '{var_name}' must be scalar or 1D/2D array of "
+                    f"same length as t ({len(t)}) and num ({self.num}) "
+                    f"in the second dimension, got {stim.shape} instead."
+                )
+            if stim.ndim == 1 and len(stim) == len(t):
+                stim = np.repeat(stim[:, None], self.num, axis=1)
+                # FIXME: This shouldn't be necessary.
+                # the kernel should support broadcasting by itself.
+                # maybe the compilation should be default.
+            input_args[var_name] = stim
 
-        for key in gstates:
-            out_states[key] = d_t * gstates[key]
-
-        return out_states
-
-    def _forward_euler(self, d_t, states, out_states=None, **kwargs):
-        """
-        Forward Euler method with arbitrary varaible than `self.states`.
-
-        This function is used for advanced numerical methods.
-
-        Arguments:
-            d_t (float): time steps.
-            states (dict): state variables.
-        """
-        if out_states is None:
-            out_states = states.copy()
-
-        self._increment(d_t, states, out_states, **kwargs)
-
-        for key in out_states:
-            out_states[key] += states[key]
-
-        self.clip(out_states)
-
-        return out_states
-
-    @register_solver("euler", "forward")
-    def forward_euler(self, d_t, **kwargs):
-        """
-        Forward Euler method.
-
-        Arguments:
-            d_t (float): time steps.
-        """
-        self.ode(**kwargs)
-
-        for key in self.gstates:
-            self.states[key] += d_t * self.gstates[key]
-        self.clip()
-
-    @register_solver("mid")
-    def midpoint(self, d_t, **kwargs):
-        """
-        Implicit Midpoint method.
-
-        Arguments:
-            d_t (float): time steps.
-        """
-        _states = self.states.copy()
-
-        self._forward_euler(0.5 * d_t, self.states, _states, **kwargs)
-        self._forward_euler(d_t, _states, self.states, **kwargs)
-
-    @register_solver("heun")
-    def heun(self, d_t, **kwargs):
-        """
-        Heun's method.
-
-        Arguments:
-            d_t (float): time steps.
-        """
-        incr1 = self._increment(d_t, self.states, **kwargs)
-        tmp = _dict_add_(self.states, incr1)
-        incr2 = self._increment(d_t, tmp, **kwargs)
-
-        for key in self.states.keys():
-            self.states[key] += 0.5 * incr1[key] + 0.5 * incr2[key]
-        self.clip()
-
-    @register_solver("rk4")
-    def runge_kutta_4(self, d_t, **kwargs):
-        """
-        Runge Kutta method.
-
-        Arguments:
-            d_t (float): time steps.
-        """
-        tmp = self.states.copy()
-
-        k1 = self._increment(d_t, self.states, **kwargs)
-
-        _dict_add_scalar_(self.states, k1, 0.5, out=tmp)
-        self.clip(tmp)
-        k2 = self._increment(d_t, tmp, **kwargs)
-
-        _dict_add_scalar_(self.states, k2, 0.5, out=tmp)
-        self.clip(tmp)
-        k3 = self._increment(d_t, tmp, **kwargs)
-
-        _dict_add_(self.states, k3, out=tmp)
-        self.clip(tmp)
-        k4 = self._increment(d_t, tmp, **kwargs)
-
-        for key in self.states.keys():
-            incr = (k1[key] + 2.0 * k2[key] + 2.0 * k3[key] + k4[key]) / 6.0
-            self.states[key] += incr
-        self.clip()
-
-    @register_solver("scipy_ivp")
-    def scipy_ivp(self, d_t, t=None, **kwargs):
-        """
-        Wrapper for scipy.integrate.solve_ivp
-
-        Arguments:
-            d_t (float): time steps.
-        """
-        solver = kwargs.pop("solver", self._scipy_solver)
-        # ensure that the dictionary keys are matched
-        keys = list(self.gstates.keys())
-        vectorized_states = [self.states[k] for k in keys]
-
-        def f(states, t):  # note that the arguments are dummies,
-            # not used anywhere in the body of the function
-            res = self._ode_wrapper(**kwargs)
-            return [res[k] for k in keys]
-
-        res = solve_ivp(
-            f, [0, d_t], vectorized_states, method=solver, t_eval=[d_t], events=None
+        # create stimuli generator
+        stimuli = (
+            {
+                var: val if np.isscalar(val) else val[tt]
+                for var, val in input_args.items()
+                if var in self.Inputs
+            }
+            for tt in range(len(t) - 1)
         )
-        if res is not None:
-            self.states.update(
-                {k: res.y[:, -1][n] for n, k in enumerate(keys)}
-            )  # indexing res.y[:, -1] incase multiple steps are returned
-        self.clip()
-        # TODO: `events` can be used for spike detection
+        # Register callback that is executed after every euler step.
+        extra_callbacks = (
+            [] if extra_callbacks is None else np.atleast_1d(extra_callbacks).tolist()
+        )
+        for f in extra_callbacks:
+            if not callable(f):
+                raise err.NeuralBackendError("Callback is not callable\n" f"{f}")
 
-    def _scalar_update(self, d_t, **kwargs):
-        """
-        Wrapper function for running solver on CPU.
+        # Solve
+        res = np.zeros((len(t), self.num), dtype=self.states.dtype)
+        res[0] = self.initial_states
 
-        Arguments:
-            d_t (float): time steps.
-            kwargs (dict): Arguments for input(s) or other purposes. For
-            example, one can use an extra boolean flag to indicate the
-            period for counting spikes.
+        # run loop
+        iters = enumerate(zip(t[:-1], stimuli), start=1)
+        if verbose:
+            iters = tqdm(
+                iters,
+                total=len(t),
+                desc=verbose if isinstance(verbose, str) else "",
+                dynamic_ncols=True,
+            )
 
-        Notes:
-            The signature of the function does not specify _stimulus_
-            arguments. However, the developer should provide the stimulus
-            to the model, ex. `input` or `spike`. If mulitple stimuli are
-            required, the developer could specify them as `input1` and `input2`.
-        """
-        for key, val in kwargs.items():
-            if isinstance(val, GPUArray):
-                kwargs[key] = val.get()
-        self.solver(d_t, **kwargs)
-        self.post()
-
-    def _scalar_reset(self, **kwargs):
-        for key, val in kwargs.items():
-            assert key in self.Varaibles
-            attr = self.Varaibles[key]
-            if attr == "states":
-                key = "initial_" + key
-            dct = getattr(self, attr)
-            dct[key] = val
-        for key, val in self.initial_states.items():
-            self.states[key] = val
-        for key in self.gstates.keys():
-            self.gstates[key] = 0.0
-
-    def __setattr__(self, key, value):
-        if key[:2] == "d_":
-            assert key[2:] in self.gstates
-            self.gstates[key[2:]] = value
-            return
-
-        if key in ["states", "params", "bounds"]:
-            return super(Model, self).__setattr__(key, value)
-
-        for attr in (self.states, self.params):
-            if key in attr:
-                attr[key] = value
-                return
-
-        super(Model, self).__setattr__(key, value)
-
-    def __getattr__(self, key):
-        if "_data" in self.__dict__ and key in self._data:
-            return self._data[key]
-        if key[:2] == "d_":
-            return self.gstates[key[2:]]
-
-        if key in ["states", "params", "bounds"]:
-            return getattr(self, key)
-
-        for attr in (self.states, self.params):
-            if key in attr:
-                return attr[key]
-
-        return super(Model, self).__getattribute__(key)
+        for tt, (_t, _stim) in iters:
+            self.update(d_t, **_stim)
+            for _func in extra_callbacks:
+                _func(self)
+            res[tt] = self.states
+        return res.T
